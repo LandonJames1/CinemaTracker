@@ -18,7 +18,8 @@
         <!-- ========================== FAVICON (BOOKMARK/TAB ICON) END ========================== -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg-dark: #09090b;      /* Zinc 950 */
@@ -28,6 +29,7 @@
             --text-muted: #a1a1aa;   /* Zinc 400 */
             --glass-border: rgba(255, 255, 255, 0.05);
             --glass-shadow: rgba(0, 0, 0, 0.35);
+            --glass-bg: rgba(24, 24, 27, 0.86);
             --btn-outline-bg: rgba(24, 24, 27, 0.65);
             --focus-ring: rgba(20, 184, 166, 0.6);
 
@@ -46,6 +48,7 @@
             --heatmap-s: 55%;
 
             --font-family: 'Outfit', sans-serif;
+            --font-family-axis: 'Inter', sans-serif;
             --container-width: 1280px;
             --header-height: 80px;
         }
@@ -148,6 +151,10 @@
             -webkit-backdrop-filter: blur(12px);
             border: 1px solid var(--glass-border);
             box-shadow: 0 18px 32px var(--glass-shadow);
+        }
+        .page-title-card {
+            padding: 0.9rem 1.1rem;
+            border-radius: 1rem;
         }
         .navbar {
             position: fixed;
@@ -365,203 +372,6 @@
             box-shadow: 0 0 0 2px rgba(var(--tier-rgb), 0.25), 0 10px 18px rgba(0,0,0,0.35);
             transform: translateY(-1px);
         }
-        .dash-heatmap {
-            --heatmap-cell: 16px;
-            display: grid;
-            gap: 18px;
-        }
-        .dash-heatmap-row {
-            display: grid;
-            grid-template-columns: 56px 1fr;
-            gap: 14px;
-            align-items: start;
-        }
-        .dash-heatmap-year {
-            font-size: 0.95rem;
-            font-weight: 800;
-            color: #fff;
-            text-align: right;
-            padding-top: 8px;
-        }
-        .dash-heatmap-year-grid {
-            display: grid;
-            gap: 6px;
-        }
-        .dash-heatmap-months {
-            display: grid;
-            grid-auto-flow: column;
-            grid-auto-columns: var(--heatmap-cell);
-            gap: 2px;
-            font-size: 0.7rem;
-            color: var(--text-muted);
-            letter-spacing: 0.01em;
-        }
-        .dash-heatmap-month-label {
-            grid-column: var(--month-col);
-            white-space: nowrap;
-        }
-        .dash-heatmap-weeks {
-            display: grid;
-            grid-auto-flow: column;
-            grid-auto-columns: var(--heatmap-cell);
-            grid-template-rows: repeat(7, var(--heatmap-cell));
-            gap: 2px;
-        }
-        .dash-heatmap-cell {
-            width: var(--heatmap-cell);
-            height: var(--heatmap-cell);
-            border-radius: 2px;
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.08);
-            display: grid;
-            place-items: center;
-            font-size: 0.65rem;
-            font-weight: 700;
-            color: rgba(255,255,255,0.85);
-        }
-        .dash-heatmap-cell.is-month {
-            width: auto;
-            height: auto;
-            aspect-ratio: 1 / 1;
-            min-height: 48px;
-            font-size: 0.85rem;
-        }
-        .dash-heatmap-day {
-            line-height: 1;
-        }
-        .dash-heatmap.is-month-view {
-            --heatmap-month-cell: 80px;
-            --heatmap-month-gap: 2px;
-        }
-        .dash-heatmap-month {
-            display: grid;
-            gap: 12px;
-        }
-        .dash-heatmap-month-title {
-            text-align: center;
-            font-weight: 800;
-            letter-spacing: 0.02em;
-            color: #fff;
-        }
-        .dash-heatmap-weekdays {
-            display: grid;
-            grid-template-columns: repeat(7, minmax(0, 1fr));
-            gap: var(--heatmap-month-gap, 6px);
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            text-align: center;
-            width: 100%;
-        }
-        .dash-heatmap-month-grid {
-            display: grid;
-            grid-template-columns: repeat(7, minmax(0, 1fr));
-            gap: var(--heatmap-month-gap, 6px);
-            width: 100%;
-        }
-        .dash-heatmap-day-wrap {
-            display: grid;
-            grid-template-rows: 14px auto;
-            gap: 3px;
-            width: 100%;
-        }
-        .dash-heatmap-day-label {
-            font-size: 0.7rem;
-            color: var(--text-muted);
-            text-align: left;
-            padding-left: 4px;
-        }
-        .dash-heatmap-month-grid .dash-heatmap-cell {
-            width: 100%;
-            aspect-ratio: 1 / 1;
-            min-height: var(--heatmap-month-cell);
-            height: auto;
-            font-size: 0.9rem;
-            font-weight: 800;
-            padding: 0;
-        }
-        .dash-heatmap-month-grid .dash-heatmap-cell.is-empty {
-            background: transparent;
-            border-color: rgba(255,255,255,0.06);
-        }
-        .dash-heatmap-cell.is-empty {
-            background: transparent;
-            border-color: transparent;
-        }
-        .dash-heatmap-l1 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 92%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 86%, 0.9); }
-        .dash-heatmap-l2 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 88%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 82%, 0.9); }
-        .dash-heatmap-l3 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 82%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 76%, 0.9); }
-        .dash-heatmap-l4 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 72%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 66%, 0.9); }
-        .dash-heatmap-l5 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 62%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 56%, 0.9); }
-        .dash-heatmap-l6 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 52%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 46%, 0.9); }
-        .dash-heatmap-l7 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 44%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 38%, 0.9); }
-        .dash-heatmap-l8 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 36%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 30%, 0.9); }
-        .dash-heatmap-l9 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 30%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 24%, 0.9); }
-        .dash-heatmap-l10 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 24%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 18%, 0.9); }
-        .dash-heatmap-legend {
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            gap: 6px;
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            margin-top: 8px;
-            flex-wrap: wrap;
-        }
-        .dash-heatmap-legend.top-right {
-            margin-top: 0;
-            margin-bottom: 10px;
-        }
-        .dash-heatmap-legend-item {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .dash-heatmap-legend-label {
-            font-variant-numeric: tabular-nums;
-            color: rgba(255,255,255,0.85);
-        }
-        .dash-heatmap-legend-swatch {
-            width: var(--heatmap-cell);
-            height: var(--heatmap-cell);
-            border-radius: 2px;
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-        .dash-heatmap-legend-swatch.is-empty {
-            background: rgba(255,255,255,0.06);
-            border-color: rgba(255,255,255,0.08);
-        }
-        .dash-genre-heatmap-wrap {
-            overflow-x: auto;
-            padding: 4px 10px;
-        }
-        .dash-genre-heatmap {
-            display: grid;
-            gap: 8px;
-            min-width: 560px;
-        }
-        .dash-genre-heatmap-header,
-        .dash-genre-heatmap-row {
-            display: grid;
-            gap: 8px;
-            align-items: center;
-        }
-        .dash-genre-heatmap-header {
-            font-size: 0.78rem;
-            color: var(--text-muted);
-        }
-        .dash-genre-heatmap-label {
-            font-weight: 800;
-            color: #fff;
-            text-align: left;
-            padding-left: 6px;
-        }
-        .dash-genre-heatmap-decade,
-        .dash-heatmap-col-label {
-            font-size: 1rem;
-            font-weight: 800;
-            color: #fff;
-            text-align: center;
-        }
         .dash-chart-card {
             padding: 1.25rem;
             border-radius: 0.95rem;
@@ -585,61 +395,75 @@
             gap: 12px;
             flex-wrap: wrap;
         }
-        #dash-heatmap-select-wrap {
-            margin-left: auto;
-        }
-        #dash-heatmap-pair {
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.14);
-            color: #fff;
-        }
-        #dash-heatmap-pair option {
-            color: #0b0b0f;
-        }
         .dash-chart-body {
             display: grid;
             gap: 10px;
         }
-        .dash-genre-heatmap-cell {
-            min-height: 42px;
-            border-radius: 10px;
-            border: 1px solid rgba(255,255,255,0.08);
-            background: rgba(255,255,255,0.06);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.78rem;
-            font-weight: 800;
-            text-align: center;
-            padding: 4px;
-            line-height: 1.1;
+        .dash-activity-chart {
+            display: grid;
+            gap: 12px;
         }
-        .dash-genre-heatmap-cell.is-empty {
-            background: transparent;
-            border-color: rgba(255,255,255,0.06);
-            color: var(--text-muted);
+        .dash-activity-stats {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
         }
-        .dash-genre-heatmap-value {
+        .dash-activity-stat {
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.04));
+            border-radius: 12px;
+            padding: 10px 12px;
+            min-height: 62px;
+            display: grid;
+            align-content: center;
+            gap: 2px;
+        }
+        .dash-activity-stat-label {
+            font-size: 10px;
+            font-family: var(--font-family-axis);
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.65);
+        }
+        .dash-activity-stat-value {
+            font-size: 20px;
+            font-weight: 600;
+            line-height: 1;
+            color: var(--text-main);
             font-variant-numeric: tabular-nums;
         }
-        .dash-genre-heatmap-cell.dash-heatmap-l1 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 92%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 86%, 0.9); color: #0b1f17; }
-        .dash-genre-heatmap-cell.dash-heatmap-l2 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 88%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 82%, 0.9); color: #0b1f17; }
-        .dash-genre-heatmap-cell.dash-heatmap-l3 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 82%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 76%, 0.9); color: #0b1f17; }
-        .dash-genre-heatmap-cell.dash-heatmap-l4 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 72%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 66%, 0.9); color: #0b1f17; }
-        .dash-genre-heatmap-cell.dash-heatmap-l5 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 62%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 56%, 0.9); color: #0b1f17; }
-        .dash-genre-heatmap-cell.dash-heatmap-l6 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 52%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 46%, 0.9); color: #0b1f17; }
-        .dash-genre-heatmap-cell.dash-heatmap-l7 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 44%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 38%, 0.9); color: #fff; }
-        .dash-genre-heatmap-cell.dash-heatmap-l8 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 36%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 30%, 0.9); color: #fff; }
-        .dash-genre-heatmap-cell.dash-heatmap-l9 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 30%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 24%, 0.9); color: #fff; }
-        .dash-genre-heatmap-cell.dash-heatmap-l10 { background: hsl(var(--heatmap-h, 156), var(--heatmap-s, 55%), 24%); border-color: hsla(var(--heatmap-h, 156), var(--heatmap-s, 55%), 18%, 0.9); color: #fff; }
-        @media (max-width: 900px) {
-            .dash-heatmap.is-month-view { --heatmap-month-cell: 70px; }
+        .dash-activity-scroll {
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 12px 12px 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 14px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
         }
-        @media (max-width: 640px) {
-            .dash-heatmap { --heatmap-cell: 12px; }
-            .dash-heatmap-row { grid-template-columns: 44px 1fr; }
-            .dash-heatmap.is-month-view { --heatmap-month-cell: 60px; }
-            .dash-genre-heatmap { min-width: 360px; }
+        .dash-activity-canvas-wrap {
+            position: relative;
+            width: 100%;
+            height: 340px;
+            min-height: 340px;
+        }
+        .dash-activity-canvas {
+            width: 100% !important;
+            height: 100% !important;
+            display: block;
+        }
+        @media (max-width: 820px) {
+            .dash-activity-stats {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .dash-activity-stat-value {
+                font-size: 17px;
+            }
+            .dash-activity-canvas-wrap {
+                height: 304px;
+                min-height: 304px;
+            }
         }
         @keyframes dashSparkDraw {
             to { stroke-dashoffset: 0; }
@@ -708,6 +532,9 @@
             z-index: 1200;
             max-height: 360px;
             overflow-y: auto;
+        }
+        #search-results {
+            z-index: 2147483647 !important;
         }
         #theme-creator-search-results {
             z-index: 9999;
@@ -1367,8 +1194,9 @@
         /* Lists Page */
         .lists-grid {
             display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-template-columns: repeat(7, minmax(0, 1fr));
             gap: 1.3rem;
+            justify-items: center;
         }
         @media (max-width: 520px) {
             .lists-grid {
@@ -1379,33 +1207,30 @@
             }
         }
         .lists-movie-card {
-            position: relative;
-            padding: 1.1rem 1.2rem 1.2rem 1.2rem;
-            border-radius: 1.1rem;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 0.85rem;
-            border: 1.2px solid rgba(255,255,255,0.13);
-            background: rgba(255,255,255,0.06);
-            transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+            gap: 0.4rem;
             min-width: 0;
-            max-width: 290px;
-            width: 100%;
-            min-width: 0;
+            width: 140px;
+            max-width: 140px;
             box-sizing: border-box;
+        }
+        .lists-poster-wrap {
+            position: relative;
+            width: 100%;
         }
         .lists-remove-x {
             position: absolute;
-            top: 0.7rem;
-            right: 0.7rem;
+            top: 0.35rem;
+            right: 0.35rem;
             background: #b71c1c;
             color: #fff;
             border: none;
             border-radius: 50%;
-            width: 32px;
-            height: 32px;
-            font-size: 1.35rem;
+            width: 24px;
+            height: 24px;
+            font-size: 1.05rem;
             font-weight: bold;
             cursor: pointer;
             display: flex;
@@ -1420,18 +1245,14 @@
             background: #e53935;
             opacity: 1;
         }
-        .lists-movie-card:hover {
-            transform: translateY(-2px);
-            border-color: rgba(20,184,166,0.38);
-            background: rgba(20,184,166,0.07);
-        }
         .lists-poster-btn {
             width: 100%;
             padding: 0;
             border: 0;
             background: transparent;
             cursor: pointer;
-            text-align: left;
+            text-align: center;
+            display: block;
         }
         .lists-poster {
             width: 100%;
@@ -1449,19 +1270,18 @@
         }
         .lists-title {
             color: #fff;
-            font-weight: 950;
-            font-size: 1.35rem;
-            line-height: 1.18;
+            font-weight: 700;
+            font-size: 0.875rem;
+            line-height: 1.2;
             overflow: hidden;
             display: -webkit-box;
             line-clamp: 2;
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
-            min-height: 2.8em;
-            max-height: 2.8em;
+            min-height: 2.4em;
+            max-height: 2.4em;
             text-align: center;
-            align-items: center;
-            justify-content: center;
+            width: 100%;
         }
         .lists-title-year {
             color: rgba(255,255,255,0.68);
@@ -1476,18 +1296,23 @@
             overflow-wrap: anywhere;
         }
         .lists-meta-list {
-            margin-top: 0.35rem;
-            display: grid;
-            gap: 6px;
+            margin-top: 0.1rem;
+            display: flex;
+            gap: 0.45rem;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            font-size: 0.75rem;
+            line-height: 1.2;
         }
         .lists-meta-item {
             display: flex;
-            gap: 8px;
-            align-items: flex-start;
+            gap: 4px;
+            align-items: center;
             color: rgba(255,255,255,0.76);
-            font-weight: 850;
-            font-size: 0.98rem;
-            line-height: 1.25;
+            font-weight: 700;
+            font-size: inherit;
+            line-height: inherit;
             overflow-wrap: anywhere;
         }
         .lists-bullet {
@@ -1506,10 +1331,10 @@
 
         .lists-watch-options-btn {
             width: 100%;
-            border-radius: 0.85rem;
-            padding: 0.5rem 0.75rem;
-            font-size: 0.95rem;
-            font-weight: 850;
+            border-radius: 0.7rem;
+            padding: 0.38rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 800;
             background: rgba(0, 188, 212, 0.18);
             border: 1px solid rgba(0, 188, 212, 0.32);
             color: #fff;
@@ -1873,6 +1698,11 @@
             max-width: 1120px;
             margin-left: auto;
             margin-right: auto;
+            width: 100%;
+        }
+        .dash-dashboard-head {
+            max-width: 1120px;
+            margin: 0 auto 0.75rem;
             width: 100%;
         }
         .dash-pane-wrap {
@@ -2256,6 +2086,35 @@
             display: grid;
             gap: 10px;
         }
+        .dash-other-genre-list {
+            display: grid;
+            gap: 10px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .dash-other-genre-btn {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 0.65rem 0.85rem;
+            border-radius: 0.85rem;
+            border: 1px solid rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.04);
+            color: #fff;
+            text-align: left;
+            cursor: pointer;
+        }
+        .dash-other-genre-btn:hover {
+            border-color: rgba(255,255,255,0.25);
+            background: rgba(255,255,255,0.08);
+        }
+        .dash-other-genre-title {
+            font-weight: 700;
+        }
+        .dash-other-genre-meta {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
         .dash-kpi-tie-btn {
             display: grid;
             grid-template-columns: 46px minmax(0, 1fr);
@@ -2558,6 +2417,17 @@
             background: rgba(255,255,255,0.04);
             border: 1px solid rgba(255,255,255,0.08);
             cursor: pointer;
+        }
+        .dash-pie-legend.is-dim .dash-pie-legend-item:not(.is-active) {
+            opacity: 0.18;
+            color: rgba(255,255,255,0.35);
+        }
+        .dash-pie-legend-item.is-active {
+            opacity: 1;
+            border-color: rgba(255,255,255,0.6);
+            background: rgba(255,255,255,0.18);
+            box-shadow: 0 0 0 2px rgba(255,255,255,0.18), 0 12px 22px rgba(0,0,0,0.45);
+            transform: scale(1.03);
         }
         .dash-pie-legend-label {
             display: inline-flex;
@@ -3617,6 +3487,17 @@
         </div>
     </div>
 
+    <div id="dash-genre-other-overlay" class="auth-overlay" onclick="if(event.target === this) closeDashGenreOther();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="dash-genre-other-title" style="max-width: 560px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="dash-genre-other-title">Other Genres</div>
+                <button class="auth-modal-close" type="button" onclick="closeDashGenreOther()">Close</button>
+            </div>
+            <div id="dash-genre-other-sub" class="text-xs text-gray" style="margin-top: 0.25rem;"></div>
+            <div id="dash-genre-other-body" class="dash-other-genre-list" style="margin-top: 0.75rem;">Loading…</div>
+        </div>
+    </div>
+
     <div id="auth-overlay" class="auth-overlay" onclick="if(event.target === this) closeAuthModal();">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
             <div class="auth-modal-header">
@@ -3862,6 +3743,7 @@
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                     <select id="lists-modal-sort-key" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
                         <option value="watch_date">Watch Date</option>
+                        <option value="watch_count">Watch Count</option>
                         <option value="overall">Overall %</option>
                         <option value="sound">Sound %</option>
                         <option value="pace">Pace %</option>
@@ -3882,6 +3764,18 @@
 
                 <div class="text-white font-bold" style="margin-bottom: 0.55rem;">Filters</div>
                 <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+                    <select id="lists-modal-filter-timeframe" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="all_time">Watch Date (All Time)</option>
+                        <option value="this_year">Watch Date (This Year)</option>
+                        <option value="this_month">Watch Date (This Month)</option>
+                    </select>
+
+                    <select id="lists-modal-filter-watchmethod" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="">Watch Method (All)</option>
+                        <option value="At Home">At Home</option>
+                        <option value="In Theater">In Theater</option>
+                    </select>
+
                     <select id="lists-modal-filter-tier" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
                         <option value="">Tier (All)</option>
                         <option value="S-Tier">S-Tier</option>
@@ -3899,6 +3793,8 @@
 
                     <input id="lists-modal-filter-director" class="input-field" placeholder="Director (contains…)" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;" />
 
+                    <input id="lists-modal-filter-actor" class="input-field" placeholder="Actor (contains…)" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;" />
+
                     <select id="lists-modal-filter-mpa" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
                         <option value="">MPA (All)</option>
                     </select>
@@ -3907,9 +3803,19 @@
                         <option value="">Genre (All)</option>
                     </select>
 
-                    <select id="lists-modal-filter-platform" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
-                        <option value="">Platform (All)</option>
-                    </select>
+                    <div class="library-watch-range">
+                        <div class="text-xs text-gray" style="margin-bottom: 0.35rem;">Watch Count Range</div>
+                        <div id="lists-watch-count-rail" class="library-watch-rail" data-min-val="1" data-max-val="1" data-max-avail="0" aria-label="Watch count range">
+                            <div class="library-watch-rail-track"></div>
+                            <div class="library-watch-rail-fill"></div>
+                            <button type="button" class="library-watch-handle" data-handle="min" aria-label="Minimum watch count"></button>
+                            <button type="button" class="library-watch-handle" data-handle="max" aria-label="Maximum watch count"></button>
+                        </div>
+                        <div class="library-watch-range-labels">
+                            <span id="lists-watch-count-min">—</span>
+                            <span id="lists-watch-count-max">—</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -4307,8 +4213,6 @@
                     if (prev.page === 'dashboard') {
                         if (prev.dashboardActiveTab) dashboardActiveTab = prev.dashboardActiveTab;
                         if (prev.dashboardTimeframe) dashboardTimeframe = prev.dashboardTimeframe;
-                        if (prev.dashboardChartsTab) dashboardChartsTab = prev.dashboardChartsTab;
-                        if (prev.dashboardHeatmapPair) dashboardHeatmapPair = prev.dashboardHeatmapPair;
                         if (prev.dashboardRatingsChartTab) dashboardRatingsChartTab = prev.dashboardRatingsChartTab;
                         if (prev.dashboardFavoritesMetric) dashboardFavoritesMetric = prev.dashboardFavoritesMetric;
                         if (Number.isFinite(prev.dashboardFavoritesLimit)) dashboardFavoritesLimit = prev.dashboardFavoritesLimit;
@@ -4387,8 +4291,6 @@
                         mode: prevMode,
                         dashboardActiveTab,
                         dashboardTimeframe,
-                        dashboardChartsTab,
-                        dashboardHeatmapPair,
                         dashboardRatingsChartTab,
                         dashboardFavoritesMetric,
                         dashboardFavoritesLimit,
@@ -4476,10 +4378,10 @@
                     initDashboardGeneralModeControls();
                     initDashboardGeneralPieControls();
                     initDashboardGeneralPieLegendClicks();
-                    initDashboardChartsTabControls();
-                    initDashboardHeatmapSelect();
+                    initDashboardGeneralPieHover();
                     initDashboardGeneralKpiClicks();
                     initDashKpiTiesModal();
+                    initDashGenreOtherModal();
                     initDashboardRatingsKpiClicks();
                     initDashboardRatingsChartControls();
                     initDashboardPosterUpdateRatingsClicks();
@@ -4488,8 +4390,6 @@
                     syncDashboardFavoritesLimitUI();
                     syncDashboardGeneralModeUI();
                     syncDashboardGeneralPieUI();
-                    syncDashboardChartsTabUI();
-                    syncDashboardHeatmapSelectUI();
                     syncDashboardRatingsChartUI();
                 }
                 
@@ -4905,6 +4805,7 @@
             toggleUpdateOptions() {
                 const opts = document.getElementById('update-options');
                 const updateBtn = document.getElementById('update-existing-btn');
+                const secondaryRow = document.getElementById('home-secondary-actions');
                 if (!opts) return;
 
                 if (opts.classList.contains('hidden')) {
@@ -4912,6 +4813,7 @@
                     opts.classList.add('grid');
                     // Once expanded, hide the "Update Existing" button so only the two options remain.
                     if (updateBtn) updateBtn.style.display = 'none';
+                    if (secondaryRow) secondaryRow.style.display = 'none';
                     return;
                 }
 
@@ -4919,6 +4821,7 @@
                 opts.classList.add('hidden');
                 opts.classList.remove('grid');
                 if (updateBtn) updateBtn.style.display = '';
+                if (secondaryRow) secondaryRow.style.display = '';
             },
 
             renderHome() {
@@ -4926,23 +4829,25 @@
                     <div>
                         <div class="fade-in">
                         <!-- Hero (Full Width) -->
-                        <div class="relative w-full" style="height: 62vh; margin-bottom: 1.5rem;">
+                        <div class="relative w-full" style="height: 62vh; margin-bottom: 1.5rem; z-index: 6000; overflow: visible;">
                             <!-- Content (Containerized) -->
                             <div class="container" style="height: 100%; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 2.25rem;">
-                                <span class="text-xs font-semibold text-brand uppercase" style="background: var(--brand-light); padding: 0.25rem 0.75rem; border-radius: 99px; border: 1px solid color-mix(in srgb, var(--brand) 35%, transparent); width: fit-content; margin-bottom: 1rem;">Start Logging</span>
-                                <h1 class="text-5xl font-bold text-white mb-6" style="line-height: 1.1; color: var(--text-main);">Cinematic <br/> <span style="background: linear-gradient(to right, var(--brand), var(--accent-2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Masterpieces</span></h1>
-                                
-                                <div style="max-width: 600px; position: relative;">
-                                    <p class="text-xl text-gray mb-4">Search for a movie to add it to your diary.</p>
+                                <div class="glass-panel" style="max-width: 600px; padding: 1rem 1.1rem; border-radius: 1rem; margin-bottom: 1rem;">
+                                    <span class="text-xs font-semibold text-brand uppercase" style="background: var(--brand-light); padding: 0.25rem 0.75rem; border-radius: 99px; border: 1px solid color-mix(in srgb, var(--brand) 35%, transparent); width: fit-content; margin-bottom: 1rem; display: inline-flex;">Start Logging</span>
+                                    <h1 class="text-5xl font-bold text-white mb-6" style="line-height: 1.1; color: var(--text-main);">Cinema <br/> <span style="background: linear-gradient(to right, var(--brand), var(--accent-2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Tracker</span></h1>
+                                    <p class="text-xl text-gray mb-0">Search for a movie to add it to your diary.</p>
+                                </div>
+
+                                <div class="glass-panel" style="max-width: 600px; position: relative; padding: 0.55rem; border-radius: 1rem;">
                                     
                                     <!-- Search -->
                                     <div style="position: relative;">
                                         <div class="input-group mb-4">
                                             <div class="input-icon">${icons.search}</div>
-                                            <input type="text" id="movie-search-input" oninput="handleSearch(this.value)" autocomplete="off" placeholder="Type a movie title..." class="input-field glass-input" style="border-radius: 0.85rem;">
+                                            <input type="text" id="movie-search-input" oninput="handleSearch(this.value)" autocomplete="off" placeholder="Type a movie title..." class="input-field glass-input" style="border-radius: 0.85rem; padding-right: 128px;">
                                             <div id="search-results" class="search-dropdown hidden"></div>
                                         </div>
-                                        <button type="button" id="movie-search-filters-toggle" class="btn btn-glass" onclick="toggleSearchFiltersPanel()" style="position:absolute; right: 0; top: -36px; height: 30px; padding: 0 0.75rem; border-radius: 0.85rem; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.02em;">Use Filters</button>
+                                        <button type="button" id="movie-search-filters-toggle" class="btn btn-glass" onclick="toggleSearchFiltersPanel()" style="position:absolute; right: 8px; top: 8px; height: 30px; padding: 0 0.75rem; border-radius: 0.85rem; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.02em;">Use Filters</button>
                                     </div>
 
                                     <!-- Optional Filters -->
@@ -4953,13 +4858,13 @@
                                             inputmode="numeric"
                                             placeholder="Year"
                                             class="input-field glass-input"
-                                            style="width: 100%; padding-left: 0.9rem; height: 46px; border-radius: 0.85rem;"
+                                            style="width: 100%; padding-left: 0.9rem; height: 38px; border-radius: 0.85rem;"
                                             oninput="markSearchFiltersDirty()"
                                         />
                                         <select
                                             id="movie-search-mpa"
                                             class="select-field"
-                                            style="width: 100%; height: 46px; border-radius: 0.85rem; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: white; padding: 0 0.75rem;"
+                                            style="width: 100%; height: 38px; border-radius: 0.85rem; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: white; padding: 0 0.75rem;"
                                             onchange="markSearchFiltersDirty()"
                                         >
                                             <option value="">MPA</option>
@@ -4970,12 +4875,12 @@
                                             <option value="NC-17">NC-17</option>
                                             <option value="NR">NR / Unrated</option>
                                         </select>
-                                        <button type="button" class="btn btn-glass" style="width: 100%; height:46px; padding: 0 1rem; border-radius: 0.85rem;" onclick="applySearchFilters()">Apply Filters</button>
-                                        <button type="button" class="btn btn-glass" style="width: 100%; height:46px; padding: 0 1rem; border-radius: 0.85rem;" onclick="clearSearchFilters()">Clear</button>
+                                        <button type="button" class="btn btn-glass" style="width: 100%; height:38px; padding: 0 0.8rem; border-radius: 0.85rem; font-size: 0.85rem;" onclick="applySearchFilters()">Apply Filters</button>
+                                        <button type="button" class="btn btn-glass" style="width: 100%; height:38px; padding: 0 0.8rem; border-radius: 0.85rem; font-size: 0.85rem;" onclick="clearSearchFilters()">Clear</button>
                                     </div>
 
                                     <!-- Action Slot (fixed space so the search UI doesn't jump) -->
-                                    <div id="home-action-slot" style="margin-top: 2rem; min-height: 120px;">
+                                    <div id="home-action-slot" style="margin-top: 0.6rem; min-height: 56px;">
                                         <div id="home-action-card" class="glass-panel" style="padding: 1rem; border-radius: 0.75rem;">
                                             <div id="home-action-placeholder" class="text-sm text-gray" style="text-align:center; max-width: 520px; margin: 0 auto;">
                                                 Select a movie from the dropdown to log it or update an existing entry.
@@ -4992,21 +4897,21 @@
                                                     </button>
                                                 </div>
 
-                                                <div class="flex gap-3">
-                                                    <button id="btn-add-to-list" type="button" onclick="openAddToListModal()" class="btn btn-glass" style="flex:1; border-radius: 0.85rem;">
+                                                <div id="home-secondary-actions" class="flex gap-3">
+                                                    <button id="btn-add-to-list" type="button" onclick="openAddToListModal()" class="btn btn-glass" style="flex:1; border-radius: 0.85rem; min-height: 36px; padding: 0.4rem 0.65rem; font-size: 0.85rem;">
                                                         ${icons.plusCircle} Add to List
                                                     </button>
-                                                    <button type="button" onclick="router.navigate('lists')" class="btn btn-outline" style="flex:1; border-radius: 0.85rem;">
+                                                    <button type="button" onclick="router.navigate('lists')" class="btn btn-outline" style="flex:1; border-radius: 0.85rem; min-height: 36px; padding: 0.4rem 0.65rem; font-size: 0.85rem;">
                                                         ${icons.arrowRight} View Lists
                                                     </button>
                                                 </div>
 
-                                                <div id="update-options" class="hidden grid-2 gap-3" style="padding: 1rem; border-radius: 0.75rem; border-style: dashed; border: 1px solid rgba(255,255,255,0.10);">
-                                                    <button onclick="router.startUpdateRatings()" class="text-left" style="padding:0.75rem; border-radius:0.5rem; transition: background 0.2s; border: 1px solid rgba(168, 85, 247, 0.45); background: rgba(168, 85, 247, 0.10);">
+                                                <div id="update-options" class="hidden grid-2 gap-3" style="padding: 0; border: 0; background: transparent;">
+                                                    <button onclick="router.startUpdateRatings()" class="text-left" style="padding:0.45rem 0.55rem; border-radius:0.5rem; min-height: 36px; transition: background 0.2s; border: 1px solid rgba(168, 85, 247, 0.45); background: rgba(168, 85, 247, 0.10);">
                                                         <span class="text-brand font-semibold mb-2" style="display:block;">Update Ratings &rarr;</span>
                                                         <span class="text-xs text-gray">Edit your review, scores, and tier.</span>
                                                     </button>
-                                                    <button onclick="router.quickIncrement()" class="text-left" style="padding:0.75rem; border-radius:0.5rem; transition: background 0.2s; border: 1px solid rgba(20, 184, 166, 0.45); background: rgba(20, 184, 166, 0.10);">
+                                                    <button onclick="router.quickIncrement()" class="text-left" style="padding:0.45rem 0.55rem; border-radius:0.5rem; min-height: 36px; transition: background 0.2s; border: 1px solid rgba(20, 184, 166, 0.45); background: rgba(20, 184, 166, 0.10);">
                                                         <span class="text-brand font-semibold mb-2" style="display:block;">Quick Watch (+1) &rarr;</span>
                                                         <span class="text-xs text-gray">Simply add a view to your count.</span>
                                                     </button>
@@ -5019,9 +4924,12 @@
                         </div>
 
                         <!-- Marquee (Full Width) -->
-                        <div style="background: var(--surface); padding: 3rem 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
+                        <div style="background: var(--surface); padding: 1rem 0 2.15rem; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-top: 2.5rem; position: relative; z-index: 1;">
                             <div class="container mb-6">
-                                <h2 class="text-xl font-semibold text-white">Trending Now</h2>
+                                <h2 class="text-white" style="font-size: 2rem; font-weight: 900; letter-spacing: 0.04em; line-height: 1.1; display: inline-flex; align-items: center; gap: 0.55rem; text-shadow: 0 10px 24px rgba(0,0,0,0.45);">
+                                    <span style="display:inline-block; width: 0.45rem; height: 1.55rem; border-radius: 999px; background: linear-gradient(180deg, var(--brand), var(--accent-2));"></span>
+                                    <span style="background: linear-gradient(to right, #ffffff, color-mix(in srgb, var(--brand) 55%, #ffffff)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Trending Now</span>
+                                </h2>
                             </div>
                             <div class="w-full" style="overflow: hidden; position: relative;">
                                 <div class="animate-marquee">
@@ -5039,27 +4947,25 @@
                     <div class="fade-in">
                         <div class="container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
                             <div class="flex justify-between items-center mb-6" style="gap: 14px; flex-wrap: wrap;">
-                                <div>
+                                <div class="glass-panel page-title-card">
                                     <h1 class="text-3xl font-bold text-white">Lists</h1>
+                                    <p class="text-gray mt-2">Organize your movies into custom lists.</p>
                                 </div>
-                                <div class="flex" style="gap: 10px; flex-wrap: wrap;">
-                                    <button type="button" class="btn btn-primary" onclick="openListsCreateModal()" style="border-radius: 0.85rem;">New List</button>
+                                <div class="flex" style="gap: 10px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
+                                    <button type="button" class="btn btn-primary" onclick="openListsCreateModal()" style="border-radius: 0.85rem; height: 42px; display:inline-flex; align-items:center;">New List</button>
+                                    <div class="glass-panel" style="padding: 0 0.5rem; border-radius: 0.8rem; display:flex; align-items:center; gap: 0.55rem; min-width: 220px; max-width: 260px; height: 42px;">
+                                        <div class="text-xs" style="color: rgba(255,255,255,0.78); font-weight: 800; letter-spacing: 0.02em; white-space: nowrap;">Your Lists</div>
+                                        <div id="lists-list" class="text-gray" style="flex: 1; min-width: 130px;">
+                                            <select id="lists-select" class="input-field" style="width:100%; border-radius: 0.7rem; height: 34px; font-size: 0.84rem; padding: 0 0.65rem;">
+                                                <option value="">Loading…</option>
+                                            </select>
+                                        </div>
+                                    </div>
                                     <button type="button" class="btn btn-outline" data-lists-action="refresh" style="border-radius: 0.85rem;">Refresh</button>
                                 </div>
                             </div>
 
-                            <div class="grid md-row gap-6" style="align-items: stretch;">
-                                <div class="glass-panel" style="padding: 1rem; border-radius: 1rem; width: 100%; max-width: 360px;">
-                                    <div class="text-white font-bold" style="font-size:2.1rem;">Your Lists</div>
-                                    <div id="lists-list" class="text-gray" style="margin-top: 0.85rem; display:flex; align-items:center; gap:0.7rem;">
-                                        <label for="lists-select" style="margin:0; font-size:1.1rem; font-weight:700; color:#fff;">List:</label>
-                                        <select id="lists-select" class="input-field" style="width:100%; border-radius: 0.85rem; max-width:180px;">
-                                            <option value="">Loading…</option>
-                                        </select>
-                                    </div>
-                                </div>
-
-                                <div class="glass-panel" style="padding: 1rem; border-radius: 1rem; flex: 1;">
+                            <div class="glass-panel" style="padding: 1rem; border-radius: 1rem;">
                                     <div class="flex justify-between items-center" style="gap: 10px; flex-wrap: wrap;">
                                         <div>
                                             <div id="lists-active-title" class="text-white font-bold">Select a list</div>
@@ -5111,8 +5017,7 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div id="lists-items" class="text-gray" style="margin-top: 0.85rem;">Choose a list on the left.</div>
-                                </div>
+                                    <div id="lists-items" class="text-gray" style="margin-top: 0.85rem;">Choose a list above.</div>
                             </div>
                         </div>
                     </div>
@@ -5248,7 +5153,7 @@
                             <button onclick="router.goBack()" style="color: var(--text-muted); padding: 0.5rem; border-radius: 50%;">
                                 ${icons.arrowLeft}
                             </button>
-                            <div>
+                            <div class="glass-panel page-title-card">
                                 <div class="flex items-center gap-2" style="flex-wrap: wrap;">
                                     <h1 class="text-3xl font-bold text-white">${isUpdate ? 'Update Ratings' : 'Log New Entry'}</h1>
                                     <span style="display:inline-flex; align-items:center; height: 28px; padding: 0 0.75rem; border-radius: 999px; font-size: 0.75rem; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(255,255,255,0.95); background: color-mix(in srgb, ${formAccent.color} 16%, transparent); border: 1px solid color-mix(in srgb, ${formAccent.color} 35%, transparent);">
@@ -5518,8 +5423,8 @@
                 return `
                     <div class="fade-in">
                         <div class="container" style="padding-top: 2rem; position: relative;">
-                        <div class="flex justify-between items-center mb-6" style="gap: 14px; flex-wrap: wrap;">
-                            <div>
+                        <div class="dash-dashboard-head flex justify-between items-center" style="gap: 10px; flex-wrap: wrap;">
+                            <div class="glass-panel page-title-card">
                                 <h1 class="text-3xl font-bold text-white">Data Dashboard</h1>
                                 <p class="text-gray mt-2">Insights into your viewing habits.</p>
                             </div>
@@ -5531,7 +5436,7 @@
                                     <button type="button" class="btn dash-pill-btn btn-outline" id="dash-tab-ratings" data-tab="ratings" style="padding: 0.6rem 0.9rem;">Ratings</button>
                                     <button type="button" class="btn dash-pill-btn btn-outline" id="dash-tab-tiers" data-tab="tiers" style="padding: 0.6rem 0.9rem;">Tiers</button>
                                     <button type="button" class="btn dash-pill-btn btn-outline" id="dash-tab-favorites" data-tab="favorites" style="padding: 0.6rem 0.9rem;">Favorites</button>
-                                    <button type="button" class="btn dash-pill-btn btn-outline" id="dash-tab-charts" data-tab="charts" style="padding: 0.6rem 0.9rem;">Heatmaps</button>
+                                    <button type="button" class="btn dash-pill-btn btn-outline" id="dash-tab-charts" data-tab="charts" style="padding: 0.6rem 0.9rem;">Activity</button>
                                     <button type="button" class="btn dash-pill-btn btn-outline" id="dash-tab-quotes" data-tab="quotes" style="padding: 0.6rem 0.9rem;">Quote Wall</button>
                                 </div>
                             </div>
@@ -5557,14 +5462,6 @@
                                     </div>
                                 </div>
 
-                                <!-- Charts-only: Chart selector (shown only when Charts tab active) -->
-                                <div id="dash-chart-tab-panel" class="glass-panel hidden" style="padding: 0.55rem 0.75rem; border-radius: 0.9rem; flex: 0 0 auto;">
-                                    <div class="text-xs text-gray" style="margin-bottom: 0.4rem;">Heatmaps</div>
-                                    <div id="dash-chart-tab-wrap" class="flex" style="gap: 10px; flex-wrap: wrap;">
-                                        <button type="button" class="btn dash-pill-btn btn-glass" data-chart="heatmap" id="dash-chart-tab-heatmap" style="padding: 0.55rem 0.85rem;">Ratings Compare</button>
-                                        <button type="button" class="btn dash-pill-btn btn-outline" data-chart="activity" id="dash-chart-tab-activity" style="padding: 0.55rem 0.85rem;">Activity</button>
-                                    </div>
-                                </div>
                             </div>
 
                             <div style="display:flex; gap: 12px; align-items: flex-start; flex-wrap: nowrap;">
@@ -5765,18 +5662,11 @@
                             </div>
                         </div>
 
-                        <!-- Tab: Charts -->
+                        <!-- Tab: Activity -->
                         <div id="dash-pane-charts" class="dash-pane-wrap hidden">
                             <div class="glass-panel dash-chart-card dash-chart-stage">
                                 <div class="dash-chart-header">
-                                    <div id="dash-chart-title" class="dash-chart-title">Genre/Decade Heatmap</div>
-                                    <div id="dash-heatmap-select-wrap" style="display:none;">
-                                        <select id="dash-heatmap-pair" class="input-field" style="min-width: 220px; padding: 0.5rem 0.75rem; border-radius: 0.75rem; font-weight: 700;">
-                                            <option value="genre_decade">Genre v Decade</option>
-                                            <option value="genre_mpa">Genre v MPA</option>
-                                            <option value="decade_mpa">MPA v Decade</option>
-                                        </select>
-                                    </div>
+                                    <div id="dash-chart-title" class="dash-chart-title">Watch Activity</div>
                                 </div>
                                 <div id="dash-chart-body" class="dash-chart-body text-gray">Loading…</div>
                             </div>
@@ -5806,7 +5696,7 @@
                     <div class="fade-in">
                         <div class="container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
                             <div class="flex justify-between items-center mb-6" style="gap: 14px; flex-wrap: wrap;">
-                                <div>
+                                <div class="glass-panel page-title-card">
                                     <h1 class="text-3xl font-bold text-white">Feed</h1>
                                     <p class="text-gray mt-2">New and updated ratings from people you follow.</p>
                                 </div>
@@ -5860,14 +5750,11 @@
                 return `
                     <div class="fade-in">
                         <div class="container" style="padding-top: 1.25rem; padding-bottom: 2.6rem; position: relative;">
-                            <div class="glass-panel" style="padding: 1.1rem 1.2rem; border-radius: 1.1rem; margin-bottom: 1rem; display:flex; flex-wrap: wrap; gap: 12px; align-items:center; justify-content: space-between;">
+                            <div class="glass-panel" style="padding: 1.1rem 1.2rem; border-radius: 1.1rem; margin-bottom: 1rem;">
                                 <div>
                                     <div class="text-xs text-gray" style="letter-spacing: 0.08em; text-transform: uppercase;">AI Picks</div>
                                     <h1 class="text-3xl font-bold text-white" style="margin-top: 0.2rem;">Find your next movie</h1>
                                     <p class="text-gray" style="margin-top: 0.35rem;">Tell us the vibe, then pick a few similar movies or use Filters.</p>
-                                </div>
-                                <div style="display:flex; gap: 10px; align-items:center;">
-                                    <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="openAiFiltersModal()">Open Filters</button>
                                 </div>
                             </div>
 
@@ -6054,17 +5941,9 @@
                     <div class="fade-in">
                         <div class="container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
                             <div class="flex justify-between items-center mb-6" style="gap: 14px; flex-wrap: wrap;">
-                                <div>
+                                <div class="glass-panel page-title-card">
                                     <h1 class="text-3xl font-bold text-white">My Movies</h1>
-                                    <p class="text-gray mt-2">Your most recent watches, with all stored details and ratings.</p>
-                                </div>
-                                <div style="display:flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
-                                    <div id="library-view-toggle" class="flex" style="gap: 8px; flex-wrap: wrap;">
-                                        <button type="button" class="btn dash-pill-btn btn-glass" data-library-action="set_view" data-library-view="list" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">List View</button>
-                                        <button type="button" class="btn dash-pill-btn btn-outline" data-library-action="set_view" data-library-view="grid" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Grid View</button>
-                                    </div>
-                                    <button id="library-open-sortfilter" type="button" class="btn btn-outline" data-library-action="open_sort_filter" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Filters/Sort</button>
-                                    <button id="library-refresh" type="button" class="btn btn-outline" data-library-action="refresh" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Refresh</button>
+                                    <p class="text-gray mt-2">All your watches, with details and ratings.</p>
                                 </div>
                             </div>
 
@@ -6073,6 +5952,14 @@
                                     <div>
                                         <div class="text-white font-bold">Recent Watches</div>
                                         <div id="library-meta" class="text-xs text-gray" style="margin-top: 0.25rem;"></div>
+                                    </div>
+                                    <div style="display:flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
+                                        <div id="library-view-toggle" class="flex" style="gap: 8px; flex-wrap: wrap;">
+                                            <button type="button" class="btn dash-pill-btn btn-glass" data-library-action="set_view" data-library-view="list" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">List View</button>
+                                            <button type="button" class="btn dash-pill-btn btn-outline" data-library-action="set_view" data-library-view="grid" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Grid View</button>
+                                        </div>
+                                        <button id="library-open-sortfilter" type="button" class="btn btn-outline" data-library-action="open_sort_filter" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Filters/Sort</button>
+                                        <button id="library-refresh" type="button" class="btn btn-outline" data-library-action="refresh" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Refresh</button>
                                     </div>
                                 </div>
                                 <div id="library-list" style="margin-top: 0.9rem; display: grid; gap: 12px;"></div>
@@ -6091,7 +5978,7 @@
                     <div class="fade-in">
                         <div class="container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
                             <div class="flex justify-between items-center mb-6" style="gap: 14px; flex-wrap: wrap;">
-                                <div>
+                                <div class="glass-panel page-title-card">
                                     <h1 class="text-3xl font-bold text-white">Account</h1>
                                     <p class="text-gray mt-2">Update your profile and password.</p>
                                 </div>
@@ -6286,7 +6173,7 @@
                     <div class="fade-in">
                         <div class="container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
                             <div class="flex justify-between items-center mb-6" style="gap: 14px; flex-wrap: wrap;">
-                                <div>
+                                <div class="glass-panel page-title-card">
                                     <h1 class="text-3xl font-bold text-white">Theme Creator</h1>
                                     <p class="text-gray mt-2">Build a theme step by step: pick mode, name it, choose backdrops, pick the AI movie, then save.</p>
                                 </div>
@@ -6767,16 +6654,17 @@
         let dashboardAuthWarned = false;
         let dashboardFavoritesMetric = 'overall';
         let dashboardFavoritesLimit = 5;
-        let dashboardChartsTab = 'heatmap';
         let dashboardChartsLastData = null;
-        let dashboardChartsActivityMax = null;
-        let dashboardHeatmapPair = 'genre_decade';
+        let dashboardActivityChart = null;
         let dashboardRatingsChartTab = 'genre';
         let dashboardRatingsChartsLastData = null;
         let dashboardRatingsShowAllGenres = false;
         let dashboardGeneralPieMode = 'mpa';
         let dashboardGeneralPieData = null;
+        let dashboardGeneralGenreOtherItems = [];
+        let dashboardGeneralGenreOtherTotal = 0;
         let dashboardGeneralMode = 'total';
+        let dashboardGeneralMethodBase = { atHome: 0, inTheater: 0 };
 
         let dashboardGeneralLastData = null;
         let dashboardRatingsLastData = null;
@@ -7284,7 +7172,8 @@
 
         let listsSortFilterState = null;
         let listsSortFilterDraft = null;
-        let listsFacetOptions = { decades: [], mpas: [], genres: [], platforms: [] };
+        let listsFacetOptions = { decades: [], mpas: [], genres: [], watchMethods: [], timeframes: [] };
+        let listsWatchCountMax = 0;
 
         function buildSortFilterStatusLine({ state, defaults, labels }) {
             const st = state || {};
@@ -7311,7 +7200,9 @@
             pushFilter('mpa', st.mpa, { label: 'MPA' });
             pushFilter('genre', st.genre, { label: 'Genre' });
             pushFilter('watchMethod', st.watchMethod, { label: 'Watch Method' });
-            pushFilter('platform', st.platform, { label: 'Platform' });
+            if (String(st.timeframe || '').trim() && String(st.timeframe || '').trim() !== 'all_time') {
+                pushFilter('timeframe', st.timeframe, { label: 'Timeframe' });
+            }
             if (st.watchCountMin || st.watchCountMax) {
                 const minVal = String(st.watchCountMin || '').trim();
                 const maxVal = String(st.watchCountMax || '').trim();
@@ -7330,7 +7221,6 @@
                 if (p.k === 'actorContains') return `${p.label} contains “${p.v}”`;
                 if (p.k === 'watchCount') return `${p.label}: ${p.v}`;
                 if (p.k === 'watchMethod') return `${p.label}: ${p.v}`;
-                if (p.k === 'platform' && p.v === '__NONE__') return `${p.label}: None`;
                 if (p.k === 'tier' && p.v === 'UNRANKED') return `${p.label}: Unranked`;
                 if (p.k === 'timeframe') return `${p.label}: ${p.v}`;
                 return `${p.label}: ${p.v}`;
@@ -7405,9 +7295,6 @@
             const timeframe = String(st.timeframe || '').trim();
             if (timeframe && timeframe !== 'all_time') addFilterChip('timeframe', `Timeframe: ${timeframe}`);
 
-            const platform = String(st.platform || '').trim();
-            if (platform) addFilterChip('platform', `Platform: ${platform === '__NONE__' ? 'None' : platform}`);
-
             if (sortChanged) {
                 chips.push({ part: 'sort', kind: 'sort', text: `Sort: ${sortLabel} ${dirArrow}` });
             }
@@ -7442,51 +7329,31 @@
             return `<div style="${wrapStyle}">${chips || defaultChip}</div>`;
         }
 
-        function getDefaultListsSortFilterState({ isBucket = false } = {}) {
-            // Bucket List: movies are generally unwatched/unrated, so avoid rating-based defaults.
-            // Also avoid "Watch Date" since it will typically be null.
-            if (isBucket) {
-                return {
-                    sortKey: 'release_year',
-                    sortDir: 'desc',
-                    tier: '',
-                    decade: '',
-                    directorContains: '',
-                    mpa: '',
-                    genre: '',
-                    platform: '',
-                };
-            }
-
+        function getDefaultListsSortFilterState() {
             return {
                 sortKey: 'watch_date',
                 sortDir: 'desc',
                 tier: '',
                 decade: '',
                 directorContains: '',
+                actorContains: '',
                 mpa: '',
                 genre: '',
-                platform: '',
+                watchMethod: '',
+                watchCountMin: '',
+                watchCountMax: '',
+                timeframe: 'all_time',
             };
         }
 
         function getDefaultListsSortFilterStateForActiveList() {
-            const lid = String(listsActiveListId || '').trim();
-            const isBucket = isBucketList({ list_id: lid, list_name: listsActiveListName });
-            return getDefaultListsSortFilterState({ isBucket });
+            return getDefaultListsSortFilterState();
         }
 
         function getAllowedListsSortKeysForActiveList() {
-            const lid = String(listsActiveListId || '').trim();
-            const isBucket = isBucketList({ list_id: lid, list_name: listsActiveListName });
-
-            if (isBucket) {
-                // Bucket List: no user rating sorts; no watch-date sort.
-                return ['release_year', 'imdb'];
-            }
-
             return [
                 'watch_date',
+                'watch_count',
                 'overall',
                 'sound',
                 'pace',
@@ -7509,12 +7376,11 @@
             const els = getListsSortFilterModalEls();
             if (!els.sortKey) return;
 
-            const lid = String(listsActiveListId || '').trim();
-            const isBucket = isBucketList({ list_id: lid, list_name: listsActiveListName });
             const allowed = new Set(getAllowedListsSortKeysForActiveList());
 
             const sortOptions = [
                 { value: 'watch_date', label: 'Watch Date' },
+                { value: 'watch_count', label: 'Watch Count' },
                 { value: 'overall', label: 'Overall %' },
                 { value: 'sound', label: 'Sound %' },
                 { value: 'pace', label: 'Pace %' },
@@ -7532,25 +7398,14 @@
                 els.sortKey.value = prev;
             }
 
-            // Bucket List shouldn't expose tier controls.
-            if (els.tier) {
-                els.tier.value = '';
-                els.tier.disabled = isBucket;
-                els.tier.style.display = isBucket ? 'none' : '';
-            }
-
             // If current state is incompatible with this list, coerce it.
             ensureListsSortFilterStateInitialized();
-            const def = getDefaultListsSortFilterState({ isBucket });
+            const def = getDefaultListsSortFilterState();
             const next = { ...listsSortFilterState };
 
             if (!allowed.has(String(next.sortKey || '').trim())) {
                 next.sortKey = def.sortKey;
                 next.sortDir = def.sortDir;
-            }
-
-            if (isBucket) {
-                next.tier = '';
             }
 
             listsSortFilterState = next;
@@ -7564,10 +7419,131 @@
                 tier: document.getElementById('lists-modal-filter-tier'),
                 decade: document.getElementById('lists-modal-filter-decade'),
                 director: document.getElementById('lists-modal-filter-director'),
+                actor: document.getElementById('lists-modal-filter-actor'),
                 mpa: document.getElementById('lists-modal-filter-mpa'),
                 genre: document.getElementById('lists-modal-filter-genre'),
-                platform: document.getElementById('lists-modal-filter-platform'),
+                watchMethod: document.getElementById('lists-modal-filter-watchmethod'),
+                timeframe: document.getElementById('lists-modal-filter-timeframe'),
+                watchRail: document.getElementById('lists-watch-count-rail'),
+                watchMinLabel: document.getElementById('lists-watch-count-min'),
+                watchMaxLabel: document.getElementById('lists-watch-count-max'),
             };
+        }
+
+        function setListsWatchCountRangeUI({ minVal, maxVal, maxAvail }) {
+            const els = getListsSortFilterModalEls();
+            if (!els.watchRail) return;
+
+            const maxAvailable = Math.max(0, Number(maxAvail) || 0);
+            const minV = Number.isFinite(Number(minVal)) ? Number(minVal) : 1;
+            const maxV = Number.isFinite(Number(maxVal)) ? Number(maxVal) : maxAvailable || 1;
+
+            els.watchRail.dataset.minVal = String(minV);
+            els.watchRail.dataset.maxVal = String(maxV);
+            els.watchRail.dataset.maxAvail = String(maxAvailable);
+
+            const disabled = maxAvailable <= 0;
+            els.watchRail.classList.toggle('is-disabled', disabled);
+            if (els.watchMinLabel) els.watchMinLabel.textContent = disabled ? '—' : String(minV);
+            if (els.watchMaxLabel) els.watchMaxLabel.textContent = disabled ? '—' : String(maxV);
+
+            const fill = els.watchRail.querySelector('.library-watch-rail-fill');
+            const minHandle = els.watchRail.querySelector('[data-handle="min"]');
+            const maxHandle = els.watchRail.querySelector('[data-handle="max"]');
+            if (!fill || !minHandle || !maxHandle || disabled) {
+                if (fill) {
+                    fill.style.left = '0%';
+                    fill.style.right = '100%';
+                }
+                if (minHandle) minHandle.style.left = '0%';
+                if (maxHandle) maxHandle.style.left = '100%';
+                return;
+            }
+
+            const denom = Math.max(1, maxAvailable - 1);
+            const minPct = ((minV - 1) / denom) * 100;
+            const maxPct = ((maxV - 1) / denom) * 100;
+            const left = Math.max(0, Math.min(100, minPct));
+            const right = Math.max(0, Math.min(100, 100 - maxPct));
+            fill.style.left = `${left}%`;
+            fill.style.right = `${right}%`;
+            minHandle.style.left = `${left}%`;
+            maxHandle.style.left = `${maxPct}%`;
+        }
+
+        function setListsWatchCountRangeFromState(state) {
+            const maxAvailable = Math.max(0, Number(listsWatchCountMax) || 0);
+            const minState = Number(state?.watchCountMin);
+            const maxState = Number(state?.watchCountMax);
+            let minVal = Number.isFinite(minState) && minState > 0 ? minState : 1;
+            let maxVal = Number.isFinite(maxState) && maxState > 0 ? maxState : (maxAvailable || 1);
+            if (maxAvailable > 0) {
+                minVal = Math.max(1, Math.min(minVal, maxAvailable));
+                maxVal = Math.max(minVal, Math.min(maxVal, maxAvailable));
+            }
+            setListsWatchCountRangeUI({ minVal, maxVal, maxAvail: maxAvailable });
+        }
+
+        function initListsWatchCountRange() {
+            const els = getListsSortFilterModalEls();
+            if (!els.watchRail) return;
+            if (els.watchRail.dataset.boundRange) return;
+            els.watchRail.dataset.boundRange = 'true';
+
+            let activeHandle = null;
+
+            const valueFromClientX = (clientX) => {
+                const maxAvailable = Math.max(0, Number(els.watchRail.dataset.maxAvail) || 0);
+                if (maxAvailable <= 0) return 1;
+                const rect = els.watchRail.getBoundingClientRect();
+                const raw = (clientX - rect.left) / Math.max(1, rect.width);
+                const pct = Math.max(0, Math.min(1, raw));
+                const val = Math.round(1 + pct * Math.max(1, maxAvailable - 1));
+                return Math.max(1, Math.min(maxAvailable, val));
+            };
+
+            const updateValues = (nextMin, nextMax) => {
+                const maxAvailable = Math.max(0, Number(els.watchRail.dataset.maxAvail) || 0);
+                if (maxAvailable <= 0) return;
+                let minVal = Math.max(1, Math.min(nextMin, maxAvailable));
+                let maxVal = Math.max(1, Math.min(nextMax, maxAvailable));
+                if (minVal > maxVal) {
+                    if (activeHandle === 'min') minVal = maxVal;
+                    else maxVal = minVal;
+                }
+                setListsWatchCountRangeUI({ minVal, maxVal, maxAvail: maxAvailable });
+            };
+
+            const pickNearestHandle = (clientX) => {
+                const minVal = Number(els.watchRail.dataset.minVal) || 1;
+                const maxVal = Number(els.watchRail.dataset.maxVal) || 1;
+                const targetVal = valueFromClientX(clientX);
+                return Math.abs(targetVal - minVal) <= Math.abs(targetVal - maxVal) ? 'min' : 'max';
+            };
+
+            const onPointerMove = (e) => {
+                if (!activeHandle) return;
+                const minVal = Number(els.watchRail.dataset.minVal) || 1;
+                const maxVal = Number(els.watchRail.dataset.maxVal) || 1;
+                const nextVal = valueFromClientX(e.clientX);
+                if (activeHandle === 'min') updateValues(nextVal, maxVal);
+                else updateValues(minVal, nextVal);
+            };
+
+            const onPointerUp = () => {
+                activeHandle = null;
+                document.removeEventListener('pointermove', onPointerMove);
+                document.removeEventListener('pointerup', onPointerUp);
+            };
+
+            els.watchRail.addEventListener('pointerdown', (e) => {
+                if (els.watchRail.classList.contains('is-disabled')) return;
+                const handle = e?.target?.closest ? e.target.closest('[data-handle]') : null;
+                activeHandle = handle ? String(handle.dataset.handle || '').trim() : pickNearestHandle(e.clientX);
+                onPointerMove(e);
+                document.addEventListener('pointermove', onPointerMove);
+                document.addEventListener('pointerup', onPointerUp);
+            });
         }
 
         function setSelectOptions(el, { baseOptions = [], values = [] } = {}) {
@@ -7595,13 +7571,39 @@
                 baseOptions: [{ value: '', label: 'Genre (All)' }],
                 values: listsFacetOptions?.genres || [],
             });
-            setSelectOptions(els.platform, {
-                baseOptions: [
-                    { value: '', label: 'Platform (All)' },
-                    { value: '__NONE__', label: 'No Watch Options' },
-                ],
-                values: listsFacetOptions?.platforms || [],
+
+            setSelectOptions(els.watchMethod, {
+                baseOptions: [{ value: '', label: 'Watch Method (All)' }],
+                values: listsFacetOptions?.watchMethods || ['At Home', 'In Theater'],
             });
+
+            if (els.timeframe) {
+                const monthOptions = (Array.isArray(listsFacetOptions?.timeframes) ? listsFacetOptions.timeframes : [])
+                    .map((m) => {
+                        const parts = String(m).split('-');
+                        const year = Number(parts[0]);
+                        const month = Number(parts[1]);
+                        const labelDate = Number.isFinite(year) && Number.isFinite(month)
+                            ? new Date(year, month - 1, 1)
+                            : null;
+                        const label = labelDate
+                            ? labelDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long' })
+                            : String(m);
+                        return `<option value="${escapeHtml(String(m))}">${escapeHtml(label)}</option>`;
+                    })
+                    .join('');
+
+                const keepVal = String(els.timeframe.value || 'all_time');
+                els.timeframe.innerHTML = `
+                    <option value="all_time">Watch Date (All Time)</option>
+                    <option value="this_year">Watch Date (This Year)</option>
+                    <option value="this_month">Watch Date (This Month)</option>
+                    ${monthOptions}
+                `;
+                els.timeframe.value = keepVal || 'all_time';
+            }
+
+            setListsWatchCountRangeFromState(listsSortFilterState || {});
         }
 
         function setListsSortFilterModalFromState(state) {
@@ -7609,26 +7611,40 @@
             if (!els.sortKey || !els.sortDir) return;
             els.sortKey.value = String(state?.sortKey || 'watch_date');
             els.sortDir.value = (String(state?.sortDir || 'desc') === 'asc') ? 'asc' : 'desc';
-            if (els.tier && !els.tier.disabled) els.tier.value = String(state?.tier || '');
+            if (els.tier) els.tier.value = String(state?.tier || '');
             if (els.decade) els.decade.value = String(state?.decade || '');
             if (els.director) els.director.value = String(state?.directorContains || '');
+            if (els.actor) els.actor.value = String(state?.actorContains || '');
             if (els.mpa) els.mpa.value = String(state?.mpa || '');
             if (els.genre) els.genre.value = String(state?.genre || '');
-            if (els.platform) els.platform.value = String(state?.platform || '');
+            if (els.watchMethod) els.watchMethod.value = String(state?.watchMethod || '');
+            if (els.timeframe) els.timeframe.value = String(state?.timeframe || 'all_time');
+            setListsWatchCountRangeFromState(state || {});
         }
 
         function readListsSortFilterModalState() {
             const els = getListsSortFilterModalEls();
             const getVal = (el) => String(el?.value || '').trim();
+            const maxAvail = Number(els.watchRail?.dataset?.maxAvail ?? 0);
+            const rawMin = Number(els.watchRail?.dataset?.minVal ?? NaN);
+            const rawMax = Number(els.watchRail?.dataset?.maxVal ?? NaN);
+            const minVal = Number.isFinite(rawMin) ? rawMin : '';
+            const maxVal = Number.isFinite(rawMax) ? rawMax : '';
+            const useMin = (Number.isFinite(minVal) && maxAvail > 0 && minVal > 1) ? minVal : '';
+            const useMax = (Number.isFinite(maxVal) && maxAvail > 0 && maxVal < maxAvail) ? maxVal : '';
             return {
                 sortKey: getVal(els.sortKey) || 'watch_date',
                 sortDir: (getVal(els.sortDir) === 'asc') ? 'asc' : 'desc',
-                tier: (els.tier && els.tier.disabled) ? '' : getVal(els.tier),
+                tier: getVal(els.tier),
                 decade: getVal(els.decade),
                 directorContains: getVal(els.director),
+                actorContains: getVal(els.actor),
                 mpa: getVal(els.mpa),
                 genre: getVal(els.genre),
-                platform: getVal(els.platform),
+                watchMethod: getVal(els.watchMethod),
+                watchCountMin: useMin,
+                watchCountMax: useMax,
+                timeframe: getVal(els.timeframe) || 'all_time',
             };
         }
 
@@ -7644,6 +7660,8 @@
             listsSortFilterDraft = { ...listsSortFilterState };
             loadListsFacetsIntoModal();
             setListsSortFilterModalFromState(listsSortFilterState);
+            initListsWatchCountRange();
+            setListsWatchCountRangeFromState(listsSortFilterState);
             els.overlay.style.display = 'flex';
             setTimeout(() => {
                 try { els.sortKey?.focus?.(); } catch (_) {}
@@ -7715,9 +7733,15 @@
             const wantedTier = String(st.tier || '').trim();
             const wantedDecade = String(st.decade || '').trim();
             const wantedDirector = String(st.directorContains || '').trim().toLowerCase();
+            const wantedActor = String(st.actorContains || '').trim().toLowerCase();
             const wantedMpa = String(st.mpa || '').trim().toLowerCase();
             const wantedGenre = String(st.genre || '').trim().toLowerCase();
-            const wantedPlatform = String(st.platform || '').trim();
+            const wantedWatchMethod = String(st.watchMethod || '').trim();
+            const wantedWatchMinRaw = String(st.watchCountMin || '').trim();
+            const wantedWatchMaxRaw = String(st.watchCountMax || '').trim();
+            const wantedWatchMin = wantedWatchMinRaw ? Number(wantedWatchMinRaw) : null;
+            const wantedWatchMax = wantedWatchMaxRaw ? Number(wantedWatchMaxRaw) : null;
+            const timeframeRange = libraryComputeTimeframeRange(st?.timeframe);
 
             const filtered = (Array.isArray(items) ? items : []).filter((it) => {
                 if (!it) return false;
@@ -7741,6 +7765,11 @@
                     if (!dir.includes(wantedDirector)) return false;
                 }
 
+                if (wantedActor) {
+                    const actor = String(it?.actor || '').toLowerCase();
+                    if (!actor.includes(wantedActor)) return false;
+                }
+
                 if (wantedMpa) {
                     const mpa = String(it?.mpa_rating || '').trim().toLowerCase();
                     if (!mpa || mpa !== wantedMpa) return false;
@@ -7752,13 +7781,33 @@
                     if (!ok) return false;
                 }
 
-                if (wantedPlatform) {
-                    const plats = Array.isArray(it?.platforms) ? it.platforms : [];
-                    if (wantedPlatform === '__NONE__') {
-                        if (plats.length) return false;
-                    } else {
-                        if (!plats.includes(wantedPlatform)) return false;
-                    }
+                if (wantedWatchMethod) {
+                    const methodRaw = String(it?.watch_method || '').trim().toLowerCase();
+                    const needle = wantedWatchMethod.toLowerCase().includes('theater')
+                        ? 'theater'
+                        : (wantedWatchMethod.toLowerCase().includes('home') ? 'home' : wantedWatchMethod.toLowerCase());
+                    if (!methodRaw.includes(needle)) return false;
+                }
+
+                if (Number.isFinite(wantedWatchMin) && wantedWatchMin > 0) {
+                    const count = Number(it?.watch_count ?? NaN);
+                    if (!Number.isFinite(count) || count < wantedWatchMin) return false;
+                }
+
+                if (Number.isFinite(wantedWatchMax) && wantedWatchMax > 0) {
+                    const count = Number(it?.watch_count ?? NaN);
+                    if (!Number.isFinite(count) || count > wantedWatchMax) return false;
+                }
+
+                if (timeframeRange?.start_date && timeframeRange?.end_date) {
+                    const raw = String(it?.latest_watch_date || '').trim();
+                    if (!raw) return false;
+                    const d = new Date(raw.includes('T') ? raw : `${raw}T00:00:00`);
+                    if (Number.isNaN(d.getTime())) return false;
+                    const t = d.getTime();
+                    const start = new Date(`${timeframeRange.start_date}T00:00:00`).getTime();
+                    const end = new Date(`${timeframeRange.end_date}T00:00:00`).getTime();
+                    if (!(t >= start && t < end)) return false;
                 }
 
                 return true;
@@ -7784,6 +7833,7 @@
                     return (n === null || n === undefined) ? null : Number(n);
                 }
                 if (sortKey === 'overall') return (it?.overall_rating === null || it?.overall_rating === undefined) ? null : Number(it.overall_rating);
+                if (sortKey === 'watch_count') return (it?.watch_count === null || it?.watch_count === undefined) ? null : Number(it.watch_count);
                 if (sortKey === 'sound') return (it?.sound_rating === null || it?.sound_rating === undefined) ? null : Number(it.sound_rating);
                 if (sortKey === 'pace') return (it?.pacing_rating === null || it?.pacing_rating === undefined) ? null : Number(it.pacing_rating);
                 if (sortKey === 'imagery') return (it?.imagery_rating === null || it?.imagery_rating === undefined) ? null : Number(it.imagery_rating);
@@ -8646,7 +8696,7 @@
 
                 elLists.innerHTML = lists.length
                     ? `
-                        <select id="lists-select" class="input-field" style="width:100%; border-radius: 0.85rem;">
+                        <select id="lists-select" class="input-field" style="width:100%; border-radius: 0.7rem; height: 34px; font-size: 0.84rem; padding: 0 0.65rem;">
                             ${lists.map((l) => {
                                 const id = String(l?.id || '').trim();
                                 const name = String(l?.list_name || '').trim() || 'Untitled';
@@ -8657,7 +8707,7 @@
                         </select>
                     `
                     : `
-                        <select id="lists-select" class="input-field" style="width:100%; border-radius: 0.85rem;" disabled>
+                        <select id="lists-select" class="input-field" style="width:100%; border-radius: 0.7rem; height: 34px; font-size: 0.84rem; padding: 0 0.65rem;" disabled>
                             <option value="">No lists found</option>
                         </select>
                     `;
@@ -8668,6 +8718,7 @@
                     const labels = {
                         sortKey: {
                             watch_date: 'Watch Date',
+                            watch_count: 'Watch Count',
                             overall: 'Overall %',
                             sound: 'Sound %',
                             pace: 'Pace %',
@@ -8775,6 +8826,26 @@
                     // Ignore latest watch fetch errors.
                 }
 
+                // Fetch watch_count, watch_method and actors from library view for these movies (best-effort).
+                const libraryByMovieId = new Map();
+                try {
+                    const { data: lRows, error: lErr } = await supabaseClient
+                        .from(LIBRARY_ITEMS_VIEW)
+                        .select('movie_id, latest_watch_date, watch_count, watch_method, actors')
+                        .eq('user_id', user.id)
+                        .in('movie_id', movieIds);
+                    if (!lErr) {
+                        for (const r of (Array.isArray(lRows) ? lRows : [])) {
+                            const mid = String(r?.movie_id || '').trim();
+                            if (!mid) continue;
+                            libraryByMovieId.set(mid, r);
+                            if (r?.latest_watch_date) latestWatchByMovieId.set(mid, r.latest_watch_date);
+                        }
+                    }
+                } catch (_) {
+                    // Ignore library view fetch errors.
+                }
+
                 // Fetch watch platforms for these movies (best-effort; do not fail page).
                 const platformsByMovieId = new Map();
                 try {
@@ -8829,7 +8900,9 @@
                     const decades = new Set();
                     const mpas = new Set();
                     const genres = new Set();
-                    const platforms = new Set();
+                    const watchMethods = new Set();
+                    const months = new Set();
+                    let maxWatchCount = 0;
 
                     for (const id of movieIds) {
                         const movie = moviesById.get(id) || null;
@@ -8845,10 +8918,20 @@
                             if (g) genres.add(g);
                         }
 
-                        const plats = platformsByMovieId.get(String(id)) || [];
-                        for (const p of plats) {
-                            const name = normalizePlatformName(p);
-                            if (name) platforms.add(name);
+                        const lib = libraryByMovieId.get(String(id)) || null;
+                        const wm = String(lib?.watch_method || '').trim();
+                        if (wm) watchMethods.add(wm.toLowerCase().includes('theater') ? 'In Theater' : 'At Home');
+
+                        const wc = Number(lib?.watch_count ?? 0);
+                        if (Number.isFinite(wc) && wc > maxWatchCount) maxWatchCount = wc;
+
+                        const watchRaw = String(latestWatchByMovieId.get(String(id)) || '').trim();
+                        if (watchRaw) {
+                            const d = new Date(watchRaw.includes('T') ? watchRaw : `${watchRaw}T00:00:00`);
+                            if (!Number.isNaN(d.getTime())) {
+                                const month = String(d.getMonth() + 1).padStart(2, '0');
+                                months.add(`${d.getFullYear()}-${month}`);
+                            }
                         }
                     }
 
@@ -8860,12 +8943,16 @@
                         return String(b).localeCompare(String(a));
                     });
 
+                    const sortedMonths = Array.from(months).sort((a, b) => b.localeCompare(a));
+
                     listsFacetOptions = {
                         decades: decadeArr,
                         mpas: Array.from(mpas).sort((a, b) => a.localeCompare(b)),
                         genres: Array.from(genres).sort((a, b) => a.localeCompare(b)),
-                        platforms: Array.from(platforms).sort((a, b) => a.localeCompare(b)),
+                        watchMethods: Array.from(watchMethods).sort((a, b) => a.localeCompare(b)),
+                        timeframes: sortedMonths,
                     };
+                    listsWatchCountMax = Math.max(0, Number(maxWatchCount) || 0);
                 } catch (_) {
                     // Ignore facet computation errors.
                 }
@@ -8877,6 +8964,7 @@
                     const labels = {
                         sortKey: {
                             watch_date: 'Watch Date',
+                            watch_count: 'Watch Count',
                             overall: 'Overall %',
                             sound: 'Sound %',
                             pace: 'Pace %',
@@ -8905,11 +8993,14 @@
                         title: String(movie?.title || '').trim() || 'Untitled',
                         release_year: movie?.release_year ?? null,
                         director: normalizeMovieFieldValue(movie?.director ?? movie?.director_name),
+                        actor: normalizeMovieFieldValue((libraryByMovieId.get(String(id)) || {})?.actors),
                         mpa_rating: normalizeMovieFieldValue(movie?.mpa_rating ?? movie?.mpa),
                         genre: normalizeMovieFieldValue(movie?.genre),
                         genresArr,
                         imdb_rating_pct: movie?.imdb_rating_pct ?? movie?.imdb_pct ?? movie?.imdb_rating ?? movie?.imdb,
                         latest_watch_date: latestWatchByMovieId.get(String(id)) || null,
+                        watch_count: Number((libraryByMovieId.get(String(id)) || {})?.watch_count ?? 0) || 0,
+                        watch_method: normalizeMovieFieldValue((libraryByMovieId.get(String(id)) || {})?.watch_method),
                         overall_rating: r?.overall_rating ?? null,
                         sound_rating: r?.sound_rating ?? null,
                         pacing_rating: r?.pacing_rating ?? null,
@@ -8918,7 +9009,6 @@
                         plot_rating: r?.plot_rating ?? null,
                         dialogue_rating: r?.dialogue_rating ?? null,
                         tier: String(r?.tier || '').trim(),
-                        platforms: platformsByMovieId.get(String(id)) || [],
                     };
                 });
 
@@ -8946,8 +9036,6 @@
                             const n = parsePercentLike(raw, { imdb: true });
                             return (n !== null && n !== undefined) ? formatPctForDisplay(n) : '';
                         })();
-
-                        const mpaVal = normalizeMovieFieldValue(movie?.mpa_rating ?? movie?.mpa);
 
                         const metaLines = [];
                         if (directorVal) metaLines.push({ label: 'Director', value: directorVal });
@@ -8979,27 +9067,27 @@
 
                         return `
                             <div class="lists-movie-card">
-                                <button type="button" class="lists-remove-x" title="Remove from list" data-lists-action="remove_movie" data-list-id="${escapeHtml(String(listsActiveListId))}" data-movie-id="${escapeHtml(String(id))}">&times;</button>
+                                <div class="lists-poster-wrap">
+                                    <button type="button" class="lists-poster-btn" data-lists-action="open_movie" data-movie-id="${escapeHtml(String(id))}" title="Open entry">
+                                        <div class="lists-poster" style="width:100%; aspect-ratio:2/3;">
+                                            ${posterUrl
+                                                ? `<img src="${posterUrl}" loading="lazy" decoding="async" alt="${escapeHtml(title)}" style="display:block; width:100%; height:100%; object-fit:cover;">`
+                                                : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size: 12px;">No poster</div>`}
+                                        </div>
+                                    </button>
+                                    <button type="button" class="lists-remove-x" title="Remove from list" data-lists-action="remove_movie" data-list-id="${escapeHtml(String(listsActiveListId))}" data-movie-id="${escapeHtml(String(id))}">&times;</button>
+                                </div>
 
-                                <button type="button" class="lists-poster-btn" data-lists-action="open_movie" data-movie-id="${escapeHtml(String(id))}" title="Open entry" style="width:100%; max-width:220px; margin:0 auto;">
-                                    <div class="lists-poster" style="width:100%; aspect-ratio:2/3; min-height:180px;">
-                                        ${posterUrl
-                                            ? `<img src="${posterUrl}" loading="lazy" decoding="async" alt="${escapeHtml(title)}" style="display:block; width:100%; height:100%; object-fit:cover;">`
-                                            : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size: 12px;">No poster</div>`}
-                                    </div>
-                                </button>
-
-                                <div style="width:100%; display:flex; flex-direction:column; align-items:center; gap:0.32rem;">
-                                    <div class="lists-title" style="margin-top:0.2rem; text-align:center;">
+                                <div style="width:100%; display:flex; flex-direction:column; align-items:center; gap:0.3rem;">
+                                    <div class="lists-title">
                                         ${escapeHtml(title)}
-                                        ${year ? ` <span style=\"color:#b0b0b0; font-weight:700;\">(${escapeHtml(year)})</span>` : ''}
-                                        ${mpaVal ? ` <span style=\"color:#1de9b6; font-weight:900; font-size:1.1em;\">-</span> <span style=\"color:#7c256a; background:rgba(124,37,106,0.13); border-radius:0.35em; padding:0.04em 0.38em; font-weight:800; font-size:0.98em;\">${mpaVal}</span>` : ''}
+                                        ${year ? ` <span class=\"lists-title-year\">(${escapeHtml(year)})</span>` : ''}
                                     </div>
-                                    <div class="lists-meta-list" style="font-size:1.01rem; width:100%; max-width:320px; margin:0 auto; display:flex; flex-direction:row; align-items:center; gap:1.2em; justify-content:center;">
-                                        <div class="lists-meta-item" style="gap:4px; color:rgba(255,255,255,0.82);">
+                                    <div class="lists-meta-list">
+                                        <div class="lists-meta-item" style="color:rgba(255,255,255,0.82);">
                                             <span style="font-weight:700;">IMDb:</span> <span>${imdbVal || '—'}</span>
                                         </div>
-                                        <div class="lists-meta-item" style="gap:4px; color:rgba(255,255,255,0.82);">
+                                        <div class="lists-meta-item" style="color:rgba(255,255,255,0.82);">
                                             <span>${(() => {
                                                 const n = Number(movie?.runtime_minutes ?? movie?.runtime);
                                                 if (!Number.isFinite(n) || n <= 0) return '—';
@@ -9012,7 +9100,7 @@
                                             })()}</span>
                                         </div>
                                     </div>
-                                    <button type="button" class="lists-watch-options-btn" data-lists-action="watch_options" data-movie-id="${escapeHtml(String(id))}" data-movie-title="${escapeHtml(title)}" style="margin:0.5rem auto 0.2rem auto; display:block;">Watch Options</button>
+                                    <button type="button" class="lists-watch-options-btn" data-lists-action="watch_options" data-movie-id="${escapeHtml(String(id))}" data-movie-title="${escapeHtml(title)}" style="margin:0.1rem auto 0 auto; display:block;">Watch Options</button>
                                 </div>
                             </div>
                         `;
@@ -11145,6 +11233,68 @@
             });
         }
 
+        function openDashGenreOther() {
+            const overlay = document.getElementById('dash-genre-other-overlay');
+            const subEl = document.getElementById('dash-genre-other-sub');
+            const bodyEl = document.getElementById('dash-genre-other-body');
+            if (!overlay || !bodyEl) return;
+
+            const rows = Array.isArray(dashboardGeneralGenreOtherItems) ? dashboardGeneralGenreOtherItems : [];
+            if (!rows.length) {
+                showToast('No other genres to show.', { level: 'warn' });
+                return;
+            }
+
+            const total = Number(dashboardGeneralGenreOtherTotal) || rows.reduce((sum, r) => sum + (Number(r?.value) || 0), 0);
+            const modeLabel = String(dashboardGeneralMode || '').trim().toLowerCase() === 'unique'
+                ? 'unique movies'
+                : 'watch events';
+            if (subEl) subEl.textContent = `Tap a genre to filter My Movies (${modeLabel}).`;
+
+            bodyEl.innerHTML = rows
+                .slice()
+                .sort((a, b) => (Number(b?.value) || 0) - (Number(a?.value) || 0))
+                .map((item) => {
+                    const label = String(item?.label || '').trim();
+                    const value = Number(item?.value) || 0;
+                    if (!label) return '';
+                    const pct = total > 0 ? ((value / total) * 100) : 0;
+                    const pctText = pct.toFixed(1);
+                    return `
+                        <button type="button" class="dash-other-genre-btn" data-genre-label="${escapeHtml(label)}">
+                            <div class="dash-other-genre-title">${escapeHtml(label)}</div>
+                            <div class="dash-other-genre-meta tabular-nums">${escapeHtml(pctText)}% (${escapeHtml(String(value))})</div>
+                        </button>
+                    `;
+                }).join('');
+
+            overlay.style.display = 'flex';
+        }
+
+        function closeDashGenreOther() {
+            const overlay = document.getElementById('dash-genre-other-overlay');
+            if (!overlay) return;
+            overlay.style.display = 'none';
+            const bodyEl = document.getElementById('dash-genre-other-body');
+            if (bodyEl) bodyEl.innerHTML = 'Loading…';
+        }
+
+        function initDashGenreOtherModal() {
+            const overlay = document.getElementById('dash-genre-other-overlay');
+            if (!overlay) return;
+            if (overlay.dataset.boundClicks) return;
+            overlay.dataset.boundClicks = 'true';
+
+            overlay.addEventListener('click', (e) => {
+                const btn = e?.target?.closest ? e.target.closest('[data-genre-label]') : null;
+                if (!btn) return;
+                const label = String(btn.dataset.genreLabel || '').trim();
+                if (!label) return;
+                closeDashGenreOther();
+                applyLibraryFiltersFromDashboard({ genre: dashGenreFilterValue(label) });
+            });
+        }
+
 
         function initDashboardRatingsKpiClicks() {
             const pane = document.getElementById('dash-pane-ratings');
@@ -11364,7 +11514,12 @@
                 if (!label || !type) return;
 
                 if (type === 'genre') {
-                    applyLibraryFiltersFromDashboard({ genre: label });
+                    const isOther = String(item?.dataset?.dashPieOther || '') === 'true' || String(label || '').trim().toLowerCase() === 'other';
+                    if (isOther) {
+                        openDashGenreOther();
+                        return;
+                    }
+                    applyLibraryFiltersFromDashboard({ genre: dashGenreFilterValue(label) });
                     return;
                 }
                 if (type === 'mpa') {
@@ -11393,45 +11548,49 @@
             });
         }
 
-        function initDashboardChartsTabControls() {
-            const wrap = document.getElementById('dash-chart-tab-wrap');
-            if (!wrap) return;
-            if (wrap.dataset.boundClicks) return;
-            wrap.dataset.boundClicks = 'true';
+        function initDashboardGeneralPieHover() {
+            const pie = document.getElementById('dash-general-share-pie');
+            const legend = document.getElementById('dash-general-share-legend');
+            if (!pie || !legend) return;
+            if (pie.dataset.boundPieHover) return;
+            pie.dataset.boundPieHover = 'true';
 
-            wrap.addEventListener('click', (e) => {
-                const btn = e?.target?.closest ? e.target.closest('button[data-chart]') : null;
-                const chart = btn?.dataset?.chart;
-                if (!chart) return;
-                setDashboardChartsTab(chart);
+            legend.addEventListener('mouseover', (e) => {
+                const item = e?.target?.closest ? e.target.closest('.dash-pie-legend-item') : null;
+                if (!item) return;
+                const idx = Number(item.dataset.dashPieIndex);
+                if (!Number.isFinite(idx)) return;
+                dashSetPieHighlight(pie, legend, idx);
+                const label = String(item.dataset.dashPieLabel || '').trim();
+                const type = String(legend.dataset.pieType || '').trim().toLowerCase();
+                const breakdown = dashGetWatchMethodForPieLabel(type, label);
+                if (breakdown) dashSetWatchMethodDisplay(breakdown.atHome, breakdown.inTheater);
             });
-        }
 
-        function initDashboardHeatmapSelect() {
-            const select = document.getElementById('dash-heatmap-pair');
-            if (!select) return;
-            if (select.dataset.boundChange) return;
-            select.dataset.boundChange = 'true';
-
-            select.addEventListener('change', () => {
-                const value = String(select.value || '').trim().toLowerCase();
-                setDashboardHeatmapPair(value);
+            legend.addEventListener('mouseleave', () => {
+                dashSetPieHighlight(pie, legend, -1);
+                dashResetWatchMethodDisplay();
             });
-        }
 
-        function initDashboardHeatmapAxisControls() {
-            const panel = document.getElementById('dash-heatmap-axis-panel');
-            if (!panel) return;
-            if (panel.dataset.boundClicks) return;
-            panel.dataset.boundClicks = 'true';
+            pie.addEventListener('mousemove', (e) => {
+                const angle = dashAngleFromEvent(pie, e);
+                if (angle === null) {
+                    dashSetPieHighlight(pie, legend, -1);
+                    dashResetWatchMethodDisplay();
+                    return;
+                }
+                const idx = dashFindPieIndex(pie, angle);
+                if (!Number.isFinite(idx) || idx < 0) return;
+                dashSetPieHighlight(pie, legend, idx);
+                const label = String(pie?._pieItems?.[idx]?.label || '').trim();
+                const type = String(legend.dataset.pieType || '').trim().toLowerCase();
+                const breakdown = dashGetWatchMethodForPieLabel(type, label);
+                if (breakdown) dashSetWatchMethodDisplay(breakdown.atHome, breakdown.inTheater);
+            });
 
-            panel.addEventListener('click', (e) => {
-                const btn = e?.target?.closest ? e.target.closest('button[data-axis]') : null;
-                if (!btn) return;
-                const axis = btn.dataset.axis;
-                const value = btn.dataset.value;
-                if (!axis || !value) return;
-                setDashboardHeatmapAxis(axis, value);
+            pie.addEventListener('mouseleave', () => {
+                dashSetPieHighlight(pie, legend, -1);
+                dashResetWatchMethodDisplay();
             });
         }
 
@@ -11539,19 +11698,28 @@
             renderDashboardGeneralSharePie();
         }
 
-        function syncDashboardChartsTabUI() {
-            const t = String(dashboardChartsTab || '').trim().toLowerCase();
-            const allowed = new Set(['heatmap', 'activity']);
-            dashboardChartsTab = allowed.has(t) ? t : 'heatmap';
-
-            const wrap = document.getElementById('dash-chart-tab-wrap');
-            if (!wrap) return;
-            wrap.querySelectorAll('button[data-chart]').forEach((btn) => {
-                const isOn = String(btn.dataset.chart || '').trim().toLowerCase() === dashboardChartsTab;
+        function syncDashboardTimeframeUI() {
+            const btnAll = document.getElementById('dash-range-all-time');
+            const btnYear = document.getElementById('dash-range-this-year');
+            const btnMonth = document.getElementById('dash-range-this-month');
+            const activate = (btn, on) => {
+                if (!btn) return;
                 btn.classList.remove('btn-glass', 'btn-outline');
-                btn.classList.add(isOn ? 'btn-glass' : 'btn-outline');
-            });
-            syncDashboardHeatmapSelectUI();
+                btn.classList.add(on ? 'btn-glass' : 'btn-outline');
+            };
+
+            const hideMonth = dashboardActiveTab === 'charts';
+            if (btnMonth) {
+                if (hideMonth) btnMonth.classList.add('hidden');
+                else btnMonth.classList.remove('hidden');
+            }
+            if (hideMonth && dashboardTimeframe === 'this_month') {
+                dashboardTimeframe = 'this_year';
+            }
+
+            activate(btnAll, dashboardTimeframe === 'all_time');
+            activate(btnYear, dashboardTimeframe === 'this_year');
+            activate(btnMonth, dashboardTimeframe === 'this_month');
         }
 
         function syncDashboardRatingsChartUI() {
@@ -11624,53 +11792,6 @@
             syncDashboardGeneralPieUI();
         }
 
-        function setDashboardChartsTab(chart) {
-            const t = String(chart || '').trim().toLowerCase();
-            const allowed = new Set(['heatmap', 'activity']);
-            dashboardChartsTab = allowed.has(t) ? t : 'heatmap';
-            syncDashboardChartsTabUI();
-
-            if (dashboardActiveTab === 'charts') {
-                if (dashboardChartsLastData) {
-                    renderDashboardChartsFromData(dashboardChartsLastData);
-                } else {
-                    loadDashboardCharts();
-                }
-            }
-        }
-
-        function syncDashboardHeatmapSelectUI() {
-            const allowed = new Set(['genre_decade', 'genre_mpa', 'decade_mpa']);
-            const value = allowed.has(String(dashboardHeatmapPair || '').trim().toLowerCase())
-                ? String(dashboardHeatmapPair || '').trim().toLowerCase()
-                : 'genre_decade';
-            dashboardHeatmapPair = value;
-
-            const select = document.getElementById('dash-heatmap-pair');
-            if (select && select.value !== value) select.value = value;
-
-            const wrap = document.getElementById('dash-heatmap-select-wrap');
-            if (wrap) {
-                wrap.style.display = dashboardChartsTab === 'heatmap' ? 'block' : 'none';
-            }
-        }
-
-        function setDashboardHeatmapPair(value) {
-            const allowed = new Set(['genre_decade', 'genre_mpa', 'decade_mpa']);
-            dashboardHeatmapPair = allowed.has(String(value || '').trim().toLowerCase())
-                ? String(value || '').trim().toLowerCase()
-                : 'genre_decade';
-            syncDashboardHeatmapSelectUI();
-
-            if (dashboardActiveTab === 'charts' && dashboardChartsTab === 'heatmap') {
-                if (dashboardChartsLastData) {
-                    renderDashboardChartsFromData(dashboardChartsLastData);
-                } else {
-                    loadDashboardCharts();
-                }
-            }
-        }
-
         function setDashboardRatingsChartTab(chart) {
             const t = String(chart || '').trim().toLowerCase();
             const allowed = new Set(['genre', 'decade', 'mpa']);
@@ -11704,18 +11825,7 @@
             const r = String(range || '').trim().toLowerCase();
             const allowed = new Set(['all_time', 'this_year', 'this_month']);
             dashboardTimeframe = allowed.has(r) ? r : 'all_time';
-
-            const btnAll = document.getElementById('dash-range-all-time');
-            const btnYear = document.getElementById('dash-range-this-year');
-            const btnMonth = document.getElementById('dash-range-this-month');
-            const activate = (btn, on) => {
-                if (!btn) return;
-                btn.classList.remove('btn-glass', 'btn-outline');
-                btn.classList.add(on ? 'btn-glass' : 'btn-outline');
-            };
-            activate(btnAll, dashboardTimeframe === 'all_time');
-            activate(btnYear, dashboardTimeframe === 'this_year');
-            activate(btnMonth, dashboardTimeframe === 'this_month');
+            syncDashboardTimeframeUI();
 
             // Reload the active tab under the new timeframe.
             setDashboardTab(dashboardActiveTab);
@@ -11741,7 +11851,6 @@
             const paneCharts = document.getElementById('dash-pane-charts');
             const paneQuotes = document.getElementById('dash-pane-quotes');
             const favMetricPanel = document.getElementById('dash-fav-metric-panel');
-            const chartTabPanel = document.getElementById('dash-chart-tab-panel');
             const generalModePanel = document.getElementById('dash-general-mode-panel');
             if (!tabGeneral || !tabRatings || !tabTiers || !tabFavorites || !tabCharts || !tabQuotes || !paneGeneral || !paneRatings || !paneTiers || !paneFavorites || !paneCharts || !paneQuotes) return;
 
@@ -11776,18 +11885,12 @@
                 if (t === 'favorites') favMetricPanel.classList.remove('hidden');
                 else favMetricPanel.classList.add('hidden');
             }
-            if (chartTabPanel) {
-                if (t === 'charts') chartTabPanel.classList.remove('hidden');
-                else chartTabPanel.classList.add('hidden');
-            }
             if (generalModePanel) {
                 if (t === 'general') generalModePanel.classList.remove('hidden');
                 else generalModePanel.classList.add('hidden');
             }
 
-            if (t === 'charts') {
-                syncDashboardChartsTabUI();
-            }
+            syncDashboardTimeframeUI();
             if (t === 'general') {
                 syncDashboardGeneralModeUI();
                 syncDashboardGeneralPieUI();
@@ -11974,389 +12077,281 @@
             }
         }
 
-        function dashChartFormatPct(n) {
-            const num = Number(n);
-            if (!Number.isFinite(num)) return '—';
-            return `${(Math.round(num * 10) / 10).toFixed(1)}%`;
-        }
-
-        function dashChartFormatCount(n) {
-            const num = Number(n);
-            if (!Number.isFinite(num)) return '0 movies';
-            return `${num} movie${num === 1 ? '' : 's'}`;
-        }
-
-        function dashComputeActivityMax(items) {
+        function dashBuildActivitySeries(items, timeframe) {
             const rows = Array.isArray(items) ? items : [];
-            let maxCount = 0;
-            rows.forEach((r) => {
-                const count = Number(r?.count ?? 0);
-                if (Number.isFinite(count) && count > maxCount) maxCount = count;
-            });
-            return maxCount;
-        }
-
-        function dashRenderActivityHeatmap(items, timeframe, maxCountOverride) {
-            const rows = Array.isArray(items) ? items : [];
-            if (!rows.length) return `<div class="text-gray">No activity yet.</div>`;
+            if (!rows.length) return null;
 
             const countsByDate = new Map();
-            let minDate = null;
-            let maxDate = null;
-            let maxCount = 0;
-
             rows.forEach((r) => {
                 const raw = String(r?.bucket ?? r?.date ?? '').slice(0, 10);
                 if (!raw) return;
                 const parsed = new Date(`${raw}T00:00:00`);
                 if (Number.isNaN(parsed.getTime())) return;
                 const count = Number(r?.count ?? 0);
-                const safeCount = Number.isFinite(count) ? count : 0;
+                const safeCount = Number.isFinite(count) ? Math.max(0, count) : 0;
                 countsByDate.set(raw, safeCount);
-                if (!minDate || parsed < minDate) minDate = parsed;
-                if (!maxDate || parsed > maxDate) maxDate = parsed;
-                if (safeCount > maxCount) maxCount = safeCount;
             });
+            if (countsByDate.size === 0) return null;
 
-            if (!minDate || !maxDate) return `<div class="text-gray">No activity yet.</div>`;
-
-            const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sept','Oct','Nov','Dec'];
-            const startYear = minDate.getFullYear();
-            const endYear = maxDate.getFullYear();
-            const weekMs = 7 * 24 * 60 * 60 * 1000;
             const tf = String(timeframe || '').trim().toLowerCase();
-            const effectiveMax = Number.isFinite(maxCountOverride) && maxCountOverride > 0 ? maxCountOverride : maxCount;
-            const maxLevels = 10;
-            const dynamicLevels = Math.max(1, Math.min(maxLevels, Math.floor(effectiveMax)));
-            const mapLevel = (step) => {
-                if (dynamicLevels <= 1) return maxLevels;
-                const spread = 1 + Math.round(((step - 1) * (maxLevels - 1)) / (dynamicLevels - 1));
-                return Math.min(maxLevels, Math.max(1, spread));
-            };
-            const getLevel = (count) => {
-                if (!Number.isFinite(count) || count <= 0 || effectiveMax <= 0) return 0;
-                if (effectiveMax <= maxLevels) {
-                    const step = Math.min(dynamicLevels, count);
-                    return mapLevel(step);
-                }
-                return Math.min(maxLevels, Math.ceil((count / effectiveMax) * maxLevels));
-            };
-            const buildLegendRanges = () => {
-                if (!Number.isFinite(effectiveMax) || effectiveMax <= 0) {
-                    return [];
-                }
-                if (effectiveMax <= maxLevels) {
-                    return Array.from({ length: dynamicLevels }, (_, i) => ({ min: i + 1, max: i + 1 }));
-                }
-                const ranges = [];
-                let prev = 1;
-                for (let i = 1; i <= maxLevels; i += 1) {
-                    const upper = Math.max(prev, Math.ceil((effectiveMax * i) / maxLevels));
-                    ranges.push({ min: prev, max: upper });
-                    prev = upper + 1;
-                }
-                return ranges;
-            };
-            const legendRanges = buildLegendRanges();
-            const yearRows = [];
+            const now = new Date();
+            const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+            if (tf === 'this_year') {
+                const year = now.getFullYear();
+                const values = Array.from({ length: 12 }, () => 0);
+                countsByDate.forEach((count, raw) => {
+                    const d = new Date(`${raw}T00:00:00`);
+                    if (d.getFullYear() !== year) return;
+                    values[d.getMonth()] += count;
+                });
+                return { labels: monthNames, values };
+            }
 
             if (tf === 'this_month') {
-                const now = new Date();
-                const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-                const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-                const monthLabel = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
-                const weekdayLabels = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-                const cells = [];
-                const leadingBlanks = monthStart.getDay();
-                for (let i = 0; i < leadingBlanks; i += 1) {
-                    cells.push(
-                        `<div class="dash-heatmap-day-wrap">
-                            <div class="dash-heatmap-day-label"></div>
-                            <div class="dash-heatmap-cell is-month is-empty"></div>
-                        </div>`
-                    );
-                }
-                const cursor = new Date(monthStart);
-                while (cursor < monthEnd) {
-                    const dateKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`;
-                    const count = countsByDate.get(dateKey) || 0;
-                    const level = getLevel(count);
-                    const levelClass = level > 0 ? `dash-heatmap-l${level}` : '';
-                    const dayNum = cursor.getDate();
-                    const title = `${dateKey} • ${count} movie${count === 1 ? '' : 's'}`;
-                    cells.push(
-                        `<div class="dash-heatmap-day-wrap">
-                            <div class="dash-heatmap-day-label">${dayNum}</div>
-                            <div class="dash-heatmap-cell is-month ${levelClass}" title="${escapeHtml(title)}"></div>
-                        </div>`
-                    );
-                    cursor.setDate(cursor.getDate() + 1);
-                }
-
-                yearRows.push(`
-                    <div class="dash-heatmap-month">
-                        <div class="dash-heatmap-month-title">${escapeHtml(monthLabel)}</div>
-                        <div class="dash-heatmap-weekdays">
-                            ${weekdayLabels.map((d) => `<div>${escapeHtml(d)}</div>`).join('')}
-                        </div>
-                        <div class="dash-heatmap-month-grid">
-                            ${cells.join('')}
-                        </div>
-                    </div>
-                `);
-            } else {
-                const years = [];
-                for (let year = startYear; year <= endYear; year += 1) years.push(year);
-                if (tf === 'all_time') years.reverse();
-
-                years.forEach((year) => {
-                    const yearStart = new Date(year, 0, 1);
-                    const yearEnd = new Date(year + 1, 0, 1);
-
-                    const gridStart = new Date(yearStart);
-                    gridStart.setDate(gridStart.getDate() - gridStart.getDay());
-                    const gridEnd = new Date(yearEnd);
-                    gridEnd.setDate(gridEnd.getDate() + (6 - gridEnd.getDay()));
-
-                    const monthLabels = [];
-                    for (let m = 0; m < 12; m += 1) {
-                        const monthStart = new Date(year, m, 1);
-                        if (monthStart < yearStart || monthStart >= yearEnd) continue;
-                        const weekIndex = Math.floor((monthStart - gridStart) / weekMs) + 1;
-                        monthLabels.push(
-                            `<div class="dash-heatmap-month-label" style="--month-col:${weekIndex};">${monthNames[m]}</div>`
-                        );
-                    }
-
-                    const cells = [];
-                    const cursor = new Date(gridStart);
-                    while (cursor <= gridEnd) {
-                        const inYear = cursor >= yearStart && cursor < yearEnd;
-                        const dateKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`;
-                        const count = inYear ? (countsByDate.get(dateKey) || 0) : 0;
-                        const level = getLevel(count);
-                        const levelClass = level > 0 ? `dash-heatmap-l${level}` : '';
-                        const emptyClass = inYear ? '' : 'is-empty';
-                        const title = inYear ? `${dateKey} • ${count} movie${count === 1 ? '' : 's'}` : '';
-                        cells.push(
-                            `<div class="dash-heatmap-cell ${levelClass} ${emptyClass}" title="${escapeHtml(title)}"></div>`
-                        );
-                        cursor.setDate(cursor.getDate() + 1);
-                    }
-
-                    yearRows.push(`
-                        <div class="dash-heatmap-row">
-                            <div class="dash-heatmap-year">${escapeHtml(String(year))}</div>
-                            <div class="dash-heatmap-year-grid">
-                                <div class="dash-heatmap-months">${monthLabels.join('')}</div>
-                                <div class="dash-heatmap-weeks">${cells.join('')}</div>
-                            </div>
-                        </div>
-                    `);
+                const year = now.getFullYear();
+                const month = now.getMonth();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const values = Array.from({ length: daysInMonth }, () => 0);
+                countsByDate.forEach((count, raw) => {
+                    const d = new Date(`${raw}T00:00:00`);
+                    if (d.getFullYear() !== year || d.getMonth() !== month) return;
+                    values[d.getDate() - 1] += count;
                 });
+                const labels = Array.from({ length: daysInMonth }, (_, i) => String(i + 1));
+                return { labels, values };
             }
-            const legendItems = legendRanges.map((range, idx) => {
-                const label = range.min === range.max ? `${range.min}` : `${range.min}-${range.max}`;
-                const level = effectiveMax <= maxLevels ? mapLevel(idx + 1) : Math.min(idx + 1, maxLevels);
-                return `<span class="dash-heatmap-legend-item"><span class="dash-heatmap-legend-swatch dash-heatmap-l${level}"></span><span class="dash-heatmap-legend-label">${label}</span></span>`;
-            }).join('');
 
-            const legend = `
-                <div class="dash-heatmap-legend top-right">
-                    <span>Less</span>
-                    <span class="dash-heatmap-legend-item"><span class="dash-heatmap-legend-swatch is-empty"></span><span class="dash-heatmap-legend-label">0</span></span>
-                    ${legendItems}
-                    <span>More</span>
-                </div>
-            `;
-
-            return `
-                <div class="dash-heatmap ${tf === 'this_month' ? 'is-month-view' : ''}">
-                    ${legend}
-                    ${yearRows.join('')}
-                </div>
-            `;
+            const yearMap = new Map();
+            countsByDate.forEach((count, raw) => {
+                const d = new Date(`${raw}T00:00:00`);
+                const year = d.getFullYear();
+                yearMap.set(year, (yearMap.get(year) || 0) + count);
+            });
+            const years = Array.from(yearMap.keys()).sort((a, b) => a - b);
+            if (!years.length) return null;
+            const minYear = years[0];
+            const maxYear = years[years.length - 1];
+            const labels = [];
+            const values = [];
+            for (let y = minYear; y <= maxYear; y += 1) {
+                labels.push(String(y));
+                values.push(yearMap.get(y) || 0);
+            }
+            return { labels, values };
         }
 
-        function dashGetHeatmapHslVars() {
-            const style = getComputedStyle(document.documentElement);
-            const hRaw = String(style.getPropertyValue('--heatmap-h') || '').trim();
-            const sRaw = String(style.getPropertyValue('--heatmap-s') || '').trim();
-            const h = Number(hRaw);
-            const s = Number(sRaw.replace('%', ''));
+        function dashFormatCompactNumber(value) {
+            const num = Number(value);
+            if (!Number.isFinite(num)) return '0';
+            if (Math.abs(num) >= 1000000) return `${(num / 1000000).toFixed(num % 1000000 === 0 ? 0 : 1)}M`;
+            if (Math.abs(num) >= 1000) return `${(num / 1000).toFixed(num % 1000 === 0 ? 0 : 1)}k`;
+            return Number.isInteger(num) ? String(num) : num.toFixed(1);
+        }
+
+        function dashColorToRgba(color, alpha = 1) {
+            const raw = String(color || '').trim();
+            const a = Math.max(0, Math.min(1, Number(alpha) || 0));
+
+            const hex = raw.match(/^#([\da-f]{3}|[\da-f]{6})$/i);
+            if (hex) {
+                const value = hex[1];
+                const full = value.length === 3
+                    ? value.split('').map((ch) => ch + ch).join('')
+                    : value;
+                const r = parseInt(full.slice(0, 2), 16);
+                const g = parseInt(full.slice(2, 4), 16);
+                const b = parseInt(full.slice(4, 6), 16);
+                return `rgba(${r}, ${g}, ${b}, ${a})`;
+            }
+
+            const rgb = raw.match(/^rgba?\(([^)]+)\)$/i);
+            if (rgb) {
+                const parts = rgb[1].split(',').map((p) => Number.parseFloat(p.trim()));
+                if (parts.length >= 3 && parts.slice(0, 3).every((n) => Number.isFinite(n))) {
+                    const [r, g, b] = parts;
+                    return `rgba(${Math.max(0, Math.min(255, r))}, ${Math.max(0, Math.min(255, g))}, ${Math.max(0, Math.min(255, b))}, ${a})`;
+                }
+            }
+
+            return `rgba(20, 184, 166, ${a})`;
+        }
+
+        function dashDestroyActivityChart() {
+            if (!dashboardActivityChart) return;
+            try {
+                dashboardActivityChart.destroy();
+            } catch (_) {}
+            dashboardActivityChart = null;
+        }
+
+        function dashInitActivityLineChart(series) {
+            dashDestroyActivityChart();
+            if (!series || !Array.isArray(series.labels) || !Array.isArray(series.values)) return;
+            if (typeof Chart === 'undefined') return;
+
+            const canvas = document.getElementById('dash-activity-linechart');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+
+            const rootStyle = getComputedStyle(document.documentElement);
+            const accentRaw = String(rootStyle.getPropertyValue('--accent-2') || rootStyle.getPropertyValue('--brand') || '').trim();
+            const accent = accentRaw || '#14b8a6';
+            const labels = series.labels.map((l) => String(l ?? ''));
+            const values = series.values.map((v) => {
+                const parsed = Number(v);
+                return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+            });
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height || 340);
+            gradient.addColorStop(0, dashColorToRgba(accent, 0.34));
+            gradient.addColorStop(1, dashColorToRgba(accent, 0.04));
+
+            dashboardActivityChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        data: values,
+                        borderColor: accent,
+                        backgroundColor: gradient,
+                        fill: true,
+                        borderWidth: 3,
+                        tension: 0.28,
+                        cubicInterpolationMode: 'monotone',
+                        pointRadius: 3.8,
+                        pointHoverRadius: 5,
+                        pointBackgroundColor: accent,
+                        pointBorderColor: 'rgba(255,255,255,0.95)',
+                        pointBorderWidth: 2,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            displayColors: false,
+                            backgroundColor: 'rgba(10, 10, 14, 0.94)',
+                            borderColor: 'rgba(255,255,255,0.16)',
+                            borderWidth: 1,
+                            titleColor: 'rgba(255,255,255,0.92)',
+                            bodyColor: 'rgba(255,255,255,0.88)',
+                            titleFont: { family: 'Inter, sans-serif', size: 12, weight: '600' },
+                            bodyFont: { family: 'Inter, sans-serif', size: 12, weight: '400' },
+                            callbacks: {
+                                label: (ctx2) => ` ${dashFormatCompactNumber(ctx2.parsed?.y ?? 0)} watches`,
+                            },
+                        },
+                    },
+                    scales: {
+                        x: {
+                            offset: false,
+                            border: { display: false },
+                            grid: {
+                                display: false,
+                                drawBorder: false,
+                            },
+                            ticks: {
+                                color: 'rgba(255,255,255,0.82)',
+                                maxRotation: 0,
+                                minRotation: 0,
+                                autoSkip: false,
+                                font: { family: 'Inter, sans-serif', size: 11, weight: '400' },
+                            },
+                        },
+                        y: {
+                            beginAtZero: true,
+                            min: 0,
+                            border: { display: false },
+                            grid: {
+                                color: 'rgba(255,255,255,0.15)',
+                                drawBorder: false,
+                            },
+                            ticks: {
+                                color: 'rgba(255,255,255,0.86)',
+                                padding: 8,
+                                font: { family: 'Inter, sans-serif', size: 12, weight: '400' },
+                                callback: (value) => dashFormatCompactNumber(value),
+                            },
+                        },
+                    },
+                },
+            });
+        }
+
+        function dashRenderActivityLineChart(items, timeframe) {
+            const series = dashBuildActivitySeries(items, timeframe);
+            if (!series) {
+                return {
+                    html: `<div class="text-gray">No activity yet.</div>`,
+                    series: null,
+                };
+            }
+
+            const labels = Array.isArray(series.labels) ? series.labels : [];
+            const values = (Array.isArray(series.values) ? series.values : []).map((v) => {
+                const parsed = Number(v);
+                return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+            });
+            if (!labels.length || !values.length) {
+                return {
+                    html: `<div class="text-gray">No activity yet.</div>`,
+                    series: null,
+                };
+            }
+
+            const total = values.reduce((sum, value) => sum + value, 0);
+            const peak = Math.max(0, ...values);
+            const chartMinWidth = Math.max(760, labels.length * 52);
+            const tf = String(timeframe || '').trim().toLowerCase();
+            const periodsForAverage = (() => {
+                if (!values.length) return 1;
+                if (tf === 'this_year') {
+                    const elapsedMonths = new Date().getMonth() + 1;
+                    return Math.max(1, Math.min(values.length, elapsedMonths));
+                }
+                return values.length;
+            })();
+            const average = total / periodsForAverage;
+            const avgSuffix = tf === 'this_year' ? 'per month' : tf === 'this_month' ? 'per day' : 'per year';
+
             return {
-                h: Number.isFinite(h) ? h : 156,
-                s: Number.isFinite(s) ? s : 55,
+                html: `
+                    <div class="dash-activity-chart">
+                        <div class="dash-activity-stats">
+                            <div class="dash-activity-stat">
+                                <div class="dash-activity-stat-label">Total</div>
+                                <div class="dash-activity-stat-value">${dashFormatCompactNumber(total)} movies</div>
+                            </div>
+                            <div class="dash-activity-stat">
+                                <div class="dash-activity-stat-label">Peak</div>
+                                <div class="dash-activity-stat-value">${dashFormatCompactNumber(peak)} movies</div>
+                            </div>
+                            <div class="dash-activity-stat">
+                                <div class="dash-activity-stat-label">Average</div>
+                                <div class="dash-activity-stat-value">${average.toFixed(1)} movies ${avgSuffix}</div>
+                            </div>
+                        </div>
+                        <div class="dash-activity-scroll">
+                            <div class="dash-activity-canvas-wrap" style="min-width:${chartMinWidth}px;">
+                                <canvas id="dash-activity-linechart" class="dash-activity-canvas" aria-label="Watch activity line chart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                `,
+                series: { labels, values },
             };
         }
 
-        function dashGenreHeatmapCellClass(avg, minAvg, maxAvg) {
-            const val = Number(avg);
-            if (!Number.isFinite(val)) return '';
-            if (val <= 0) return '';
-            const clamped = Math.max(0, Math.min(100, val));
-            const bucket = Math.min(10, Math.max(1, Math.ceil(clamped / 10)));
-            return `dash-heatmap-l${bucket}`;
-        }
-
-        function dashHeatmapAxisLabel(axis) {
-            const a = String(axis || '').trim().toLowerCase();
-            if (a === 'decade') return 'Decade';
-            if (a === 'mpa') return 'MPA';
-            return 'Genre';
-        }
-
-        function dashHeatmapPairTitle(pair) {
-            const p = String(pair || '').trim().toLowerCase();
-            if (p === 'genre_mpa') return 'Genre/MPA Heatmap';
-            if (p === 'decade_mpa') return 'MPA/Decade Heatmap';
-            return 'Genre/Decade Heatmap';
-        }
-
-        function dashHeatmapAxisValueLabel(axis, value) {
-            const a = String(axis || '').trim().toLowerCase();
-            if (a === 'decade') {
-                const num = Number(value);
-                return Number.isFinite(num) ? `${num}s` : '—';
-            }
-            return String(value ?? '').trim() || '—';
-        }
-
-        function dashHeatmapNormalizeAxisValue(axis, raw) {
-            const a = String(axis || '').trim().toLowerCase();
-            if (a === 'decade') {
-                const num = Number(raw);
-                return Number.isFinite(num) ? num : null;
-            }
-            const str = String(raw ?? '').trim();
-            return str ? str : null;
-        }
-
-        function dashHeatmapAxisSortValue(axis, value) {
-            const a = String(axis || '').trim().toLowerCase();
-            if (a === 'decade') {
-                const num = Number(value);
-                return Number.isFinite(num) ? num : 99999;
-            }
-            if (a === 'mpa') {
-                const order = ['G', 'PG', 'PG-13', 'PG13', 'R', 'NC-17', 'NC17', 'UNRATED', 'NR', 'NOTRATED'];
-                const normalized = String(value ?? '').trim().toUpperCase().replace(/\s+/g, '');
-                const idx = order.indexOf(normalized);
-                return idx === -1 ? 99999 : idx;
-            }
-            return String(value ?? '').trim().toLowerCase();
-        }
-
-        function dashHeatmapValueCompare(axis, a, b) {
-            const aKey = dashHeatmapAxisSortValue(axis, a);
-            const bKey = dashHeatmapAxisSortValue(axis, b);
-            if (typeof aKey === 'number' && typeof bKey === 'number' && aKey !== bKey) return aKey - bKey;
-            const aStr = String(a ?? '').trim().toLowerCase();
-            const bStr = String(b ?? '').trim().toLowerCase();
-            return aStr.localeCompare(bStr);
-        }
-
-        function dashRenderAxisHeatmap({ items, rowAxis, colAxis }) {
-            const rows = Array.isArray(items) ? items : [];
-            if (!rows.length) return `<div class="text-gray">No data yet.</div>`;
-
-            const colSet = new Set();
-            const rowStats = new Map();
-            const cellMap = new Map();
-
-            rows.forEach((r) => {
-                const rowVal = dashHeatmapNormalizeAxisValue(rowAxis, r?.[rowAxis]);
-                const colVal = dashHeatmapNormalizeAxisValue(colAxis, r?.[colAxis]);
-                const avg = Number(r?.avg);
-                const n = Number(r?.n ?? 0);
-                if (rowVal === null || colVal === null || !Number.isFinite(avg)) return;
-
-                colSet.add(colVal);
-                cellMap.set(`${String(rowVal)}||${String(colVal)}`, { avg, n });
-
-                const weight = Number.isFinite(n) && n > 0 ? n : 1;
-                const stat = rowStats.get(rowVal) || { sum: 0, count: 0 };
-                stat.sum += avg * weight;
-                stat.count += weight;
-                rowStats.set(rowVal, stat);
-            });
-
-            const cols = Array.from(colSet).sort((a, b) => dashHeatmapValueCompare(colAxis, a, b));
-            const rowsSorted = Array.from(rowStats.entries())
-                .map(([key, stat]) => ({
-                    key,
-                    avg: stat.count ? (stat.sum / stat.count) : 0,
-                }))
-                .sort((a, b) => {
-                    if (rowAxis === 'genre') {
-                        if (b.avg !== a.avg) return b.avg - a.avg;
-                    }
-                    if (rowAxis === 'decade') {
-                        return dashHeatmapValueCompare(rowAxis, a.key, b.key);
-                    }
-                    if (rowAxis === 'mpa') {
-                        return dashHeatmapValueCompare(rowAxis, a.key, b.key);
-                    }
-                    return dashHeatmapValueCompare(rowAxis, a.key, b.key);
-                })
-                .map((r) => r.key);
-
-            if (!cols.length || !rowsSorted.length) return `<div class="text-gray">No data yet.</div>`;
-
-            const gridTemplate = `minmax(120px, 1fr) repeat(${cols.length}, minmax(52px, 1fr))`;
-            const header = `
-                <div class="dash-genre-heatmap-header" style="grid-template-columns: ${gridTemplate};">
-                    <div class="dash-genre-heatmap-label">${escapeHtml(dashHeatmapAxisLabel(rowAxis))}</div>
-                    ${cols.map((c) => `<div class="dash-heatmap-col-label">${escapeHtml(dashHeatmapAxisValueLabel(colAxis, c))}</div>`).join('')}
-                </div>
-            `;
-
-            const body = rowsSorted.map((rowVal) => {
-                const rowLabel = dashHeatmapAxisValueLabel(rowAxis, rowVal);
-                const cells = cols.map((colVal) => {
-                    const cell = cellMap.get(`${String(rowVal)}||${String(colVal)}`);
-                    if (!cell) {
-                        return `<div class="dash-genre-heatmap-cell is-empty">—</div>`;
-                    }
-                    const avg = Number(cell.avg);
-                    const n = Number(cell.n ?? 0);
-                    const levelClass = dashGenreHeatmapCellClass(avg);
-                    const colLabel = dashHeatmapAxisValueLabel(colAxis, colVal);
-                    const title = `${rowLabel} • ${colLabel} • ${dashChartFormatPct(avg)} • ${dashChartFormatCount(n)}`;
-                    return `
-                        <div class="dash-genre-heatmap-cell ${escapeHtml(levelClass)}" title="${escapeHtml(title)}">
-                            <span class="dash-genre-heatmap-value">${escapeHtml(dashChartFormatPct(avg))}</span>
-                        </div>
-                    `;
-                }).join('');
-
-                return `
-                    <div class="dash-genre-heatmap-row" style="grid-template-columns: ${gridTemplate};">
-                        <div class="dash-genre-heatmap-label">${escapeHtml(rowLabel)}</div>
-                        ${cells}
-                    </div>
-                `;
-            }).join('');
-
-            return `
-                <div class="dash-genre-heatmap-wrap">
-                    <div class="dash-genre-heatmap">
-                        ${header}
-                        ${body}
-                    </div>
-                </div>
-            `;
-        }
-
-
         function dashChartTitleForTab(tab) {
-            const t = String(tab || '').trim().toLowerCase();
-            if (t === 'heatmap') {
-                return dashHeatmapPairTitle(dashboardHeatmapPair);
-            }
-            if (t === 'activity') return 'Watch Activity Calendar';
-            return 'Genre/Decade Heatmap';
+            return 'Watch Activity';
         }
 
         function dashRatingsChartTitleForTab(tab) {
@@ -12372,49 +12367,12 @@
             if (!elTitle || !elBody) return;
 
             const payload = data || {};
-            const genreHeatmap = Array.isArray(payload?.genre_heatmap) ? payload.genre_heatmap : [];
-            const genreMpaHeatmap = Array.isArray(payload?.genre_mpa_heatmap) ? payload.genre_mpa_heatmap : [];
-            const decadeMpaHeatmap = Array.isArray(payload?.decade_mpa_heatmap) ? payload.decade_mpa_heatmap : [];
             const activity = Array.isArray(payload?.activity) ? payload.activity : [];
 
-            const tab = String(dashboardChartsTab || '').trim().toLowerCase();
-
-            if (tab === 'activity') {
-                elTitle.textContent = 'Watch Activity Calendar';
-                elBody.innerHTML = dashRenderActivityHeatmap(activity, dashboardTimeframe, dashboardChartsActivityMax);
-                return;
-            }
-            const pair = String(dashboardHeatmapPair || '').trim().toLowerCase();
-            let heatmap = genreHeatmap;
-            let axisA = 'genre';
-            let axisB = 'decade';
-            if (pair === 'genre_mpa') {
-                heatmap = genreMpaHeatmap;
-                axisA = 'genre';
-                axisB = 'mpa';
-            } else if (pair === 'decade_mpa') {
-                heatmap = decadeMpaHeatmap;
-                axisA = 'mpa';
-                axisB = 'decade';
-            }
-
-            const chooseAxes = (items, a, b) => {
-                const aSet = new Set();
-                const bSet = new Set();
-                (Array.isArray(items) ? items : []).forEach((r) => {
-                    const aVal = dashHeatmapNormalizeAxisValue(a, r?.[a]);
-                    const bVal = dashHeatmapNormalizeAxisValue(b, r?.[b]);
-                    if (aVal !== null) aSet.add(aVal);
-                    if (bVal !== null) bSet.add(bVal);
-                });
-                if (bSet.size > aSet.size) return { row: b, col: a };
-                if (aSet.size > bSet.size) return { row: a, col: b };
-                return { row: a, col: b };
-            };
-
-            const axes = chooseAxes(heatmap, axisA, axisB);
-            elTitle.textContent = dashChartTitleForTab('heatmap');
-            elBody.innerHTML = dashRenderAxisHeatmap({ items: heatmap, rowAxis: axes.row, colAxis: axes.col });
+            elTitle.textContent = dashChartTitleForTab('activity');
+            const chart = dashRenderActivityLineChart(activity, dashboardTimeframe);
+            elBody.innerHTML = chart.html;
+            dashInitActivityLineChart(chart.series);
         }
 
         function renderDashboardRatingsChartsFromData(data) {
@@ -12506,7 +12464,7 @@
             const elBody = document.getElementById('dash-chart-body');
             if (!elTitle || !elBody) return;
 
-            elTitle.textContent = dashChartTitleForTab(dashboardChartsTab);
+            elTitle.textContent = dashChartTitleForTab('activity');
 
             let authedUser = null;
             try {
@@ -12544,17 +12502,6 @@
 
                 const data = res?.data || {};
                 dashboardChartsLastData = data;
-                if (dashboardTimeframe === 'all_time') {
-                    dashboardChartsActivityMax = dashComputeActivityMax(data?.activity);
-                }
-                if (!Number.isFinite(dashboardChartsActivityMax) || dashboardChartsActivityMax <= 0) {
-                    try {
-                        const allRes = await supabaseClient.rpc('get_dashboard_charts', { p_timeframe: 'all_time' });
-                        if (!allRes?.error) {
-                            dashboardChartsActivityMax = dashComputeActivityMax(allRes?.data?.activity);
-                        }
-                    } catch (_) {}
-                }
                 renderDashboardChartsFromData(data);
             } catch (err) {
                 showToast(`Dashboard (Charts) failed: ${String(err?.message || err)}`, { level: 'warn' });
@@ -13263,6 +13210,66 @@
             elB.style.height = `${Math.max(bPct > 0 ? minPct : 0, bPct)}%`;
         }
 
+        function dashSetWatchMethodDisplay(atHome, inTheater) {
+            const elAtHomeWatches = document.getElementById('dash-general-at-home-watches');
+            const elInTheaterWatches = document.getElementById('dash-general-in-theater-watches');
+            const elStackHome = document.getElementById('dash-general-stack-home');
+            const elStackTheater = document.getElementById('dash-general-stack-theater');
+
+            const home = Number(atHome) || 0;
+            const theater = Number(inTheater) || 0;
+            const total = home + theater;
+            const homePct = total > 0 ? ((home / total) * 100) : 0;
+            const theaterPct = total > 0 ? ((theater / total) * 100) : 0;
+
+            if (elAtHomeWatches) elAtHomeWatches.textContent = `${homePct.toFixed(1)}% (${home})`;
+            if (elInTheaterWatches) elInTheaterWatches.textContent = `${theaterPct.toFixed(1)}% (${theater})`;
+            dashSetStackBar(elStackHome, elStackTheater, home, theater);
+        }
+
+        function dashResetWatchMethodDisplay() {
+            dashSetWatchMethodDisplay(dashboardGeneralMethodBase.atHome, dashboardGeneralMethodBase.inTheater);
+        }
+
+        function dashGetWatchMethodForPieLabel(type, label) {
+            const data = dashboardGeneralPieData || {};
+            const rows = type === 'genre'
+                ? (data.genreMethodItems || [])
+                : (type === 'decade' ? (data.decadeMethodItems || []) : (data.mpaMethodItems || []));
+            if (!Array.isArray(rows) || rows.length === 0) return null;
+
+            const normalizedLabel = type === 'genre' ? dashNormalizeGenreLabel(label) : String(label || '').trim();
+            if (!normalizedLabel) return null;
+
+            let atHome = 0;
+            let inTheater = 0;
+
+            if (type === 'genre' && normalizedLabel.toLowerCase() === 'other') {
+                const otherLabels = new Set((dashboardGeneralGenreOtherItems || []).map((item) => dashNormalizeGenreLabel(item?.label)));
+                if (otherLabels.size === 0) return null;
+                rows.forEach((row) => {
+                    const rowLabel = dashNormalizeGenreLabel(row?.label);
+                    if (!otherLabels.has(rowLabel)) return;
+                    const method = dashNormalizeWatchMethod(row?.method || row?.watch_method);
+                    const value = Number(row?.value ?? row?.count ?? 0) || 0;
+                    if (method === 'At Home') atHome += value;
+                    if (method === 'In Theater') inTheater += value;
+                });
+                return { atHome, inTheater };
+            }
+
+            rows.forEach((row) => {
+                const rowLabel = type === 'genre' ? dashNormalizeGenreLabel(row?.label) : String(row?.label || '').trim();
+                if (rowLabel !== normalizedLabel) return;
+                const method = dashNormalizeWatchMethod(row?.method || row?.watch_method);
+                const value = Number(row?.value ?? row?.count ?? 0) || 0;
+                if (method === 'At Home') atHome += value;
+                if (method === 'In Theater') inTheater += value;
+            });
+
+            return { atHome, inTheater };
+        }
+
         function dashBuildPalette(count) {
             const total = Math.max(1, Number(count) || 1);
             const style = getComputedStyle(document.documentElement);
@@ -13279,7 +13286,51 @@
             });
         }
 
-        function dashRenderPieChart({ el, legendEl, items, labelKey, valueKey, maxSlices = 999 }) {
+        function dashNormalizeWatchMethod(raw) {
+            const s = String(raw || '').trim().toLowerCase();
+            if (!s) return '';
+            if (s.includes('home')) return 'At Home';
+            if (s.includes('theater') || s.includes('theatre')) return 'In Theater';
+            return '';
+        }
+
+        function dashNormalizeGenreLabel(raw) {
+            const label = String(raw ?? '').trim();
+            if (!label) return '';
+            const key = label.toLowerCase().replace(/\s+/g, '');
+            if (key === 'sciencefiction' || key === 'scifi' || key === 'sci-fi') return 'Sci-Fi';
+            return label;
+        }
+
+        function dashGenreFilterValue(label) {
+            const normalized = dashNormalizeGenreLabel(label);
+            if (normalized === 'Sci-Fi') return 'Science Fiction';
+            return normalized;
+        }
+
+        function dashBuildGenrePieItems(items, limit = 8) {
+            const rows = Array.isArray(items) ? items : [];
+            const map = new Map();
+            rows.forEach((r) => {
+                const label = dashNormalizeGenreLabel(r?.label);
+                const value = Number(r?.value ?? 0);
+                if (!label || !Number.isFinite(value) || value <= 0) return;
+                const prev = map.get(label) || 0;
+                map.set(label, prev + value);
+            });
+            const merged = Array.from(map.entries()).map(([label, value]) => ({ label, value }));
+            merged.sort((a, b) => b.value - a.value);
+            const total = merged.reduce((sum, r) => sum + r.value, 0);
+            const top = merged.slice(0, Math.max(1, limit));
+            const otherItems = merged.slice(top.length);
+            const otherValue = otherItems.reduce((sum, r) => sum + r.value, 0);
+            const itemsWithOther = otherValue > 0
+                ? [...top, { label: 'Other', value: otherValue, isOther: true }]
+                : top;
+            return { items: itemsWithOther, otherItems, total };
+        }
+
+        function dashRenderPieChart({ el, legendEl, items, labelKey, valueKey, maxSlices = 999, legendCols = null }) {
             if (!el || !legendEl) return;
             if (legendEl.classList) {
                 const wantsCompact = legendEl.id === 'dash-general-genre-legend' || legendEl.dataset.compact === 'true';
@@ -13296,14 +13347,20 @@
 
             if (!clean.length) {
                 el.style.background = 'conic-gradient(rgba(255,255,255,0.08) 0deg 360deg)';
+                el._pieStops = null;
+                el._pieColors = null;
+                el._pieItems = [];
+                el._pieTotal = 0;
                 legendEl.innerHTML = `<div class="text-gray">No data yet.</div>`;
                 return;
             }
 
             const sliceCount = Math.max(1, Math.min(maxSlices, clean.length));
             const top = clean.slice(0, sliceCount);
-            const legendCols = top.length <= 6 ? 1 : Math.ceil(top.length / 6);
-            legendEl.style.setProperty('--legend-cols', String(legendCols));
+            const colCount = Number.isFinite(legendCols) && legendCols > 0
+                ? legendCols
+                : Math.max(1, Math.ceil(top.length / 5));
+            legendEl.style.setProperty('--legend-cols', String(colCount));
 
             const total = top.reduce((sum, r) => sum + r.value, 0);
             const colors = dashBuildPalette(top.length);
@@ -13318,17 +13375,74 @@
 
             const gradient = stops.map((s) => `${s.color} ${s.start.toFixed(1)}deg ${s.end.toFixed(1)}deg`).join(', ');
             el.style.background = `conic-gradient(${gradient})`;
+            el._pieStops = stops;
+            el._pieColors = colors;
+            el._pieItems = top;
+            el._pieTotal = total;
 
             legendEl.innerHTML = top.map((r, idx) => {
                 const pct = total > 0 ? ((r.value / total) * 100) : 0;
                 const pctText = pct.toFixed(1);
+                const isOther = String(r.label || '').trim().toLowerCase() === 'other' || r.isOther === true;
                 return `
-                    <div class="dash-pie-legend-item" role="button" tabindex="0" data-dash-pie-value="${escapeHtml(encodeURIComponent(String(r.label)))}" data-dash-pie-label="${escapeHtml(r.label)}">
+                    <div class="dash-pie-legend-item" role="button" tabindex="0" data-dash-pie-index="${idx}" data-dash-pie-value="${escapeHtml(encodeURIComponent(String(r.label)))}" data-dash-pie-label="${escapeHtml(r.label)}" data-dash-pie-other="${isOther ? 'true' : 'false'}">
                         <span class="dash-pie-legend-label" title="${escapeHtml(r.label)}"><span class="dash-legend-dot" style="background:${colors[idx]}"></span>${escapeHtml(r.label)}</span>
                         <span class="tabular-nums">${escapeHtml(pctText)}% (${escapeHtml(String(r.value))})</span>
                     </div>
                 `;
             }).join('');
+            legendEl.classList.remove('is-dim');
+        }
+
+        function dashSetPieLegendHighlight(legendEl, index) {
+            if (!legendEl) return;
+            const items = Array.from(legendEl.querySelectorAll('.dash-pie-legend-item'));
+            const isActive = Number.isFinite(index) && index >= 0;
+            legendEl.classList.toggle('is-dim', isActive);
+            items.forEach((item) => {
+                const idx = Number(item.dataset.dashPieIndex);
+                item.classList.toggle('is-active', isActive && idx === index);
+            });
+        }
+
+        function dashSetPieHighlight(pieEl, legendEl, index) {
+            if (!pieEl || !pieEl._pieStops || !Array.isArray(pieEl._pieStops)) return;
+            const stops = pieEl._pieStops;
+            const colors = Array.isArray(pieEl._pieColors) ? pieEl._pieColors : stops.map((s) => s.color);
+            const hasActive = Number.isFinite(index) && index >= 0;
+            const gradient = stops.map((s, i) => {
+                const base = colors[i] || s.color;
+                const color = hasActive && i !== index
+                    ? `color-mix(in srgb, ${base} 18%, rgba(10,10,10,0.9))`
+                    : base;
+                return `${color} ${s.start.toFixed(1)}deg ${s.end.toFixed(1)}deg`;
+            }).join(', ');
+            pieEl.style.background = `conic-gradient(${gradient})`;
+            dashSetPieLegendHighlight(legendEl, hasActive ? index : -1);
+        }
+
+        function dashFindPieIndex(pieEl, angle) {
+            const stops = pieEl?._pieStops;
+            if (!Array.isArray(stops)) return -1;
+            const a = Number(angle);
+            if (!Number.isFinite(a)) return -1;
+            return stops.findIndex((s) => a >= s.start && a < s.end);
+        }
+
+        function dashAngleFromEvent(pieEl, event) {
+            if (!pieEl || !event) return null;
+            const rect = pieEl.getBoundingClientRect();
+            const cx = rect.left + rect.width / 2;
+            const cy = rect.top + rect.height / 2;
+            const dx = event.clientX - cx;
+            const dy = event.clientY - cy;
+            if (!Number.isFinite(dx) || !Number.isFinite(dy)) return null;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const outerRadius = rect.width / 2;
+            const innerRadius = rect.width * 0.31;
+            if (!Number.isFinite(dist) || dist <= innerRadius || dist > outerRadius) return null;
+            const deg = (Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360;
+            return deg;
         }
 
         function renderDashboardGeneralSharePie() {
@@ -13339,9 +13453,18 @@
             const rawMode = String(dashboardGeneralPieMode || '').trim().toLowerCase();
             const mode = rawMode === 'decade' ? 'decade' : (rawMode === 'genre' ? 'genre' : 'mpa');
             const data = dashboardGeneralPieData || {};
-            const items = mode === 'decade'
+            let items = mode === 'decade'
                 ? (data.decadeItems || [])
                 : (mode === 'genre' ? (data.genreItems || []) : (data.mpaItems || []));
+            if (mode === 'genre') {
+                const prep = dashBuildGenrePieItems(items, 8);
+                items = prep.items;
+                dashboardGeneralGenreOtherItems = prep.otherItems;
+                dashboardGeneralGenreOtherTotal = prep.total;
+            } else {
+                dashboardGeneralGenreOtherItems = [];
+                dashboardGeneralGenreOtherTotal = 0;
+            }
             elLegend.dataset.compact = mode === 'genre' ? 'true' : 'false';
             elLegend.dataset.pieType = mode;
             dashRenderPieChart({
@@ -13350,6 +13473,7 @@
                 items,
                 labelKey: 'label',
                 valueKey: 'value',
+                legendCols: null,
             });
         }
 
@@ -13481,7 +13605,14 @@
                 safeText(elTopMpaEvents, v);
                 safeHtml(elTopMpaEventsCount, '&nbsp;');
                 dashSetStackBar(elStackHome, elStackTheater, 0, 0);
-                dashboardGeneralPieData = { mpaItems: [], decadeItems: [], genreItems: [] };
+                dashboardGeneralPieData = {
+                    mpaItems: [],
+                    decadeItems: [],
+                    genreItems: [],
+                    mpaMethodItems: [],
+                    decadeMethodItems: [],
+                    genreMethodItems: [],
+                };
                 renderDashboardGeneralSharePie();
             };
 
@@ -13633,13 +13764,11 @@
                 safeText(elEventsTotal, Number.isFinite(displayWatches) ? String(displayWatches) : '0');
                 safeText(elHours, formatHoursClock(displayHours));
 
-                const methodTotal = (Number.isFinite(displayAtHome) ? displayAtHome : 0) + (Number.isFinite(displayTheater) ? displayTheater : 0);
-                const atHomePct = methodTotal > 0 ? ((displayAtHome / methodTotal) * 100) : 0;
-                const theaterPct = methodTotal > 0 ? ((displayTheater / methodTotal) * 100) : 0;
-                safeText(elAtHomeWatches, `${atHomePct.toFixed(1)}% (${Number.isFinite(displayAtHome) ? displayAtHome : 0})`);
-                safeText(elInTheaterWatches, `${theaterPct.toFixed(1)}% (${Number.isFinite(displayTheater) ? displayTheater : 0})`);
-
-                dashSetStackBar(elStackHome, elStackTheater, displayAtHome, displayTheater);
+                dashboardGeneralMethodBase = {
+                    atHome: Number.isFinite(displayAtHome) ? displayAtHome : 0,
+                    inTheater: Number.isFinite(displayTheater) ? displayTheater : 0,
+                };
+                dashSetWatchMethodDisplay(dashboardGeneralMethodBase.atHome, dashboardGeneralMethodBase.inTheater);
 
                 const genreEventsName = String(topGenre?.name ?? '').trim();
                 const genreUniqueName = String(topGenreUnique?.name ?? '').trim();
@@ -13756,9 +13885,9 @@
                         return Number.isFinite(fallback) ? fallback : 0;
                     };
                     const genreItems = Array.isArray(genreSource)
-                        ? genreSource.map((r) => ({ label: r?.genre, value: pickCount(r, useUnique) }))
+                        ? genreSource.map((r) => ({ label: dashNormalizeGenreLabel(r?.genre), value: pickCount(r, useUnique) }))
                         : (Array.isArray(chartsData?.genres)
-                            ? chartsData.genres.map((r) => ({ label: r?.genre, value: Number(r?.n ?? 0) }))
+                            ? chartsData.genres.map((r) => ({ label: dashNormalizeGenreLabel(r?.genre), value: Number(r?.n ?? 0) }))
                             : []);
                     const mpaSource = useUnique ? chartsData?.mpa_counts_unique : chartsData?.mpa_counts_total;
                     const mpaItems = Array.isArray(mpaSource)
@@ -13773,10 +13902,51 @@
                         : (Array.isArray(chartsData?.decades)
                             ? chartsData.decades.map((r) => ({ label: r?.decade !== null && r?.decade !== undefined ? `${String(r.decade)}s` : '', value: Number(r?.n ?? 0) }))
                             : []);
-                    dashboardGeneralPieData = { mpaItems, decadeItems, genreItems };
+                    const genreMethodSource = useUnique ? chartsData?.genre_method_counts_unique : chartsData?.genre_method_counts_total;
+                    const genreMethodItems = Array.isArray(genreMethodSource)
+                        ? genreMethodSource.map((r) => ({
+                            label: dashNormalizeGenreLabel(r?.genre),
+                            method: r?.watch_method,
+                            value: Number(r?.count ?? 0),
+                        }))
+                        : [];
+
+                    const decadeMethodSource = useUnique ? chartsData?.decade_method_counts_unique : chartsData?.decade_method_counts_total;
+                    const decadeMethodItems = Array.isArray(decadeMethodSource)
+                        ? decadeMethodSource.map((r) => ({
+                            label: r?.decade !== null && r?.decade !== undefined ? `${String(r.decade)}s` : '',
+                            method: r?.watch_method,
+                            value: Number(r?.count ?? 0),
+                        }))
+                        : [];
+
+                    const mpaMethodSource = useUnique ? chartsData?.mpa_method_counts_unique : chartsData?.mpa_method_counts_total;
+                    const mpaMethodItems = Array.isArray(mpaMethodSource)
+                        ? mpaMethodSource.map((r) => ({
+                            label: r?.mpa,
+                            method: r?.watch_method,
+                            value: Number(r?.count ?? 0),
+                        }))
+                        : [];
+
+                    dashboardGeneralPieData = {
+                        mpaItems,
+                        decadeItems,
+                        genreItems,
+                        mpaMethodItems,
+                        decadeMethodItems,
+                        genreMethodItems,
+                    };
                     renderDashboardGeneralSharePie();
                 } catch (_) {
-                    dashboardGeneralPieData = { mpaItems: [], decadeItems: [], genreItems: [] };
+                    dashboardGeneralPieData = {
+                        mpaItems: [],
+                        decadeItems: [],
+                        genreItems: [],
+                        mpaMethodItems: [],
+                        decadeMethodItems: [],
+                        genreMethodItems: [],
+                    };
                     renderDashboardGeneralSharePie();
                 }
             } catch (err) {
@@ -18198,6 +18368,34 @@
             }
             const root = document.documentElement;
 
+            const makeGlassSlightlyLessTransparent = (value, alphaBoost = 0.06) => {
+                const raw = String(value || '').trim();
+                if (!raw) return raw;
+                const boost = Math.max(0, Number(alphaBoost) || 0);
+
+                const clampAlpha = (a) => Math.max(0, Math.min(0.96, a));
+
+                const rgbaMatch = raw.match(/^rgba\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d*\.?\d+)\s*\)$/i);
+                if (rgbaMatch) {
+                    const r = Math.max(0, Math.min(255, Number(rgbaMatch[1])));
+                    const g = Math.max(0, Math.min(255, Number(rgbaMatch[2])));
+                    const b = Math.max(0, Math.min(255, Number(rgbaMatch[3])));
+                    const a = clampAlpha(Number(rgbaMatch[4]) + boost);
+                    return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
+                }
+
+                const hslaMatch = raw.match(/^hsla\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)%\s*,\s*(\d+(?:\.\d+)?)%\s*,\s*(\d*\.?\d+)\s*\)$/i);
+                if (hslaMatch) {
+                    const h = Number(hslaMatch[1]);
+                    const s = Number(hslaMatch[2]);
+                    const l = Number(hslaMatch[3]);
+                    const a = clampAlpha(Number(hslaMatch[4]) + boost);
+                    return `hsla(${h}, ${s}%, ${l}%, ${a.toFixed(3)})`;
+                }
+
+                return raw;
+            };
+
             const base = {
                 bg_dark: String(c.bg_dark || '').trim(),
                 surface: String(c.surface || '').trim(),
@@ -18245,7 +18443,7 @@
             if (derived.brand_shadow) root.style.setProperty('--brand-shadow', derived.brand_shadow);
             if (derived.nav_active_a) root.style.setProperty('--nav-active-a', derived.nav_active_a);
             if (derived.nav_active_b) root.style.setProperty('--nav-active-b', derived.nav_active_b);
-            if (derived.glass_bg) root.style.setProperty('--glass-bg', derived.glass_bg);
+            if (derived.glass_bg) root.style.setProperty('--glass-bg', makeGlassSlightlyLessTransparent(derived.glass_bg, 0.2));
             if (derived.glass_border) root.style.setProperty('--glass-border', derived.glass_border);
             if (derived.glass_shadow) root.style.setProperty('--glass-shadow', derived.glass_shadow);
             if (derived.btn_outline_bg) root.style.setProperty('--btn-outline-bg', derived.btn_outline_bg);
