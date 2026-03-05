@@ -526,6 +526,36 @@
         #search-results {
             z-index: 2147483647 !important;
         }
+        #ai-similar-results {
+            z-index: 2147483647 !important;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            width: 100%;
+        }
+        /* Ensure the AI similar-movie search card doesn't trap the dropdown in a stacking context */
+        #ai-similar-search-card {
+            position: relative;
+            z-index: 100;
+            overflow: visible;
+            /* Disable backdrop-filter here so it doesn't create a stacking context that traps the dropdown */
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+        }
+        #ai-similar-search-card .input-group {
+            position: relative;
+            z-index: 100;
+        }
+        #ai-inputs-wrap .ai-card {
+            overflow: visible;
+        }
+        /* The generate-suggestions card must not overlap the dropdown */
+        #ai-inputs-wrap {
+            overflow: visible;
+        }
+        #ai-inputs-wrap > div {
+            overflow: visible;
+        }
         #theme-creator-search-results {
             z-index: 9999;
         }
@@ -5805,12 +5835,12 @@
                                         </div>
                                     </div>
 
-                                    <div class="ai-card" style="padding: 1rem; border-radius: 1rem;">
+                                    <div id="ai-similar-search-card" class="ai-card" style="padding: 1rem; border-radius: 1rem; overflow: visible; position: relative; z-index: 100;">
                                         <div class="text-white font-bold">Pick similar movies</div>
                                         <div class="text-xs text-gray" style="margin-top: 0.2rem;">Optional, up to 5.</div>
                                         <div style="margin-top: 0.6rem; display:flex; gap: 10px; align-items:flex-start; flex-wrap: wrap;">
-                                            <div style="max-width: 340px; position: relative; flex: 1 1 260px;">
-                                                <div class="input-group">
+                                            <div style="max-width: 340px; position: relative; flex: 1 1 260px; z-index: 100;">
+                                                <div class="input-group" style="position: relative; z-index: 100;">
                                                     <div class="input-icon">${icons.search}</div>
                                                     <input id="ai-similar-input" type="text" class="input-field glass-input" placeholder="Search for a similar movie…" autocomplete="off" style="padding-right: 90px; width: 100%; border-radius: 0.85rem;">
                                                     <div id="ai-similar-results" class="search-dropdown hidden"></div>
@@ -5889,8 +5919,13 @@
                             </div>
 
                             <div id="ai-results-panel" class="glass-panel hidden" style="margin-top: 1.25rem; padding: 1rem; border-radius: 1rem;">
-                                <div class="text-white font-bold">Top Suggestions</div>
-                                <div class="text-xs text-gray" style="margin-top: 0.25rem;">Results will appear here after generation.</div>
+                                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+                                    <div>
+                                        <div class="text-white font-bold">Top Suggestions</div>
+                                        <div class="text-xs text-gray" style="margin-top: 0.25rem;">Results will appear here after generation.</div>
+                                    </div>
+                                    <button id="ai-rerun-btn" type="button" class="btn btn-primary" style="border-radius: 0.85rem; padding: 0.5rem 1rem; font-size: 0.85rem;">Edit &amp; Re‑run</button>
+                                </div>
                                 <div id="ai-results" class="ai-results" style="margin-top: 0.85rem;">
                                     <div class="text-gray">No results yet.</div>
                                 </div>
@@ -19801,6 +19836,8 @@
             };
         }
 
+        let _aiPicksListenersBound = false;
+
         function initAiPicksPage() {
             syncAiTmdbRatingFilter();
             showAiResults([]);
@@ -19808,6 +19845,11 @@
             setAiLoading(false);
             updateAiPromptCounter();
             clearAiSimilarSelection();
+
+            // Only bind document-level listeners once to prevent duplicate toggle firings
+            if (_aiPicksListenersBound) return;
+            _aiPicksListenersBound = true;
+
             document.addEventListener('input', (e) => {
                 const el = e?.target;
                 if (!el || !(el instanceof HTMLElement)) return;
@@ -19936,6 +19978,17 @@
                     setAiInputsHidden(false);
                     showAiResults([]);
                     clearAiSimilarSelection();
+                    return;
+                }
+
+                const rerun = e?.target?.closest ? e.target.closest('#ai-rerun-btn') : null;
+                if (rerun) {
+                    // Show the inputs again so the user can edit, keep results visible for reference
+                    setAiInputsHidden(false);
+                    // Scroll to the top of the inputs
+                    const inputsWrap = document.getElementById('ai-inputs-wrap');
+                    if (inputsWrap) inputsWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    return;
                 }
             });
         }
