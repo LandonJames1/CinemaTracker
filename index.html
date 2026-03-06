@@ -3395,11 +3395,67 @@
                 color-mix(in srgb, var(--nav-active-b) 80%, var(--brand-light))
             );
         }
+
+        /* ─── Demo / Guest Mode ─── */
+        #demo-banner {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 10000;
+            background: linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 70%, #000));
+            color: #fff;
+            text-align: center;
+            padding: 0.45rem 1rem;
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.35);
+        }
+        #demo-banner.visible { display: flex; align-items: center; justify-content: center; gap: 0.75rem; }
+        #demo-banner .demo-banner-text { opacity: 0.95; }
+        #demo-banner .demo-banner-btn {
+            background: rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.25);
+            color: #fff;
+            font-size: 0.72rem;
+            font-weight: 800;
+            padding: 0.25rem 0.7rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        #demo-banner .demo-banner-btn:hover { background: rgba(255,255,255,0.30); }
+        body.guest-mode { --header-height: calc(56px + 32px); }
+        body.guest-mode .navbar { top: 32px; }
+        .btn-demo {
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.2);
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            font-weight: 600;
+            padding: 0.5rem 1rem;
+            border-radius: 0.65rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            width: 100%;
+            margin-top: 0.35rem;
+        }
+        .btn-demo:hover { background: rgba(255,255,255,0.06); color: #fff; border-color: rgba(255,255,255,0.35); }
     </style>
 </head>
 <body>
     <div class="theme-background"></div>
     <div class="theme-gradient-overlay"></div>
+
+    <!-- Demo Mode Banner -->
+    <div id="demo-banner">
+        <span class="demo-banner-text">🍿 You're viewing Demo Mode</span>
+        <button id="demo-banner-signup" class="demo-banner-btn" onclick="exitGuestMode(); openAuthModal('signup');">Sign Up</button>
+        <button class="demo-banner-btn" onclick="exitGuestMode(); openAuthModal('login');">Log In</button>
+        <button class="demo-banner-btn" onclick="exitGuestMode(); router.navigate('home');" style="opacity:0.7;">Exit</button>
+    </div>
 
     <!-- Navbar -->
     <nav class="navbar glass-panel">
@@ -3544,7 +3600,7 @@
                     <div class="auth-modal-title" id="auth-modal-title">Welcome Back</div>
                     <div class="auth-modal-subtitle" id="auth-modal-subtitle">Sign in to your account</div>
                 </div>
-                <button class="auth-modal-close" type="button" onclick="closeAuthModal()">&times;</button>
+                <button class="auth-modal-close" id="auth-modal-close-btn" type="button" onclick="closeAuthModal()">&times;</button>
             </div>
 
             <!-- Login / Sign Up tab toggle (hidden when already logged in or sign-ups disabled) -->
@@ -3590,6 +3646,7 @@
                 <button type="button" id="auth-signup-btn" class="btn btn-primary" onclick="handleSignUpClick(event)" style="display:none;">Create Account</button>
                 <button type="button" id="auth-logout-btn" class="btn btn-outline" onclick="handleLogoutClick(event)" style="display:none;">Log Out</button>
             </div>
+            <button type="button" id="auth-demo-btn" class="btn-demo" onclick="enterGuestMode(); closeAuthModal();" style="display:none;">👀 Try Demo — explore with sample data</button>
         </div>
     </div>
 
@@ -3625,65 +3682,13 @@
         </div>
     </div>
 
-    <div id="dashboard-auth-warning" class="auth-overlay" onclick="if(event.target === this) closeDashboardAuthWarning();">
-        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="dashboard-auth-warning-title">
-            <div class="auth-modal-header">
-                <div class="auth-modal-title" id="dashboard-auth-warning-title">Login Required</div>
-                <button class="auth-modal-close" type="button" onclick="closeDashboardAuthWarning()">Close</button>
-            </div>
-            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;">
-                Please login to view your data dashboard
-            </div>
-            <div class="auth-modal-actions">
-                <button type="button" class="btn btn-primary" onclick="closeDashboardAuthWarning(); openAuthModal();">Log in</button>
-            </div>
-        </div>
-    </div>
+    <div id="dashboard-auth-warning" class="auth-overlay" style="display:none !important;"></div>
 
-    <div id="feed-auth-warning" class="auth-overlay" onclick="if(event.target === this) closeFeedAuthWarning();">
-        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="feed-auth-warning-title">
-            <div class="auth-modal-header">
-                <div class="auth-modal-title" id="feed-auth-warning-title">Login Required</div>
-                <button class="auth-modal-close" type="button" onclick="closeFeedAuthWarning()">Close</button>
-            </div>
-            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;">
-                Please login to view your feed
-            </div>
-            <div class="auth-modal-actions">
-                <button type="button" class="btn btn-primary" onclick="closeFeedAuthWarning(); openAuthModal();">Log in</button>
-            </div>
-        </div>
-    </div>
+    <div id="feed-auth-warning" class="auth-overlay" style="display:none !important;"></div>
 
-    <div id="library-auth-warning" class="auth-overlay" onclick="if(event.target === this) closeLibraryAuthWarning();">
-        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="library-auth-warning-title">
-            <div class="auth-modal-header">
-                <div class="auth-modal-title" id="library-auth-warning-title">Login Required</div>
-                <button class="auth-modal-close" type="button" onclick="closeLibraryAuthWarning()">Close</button>
-            </div>
-            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;">
-                Please login to view your movies
-            </div>
-            <div class="auth-modal-actions">
-                <button type="button" class="btn btn-primary" onclick="closeLibraryAuthWarning(); openAuthModal();">Log in</button>
-            </div>
-        </div>
-    </div>
+    <div id="library-auth-warning" class="auth-overlay" style="display:none !important;"></div>
 
-    <div id="lists-auth-warning" class="auth-overlay" onclick="if(event.target === this) closeListsAuthWarning();">
-        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="lists-auth-warning-title">
-            <div class="auth-modal-header">
-                <div class="auth-modal-title" id="lists-auth-warning-title">Login Required</div>
-                <button class="auth-modal-close" type="button" onclick="closeListsAuthWarning()">Close</button>
-            </div>
-            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;">
-                Please login to view your lists
-            </div>
-            <div class="auth-modal-actions">
-                <button type="button" class="btn btn-primary" onclick="closeListsAuthWarning(); openAuthModal();">Log in</button>
-            </div>
-        </div>
-    </div>
+    <div id="lists-auth-warning" class="auth-overlay" style="display:none !important;"></div>
 
     <div id="list-picker-overlay" class="auth-overlay" onclick="if(event.target === this) closeListPickerModal();" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="list-picker-title" style="max-width: 520px;">
@@ -3993,20 +3998,7 @@
         </div>
     </div>
 
-    <div id="account-auth-warning" class="auth-overlay" onclick="if(event.target === this) closeAccountAuthWarning();">
-        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="account-auth-warning-title">
-            <div class="auth-modal-header">
-                <div class="auth-modal-title" id="account-auth-warning-title">Login Required</div>
-                <button class="auth-modal-close" type="button" onclick="closeAccountAuthWarning()">Close</button>
-            </div>
-            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;">
-                Please login to manage your account
-            </div>
-            <div class="auth-modal-actions">
-                <button type="button" class="btn btn-primary" onclick="closeAccountAuthWarning(); openAuthModal();">Log in</button>
-            </div>
-        </div>
-    </div>
+    <div id="account-auth-warning" class="auth-overlay" style="display:none !important;"></div>
 
     <div id="update-watch-overlay" class="auth-overlay" onclick="if(event.target === this) closeUpdateWatchModal(null);" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="update-watch-title">
@@ -4298,39 +4290,11 @@
             },
 
             navigate(page, mode = 'new', navMode = 'push') {
-                // If the user is not logged in, block the Data Dash and prompt them to log in.
-                if ((page === 'dashboard' || page === 'dashboard_kpi' || page === 'dashboard_pie_filter') && !cachedIsAuthed) {
-                    openDashboardAuthWarning();
-                    return;
-                }
-
-                // If the user is not logged in, block the Feed page and prompt them to log in.
-                if (page === 'feed' && !cachedIsAuthed) {
-                    openFeedAuthWarning();
-                    return;
-                }
-
-                // If the user is not logged in, block the Library page and prompt them to log in.
-                if (page === 'library' && !cachedIsAuthed) {
-                    openLibraryAuthWarning();
-                    return;
-                }
-
-                // If the user is not logged in, block the Lists page and prompt them to log in.
-                if (page === 'lists' && !cachedIsAuthed) {
-                    openListsAuthWarning();
-                    return;
-                }
-
-                // If the user is not logged in, block the Account page and prompt them to log in.
-                if (page === 'account' && !cachedIsAuthed) {
-                    openAccountAuthWarning();
-                    return;
-                }
-
-                // If the user is not logged in, block Theme Creator.
-                if (page === 'theme_creator' && !cachedIsAuthed) {
-                    openAccountAuthWarning();
+                // If the user is not logged in, open the auth modal with demo option.
+                const authGatedPages = ['dashboard','dashboard_kpi','dashboard_pie_filter','feed','library','lists','account','theme_creator'];
+                if (authGatedPages.includes(page) && !cachedIsAuthed) {
+                    _pendingGuestPage = page;
+                    openAuthModal();
                     return;
                 }
 
@@ -6532,11 +6496,15 @@
 
             // Require auth for dashboard metrics.
             let authedUser = null;
-            try {
-                const { data } = await supabaseClient.auth.getUser();
-                authedUser = data?.user || null;
-            } catch (_) {
-                authedUser = null;
+            if (guestMode) {
+                authedUser = cachedAuthUser;
+            } else {
+                try {
+                    const { data } = await supabaseClient.auth.getUser();
+                    authedUser = data?.user || null;
+                } catch (_) {
+                    authedUser = null;
+                }
             }
 
             if (!authedUser?.id) {
@@ -8139,6 +8107,7 @@
         }
 
         async function openAddToListModal() {
+            if (guardGuestWrite()) return;
             if (!supabaseClient) {
                 showToast('Supabase SDK failed to load.', { level: 'warn' });
                 return;
@@ -8376,6 +8345,7 @@
 
                 if (action === 'confirm_delete_list') {
                     (async () => {
+                        if (guardGuestWrite()) return;
                         if (listsDeleteBusy) return;
 
                         const lid = String(listsActiveListId || '').trim();
@@ -9287,6 +9257,7 @@
 
                 let authedUser = null;
                 try {
+                    if (guardGuestWrite()) return;
                     const { user } = await requireAuthOrThrow();
                     authedUser = user;
                 } catch (err) {
@@ -10720,11 +10691,15 @@
             feedFollowingIds = new Set();
             if (!supabaseClient) return;
             let authedUser = null;
-            try {
-                const { data } = await supabaseClient.auth.getUser();
-                authedUser = data?.user || null;
-            } catch (_) {
-                authedUser = null;
+            if (guestMode) {
+                authedUser = cachedAuthUser;
+            } else {
+                try {
+                    const { data } = await supabaseClient.auth.getUser();
+                    authedUser = data?.user || null;
+                } catch (_) {
+                    authedUser = null;
+                }
             }
             if (!authedUser?.id) return;
 
@@ -10900,11 +10875,15 @@
 
             // Determine authed user id so we can hide follow-self.
             let authedUserId = '';
-            try {
-                const { data: udata } = await supabaseClient.auth.getUser();
-                authedUserId = String(udata?.user?.id || '').trim();
-            } catch (_) {
-                authedUserId = '';
+            if (guestMode) {
+                authedUserId = DEMO_USER_ID;
+            } else {
+                try {
+                    const { data: udata } = await supabaseClient.auth.getUser();
+                    authedUserId = String(udata?.user?.id || '').trim();
+                } catch (_) {
+                    authedUserId = '';
+                }
             }
 
             el.innerHTML = rows.map((u) => {
@@ -12008,11 +11987,15 @@
             if (!elTop || !elBottom) return;
 
             let authedUser = null;
-            try {
-                const { data } = await supabaseClient?.auth?.getUser?.();
-                authedUser = data?.user || null;
-            } catch (_) {
-                authedUser = null;
+            if (guestMode) {
+                authedUser = cachedAuthUser;
+            } else {
+                try {
+                    const { data } = await supabaseClient?.auth?.getUser?.();
+                    authedUser = data?.user || null;
+                } catch (_) {
+                    authedUser = null;
+                }
             }
 
             if (!supabaseClient || !authedUser?.id) {
@@ -12558,11 +12541,15 @@
             elTitle.textContent = dashChartTitleForTab('activity');
 
             let authedUser = null;
-            try {
-                const { data } = await supabaseClient?.auth?.getUser?.();
-                authedUser = data?.user || null;
-            } catch (_) {
-                authedUser = null;
+            if (guestMode) {
+                authedUser = cachedAuthUser;
+            } else {
+                try {
+                    const { data } = await supabaseClient?.auth?.getUser?.();
+                    authedUser = data?.user || null;
+                } catch (_) {
+                    authedUser = null;
+                }
             }
 
             if (!supabaseClient || !authedUser?.id) {
@@ -12607,11 +12594,15 @@
             if (!elWall) return;
 
             let authedUser = null;
-            try {
-                const { data } = await supabaseClient?.auth?.getUser?.();
-                authedUser = data?.user || null;
-            } catch (_) {
-                authedUser = null;
+            if (guestMode) {
+                authedUser = cachedAuthUser;
+            } else {
+                try {
+                    const { data } = await supabaseClient?.auth?.getUser?.();
+                    authedUser = data?.user || null;
+                } catch (_) {
+                    authedUser = null;
+                }
             }
 
             if (!supabaseClient || !authedUser?.id) {
@@ -12780,11 +12771,15 @@
             if (!elBars || !elLists) return;
 
             let authedUser = null;
-            try {
-                const { data } = await supabaseClient?.auth?.getUser?.();
-                authedUser = data?.user || null;
-            } catch (_) {
-                authedUser = null;
+            if (guestMode) {
+                authedUser = cachedAuthUser;
+            } else {
+                try {
+                    const { data } = await supabaseClient?.auth?.getUser?.();
+                    authedUser = data?.user || null;
+                } catch (_) {
+                    authedUser = null;
+                }
             }
 
             if (!supabaseClient || !authedUser?.id) {
@@ -13052,11 +13047,15 @@
             if (required.some(x => !x)) return;
 
             let authedUser = null;
-            try {
-                const { data } = await supabaseClient?.auth?.getUser?.();
-                authedUser = data?.user || null;
-            } catch (_) {
-                authedUser = null;
+            if (guestMode) {
+                authedUser = cachedAuthUser;
+            } else {
+                try {
+                    const { data } = await supabaseClient?.auth?.getUser?.();
+                    authedUser = data?.user || null;
+                } catch (_) {
+                    authedUser = null;
+                }
             }
 
             const setAvatar = (imgEl, url) => {
@@ -13666,11 +13665,15 @@
 
             // Require auth for dashboard.
             let authedUser = null;
-            try {
-                const { data } = await supabaseClient?.auth?.getUser?.();
-                authedUser = data?.user || null;
-            } catch (_) {
-                authedUser = null;
+            if (guestMode) {
+                authedUser = cachedAuthUser;
+            } else {
+                try {
+                    const { data } = await supabaseClient?.auth?.getUser?.();
+                    authedUser = data?.user || null;
+                } catch (_) {
+                    authedUser = null;
+                }
             }
 
             const setAll = (v) => {
@@ -15084,6 +15087,7 @@
 
         async function handleFormSubmit(e) {
             e.preventDefault();
+            if (guardGuestWrite()) return;
 
             const entryType = String(e.target.querySelector('input[name="entryType"]')?.value || '').trim().toLowerCase();
             // Hard guarantee: no DB writes if anything (except Favorite Quote) is missing.
@@ -17183,6 +17187,7 @@
         }
 
         async function confirmDeleteSelectedWatchLogs() {
+            if (guardGuestWrite()) return;
             try {
                 const { user_id, movie_id } = deleteRatingState;
                 if (!user_id || !movie_id) throw new Error('Missing delete context. Close and re-open Delete.');
@@ -17265,6 +17270,7 @@
         }
 
         async function confirmDeleteRatingAndAllLogs() {
+            if (guardGuestWrite()) return;
             try {
                 const { user_id, movie_id, title } = deleteRatingState;
                 if (!user_id || !movie_id) throw new Error('Missing delete context. Close and re-open Delete.');
@@ -17602,6 +17608,15 @@
 
         async function requireAuthOrThrow() {
             if (!supabaseClient) throw new Error('Supabase client not initialized.');
+
+            // In guest mode, return a fake user/token so read-only flows work.
+            if (guestMode) {
+                return {
+                    user: { id: DEMO_USER_ID, email: 'demo@cinematracker.app' },
+                    accessToken: '__guest_demo_token__'
+                };
+            }
+
             const { data, error } = await supabaseClient.auth.getSession();
             if (error) throw error;
             let session = data?.session || null;
@@ -17952,6 +17967,84 @@
         let cachedAuthUser = null;
         let cachedIsAuthed = false;
 
+        // ─── Guest / Demo Mode ───
+        let guestMode = false;
+        let _pendingGuestPage = null; // page user tried to visit before auth
+        const DEMO_USER_ID = '02e69be6-32eb-447e-9a0c-9469dc5ea41e';
+
+        /** Returns the active user ID — demo user in guest mode, real user otherwise. */
+        function getActiveUserId() {
+            if (guestMode) return DEMO_USER_ID;
+            return cachedAuthUser?.id || null;
+        }
+
+        /** Block a write operation in guest mode. Returns true if blocked. */
+        function guardGuestWrite() {
+            if (!guestMode) return false;
+            showToast('Create an account to use this feature', { level: 'info' });
+            return true; // blocked
+        }
+
+        /** Enter demo/guest mode — loads the demo user's data without auth. */
+        function enterGuestMode() {
+            guestMode = true;
+            cachedIsAuthed = true; // pretend authed so pages render
+            cachedAuthUser = { id: DEMO_USER_ID, email: 'demo@cinematracker.app' };
+
+            // Persist across refresh
+            try { sessionStorage.setItem('ct_guest_mode', '1'); } catch (_) {}
+
+            // Show banner & adjust layout
+            const banner = document.getElementById('demo-banner');
+            if (banner) banner.classList.add('visible');
+            document.body.classList.add('guest-mode');
+
+            // Show/hide banner Sign Up based on siteSignupEnabled
+            const bannerSignup = document.getElementById('demo-banner-signup');
+            if (bannerSignup) bannerSignup.style.display = siteSignupEnabled ? '' : 'none';
+
+            // Update nav button
+            const navBtn = document.getElementById('nav-login-btn');
+            if (navBtn) { navBtn.textContent = 'Demo'; navBtn.classList.remove('icon-only'); }
+            const mobileBtn = document.getElementById('mobile-auth-btn');
+            if (mobileBtn) mobileBtn.textContent = 'Demo';
+
+            // Navigate to the page the user was trying to reach, or home
+            const target = _pendingGuestPage || (window.location.hash || '').replace('#', '') || 'home';
+            _pendingGuestPage = null;
+            router.navigate(target);
+        }
+
+        /** Exit guest mode and return to unauthenticated state. */
+        function exitGuestMode() {
+            guestMode = false;
+            cachedIsAuthed = false;
+            cachedAuthUser = null;
+
+            // Clear persistence
+            try { sessionStorage.removeItem('ct_guest_mode'); } catch (_) {}
+
+            // Hide banner & revert layout
+            const banner = document.getElementById('demo-banner');
+            if (banner) banner.classList.remove('visible');
+            document.body.classList.remove('guest-mode');
+
+            // Reset nav button
+            const navBtn = document.getElementById('nav-login-btn');
+            if (navBtn) { navBtn.textContent = 'Login'; navBtn.classList.remove('icon-only'); }
+            const mobileBtn = document.getElementById('mobile-auth-btn');
+            if (mobileBtn) mobileBtn.textContent = 'Login';
+
+            // Reset cached data
+            cachedLists = [];
+            cachedListsUserId = null;
+            listsActiveListId = null;
+            listsActiveListName = '';
+
+            // Re-open mandatory auth gate
+            openAuthModal();
+        }
+
         let cachedUserDisplayNameId = null;
         let cachedUserDisplayName = '';
         let cachedUserDisplayNameLoaded = false;
@@ -18243,6 +18336,7 @@
         }
 
         async function createThemeCreatorTheme({ advance = true } = {}) {
+            if (guardGuestWrite()) return;
             const input = document.getElementById('theme-creator-new-name');
             const btn = document.getElementById('theme-creator-create-btn');
             const name = String(input?.value || '').trim();
@@ -18686,6 +18780,8 @@
 
         async function refreshAuthStateAndUI() {
             if (!supabaseClient) return;
+            // Don't override state while in guest/demo mode
+            if (guestMode) return;
 
             const navLoginBtn = document.getElementById('nav-login-btn');
             const statusEl = document.getElementById('auth-modal-status');
@@ -18844,6 +18940,7 @@
             const tabBar = document.getElementById('auth-tab-bar');
             const signupFields = document.getElementById('auth-signup-fields');
             const signupBtnEl = document.getElementById('auth-signup-btn');
+            const demoBtn = document.getElementById('auth-demo-btn');
             if (isAuthed || !siteSignupEnabled) {
                 if (tabBar) tabBar.style.display = 'none';
                 if (signupFields) signupFields.style.display = 'none';
@@ -18851,6 +18948,8 @@
             } else {
                 if (tabBar) tabBar.style.display = 'flex';
             }
+            // Demo button: visible only when NOT logged in
+            if (demoBtn) demoBtn.style.display = isAuthed ? 'none' : '';
 
             if (emailEl) {
                 emailEl.disabled = isAuthed;
@@ -19080,6 +19179,7 @@
 
         async function handleSignUpClick(e) {
             e?.preventDefault?.();
+            if (guestMode) exitGuestMode();
             const statusEl = document.getElementById('auth-modal-status');
             const signupBtn = document.getElementById('auth-signup-btn');
             const prevText = signupBtn?.textContent;
@@ -19189,6 +19289,7 @@
 
         async function handleLoginClick(e) {
             e?.preventDefault?.();
+            if (guestMode) exitGuestMode();
             try {
                 if (!supabaseClient) throw new Error('Supabase client not initialized.');
                 const email = String(document.getElementById('auth-email')?.value || '').trim();
@@ -19240,12 +19341,20 @@
             if (!overlay) return;
             overlay.classList.add('open');
 
+            // Hide close button when user MUST authenticate (gate mode)
+            const closeBtn = document.getElementById('auth-modal-close-btn');
+            if (closeBtn) closeBtn.style.display = (cachedIsAuthed || guestMode) ? '' : 'none';
+
             // setAuthMode handles tab bar visibility based on siteSignupEnabled + cachedIsAuthed
             if (cachedIsAuthed || !siteSignupEnabled) {
                 setAuthMode('login');
             } else {
                 setAuthMode(mode || 'login');
             }
+
+            // Show "Try Demo" button only when user is NOT logged in
+            const demoBtn = document.getElementById('auth-demo-btn');
+            if (demoBtn) demoBtn.style.display = cachedIsAuthed ? 'none' : '';
 
             refreshAuthStateAndUI();
 
@@ -19281,14 +19390,22 @@
         }
 
         function closeAuthModal() {
+            // Block closing if user hasn't authenticated or entered guest mode (gate mode)
+            if (!cachedIsAuthed && !guestMode) return;
             const overlay = document.getElementById('auth-overlay');
             if (!overlay) return;
             overlay.classList.remove('open');
+            _pendingGuestPage = null; // clear stale pending page
         }
 
         function handleNavAccountButtonClick(e) {
             e?.preventDefault?.();
             try {
+                if (guestMode) {
+                    exitGuestMode();
+                    openAuthModal();
+                    return;
+                }
                 if (cachedIsAuthed) {
                     router.navigate('account');
                     return;
@@ -20414,6 +20531,7 @@
         }
 
         async function deleteThemeCreatorTheme() {
+            if (guardGuestWrite()) return;
             if (!supabaseClient || !themeCreatorActiveThemeId) return;
             const name = themeCreatorActiveThemeName || 'this theme';
             const ok = window.confirm(`Delete ${name} and all its backdrops? This cannot be undone.`);
@@ -21218,6 +21336,7 @@
         }
 
         async function saveAccountProfile() {
+            if (guardGuestWrite()) return;
             const profileStatus = document.getElementById('account-profile-status');
             const saveBtn = document.getElementById('account-save-profile');
             const usernameEl = document.getElementById('account-username');
@@ -21391,6 +21510,7 @@
         }
 
         async function submitFeatureRequest() {
+            if (guardGuestWrite()) return;
             const statusEl = document.getElementById('feature-request-status');
             const textEl = document.getElementById('feature-request-text');
             const btn = document.getElementById('feature-request-submit');
@@ -21678,9 +21798,24 @@
             await loadThemeBackgroundImages();
             applyTheme(getStoredTheme());
             await loadSiteSignupSetting();
+
+            // Restore guest mode if it was active before a page refresh
+            const wasGuest = (() => { try { return sessionStorage.getItem('ct_guest_mode') === '1'; } catch (_) { return false; } })();
+            if (wasGuest) {
+                initListsPage();
+                router.init();
+                enterGuestMode();
+                return; // skip normal auth refresh — guest mode handles everything
+            }
+
             await refreshAuthStateAndUI();
             initListsPage();
             router.init();
+
+            // Gate: if not authenticated after init, force the auth modal open
+            if (!cachedIsAuthed) {
+                openAuthModal();
+            }
 
             // If we arrived via Supabase password recovery link, send the user to Account.
             if (isRecovery) {
@@ -21698,7 +21833,7 @@
             if (!isOpen) return;
 
             if (e.key === 'Escape') {
-                closeAuthModal();
+                closeAuthModal(); // will be blocked if not authed (gate mode)
                 return;
             }
 
