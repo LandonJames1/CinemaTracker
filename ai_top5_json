@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "title": "ai_top5_json",
+  "additionalProperties": false,
+  "required": ["top5"],
+  "properties": {
+    "top5": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tmdb_id", "title", "year", "reason"],
+        "properties": {
+          "tmdb_id": { "type": "integer" },
+          "title": { "type": "string" },
+          "year": { "type": "integer" },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "type": "object",
+  "title": "ai_rerank_input",
+  "additionalProperties": false,
+  "required": ["prompt", "taste_hints", "candidates"],
+  "properties": {
+    "prompt": { "type": "string" },
+    "taste_hints": { "type": "array", "items": { "type": "string" } },
+    "taste_profile_rerank": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "imdb_delta": { "type": "number" },
+        "subrating_weights": {
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        },
+        "people_affinity": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "roles": { "type": "array", "items": { "type": "string" } },
+              "avg": { "type": "number" },
+              "count": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tmdb_id",
+          "title",
+          "year",
+          "genres",
+          "vote_average",
+          "overview"
+        ],
+        "properties": {
+          "tmdb_id": { "type": "integer" },
+          "title": { "type": "string" },
+          "year": { "type": "integer" },
+          "genres": { "type": "array", "items": { "type": "string" } },
+          "vote_average": { "type": "number" },
+          "overview": { "type": "string" }
+        }
+      }
+    }
+  }
+}

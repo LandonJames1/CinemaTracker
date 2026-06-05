@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "title": "color_output",
+  "additionalProperties": false,
+  "required": ["colors", "notes"],
+  "properties": {
+    "colors": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bg_dark",
+        "surface",
+        "border",
+        "text_main",
+        "text_muted",
+        "brand",
+        "brand_hover",
+        "brand_2",
+        "brand_3",
+        "accent_1",
+        "accent_2",
+        "nav_accent",
+        "nav_title",
+        "brand_light",
+        "brand_shadow",
+        "nav_active_a",
+        "nav_active_b",
+        "glass_bg",
+        "glass_border",
+        "glass_shadow",
+        "btn_outline_bg",
+        "focus_ring",
+        "bg_overlay"
+      ],
+      "properties": {
+        "bg_dark": { "type": "string" },
+        "surface": { "type": "string" },
+        "border": { "type": "string" },
+        "text_main": { "type": "string" },
+        "text_muted": { "type": "string" },
+        "brand": { "type": "string" },
+        "brand_hover": { "type": "string" },
+        "brand_2": { "type": "string" },
+        "brand_3": { "type": "string" },
+        "accent_1": { "type": "string" },
+        "accent_2": { "type": "string" },
+        "nav_accent": { "type": "string" },
+        "nav_title": { "type": "string" },
+        "brand_light": { "type": "string" },
+        "brand_shadow": { "type": "string" },
+        "nav_active_a": { "type": "string" },
+        "nav_active_b": { "type": "string" },
+        "glass_bg": { "type": "string" },
+        "glass_border": { "type": "string" },
+        "glass_shadow": { "type": "string" },
+        "btn_outline_bg": { "type": "string" },
+        "focus_ring": { "type": "string" },
+        "bg_overlay": { "type": "string" }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}

@@ -1,0 +1,2377 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+// TMDb Movie genres (static mapping, avoids extra API call)
+const TMDB_MOVIE_GENRES = {
+  28: "Action",
+  12: "Adventure",
+  16: "Animation",
+  35: "Comedy",
+  80: "Crime",
+  99: "Documentary",
+  18: "Drama",
+  10751: "Family",
+  14: "Fantasy",
+  36: "History",
+  27: "Horror",
+  10402: "Music",
+  9648: "Mystery",
+  10749: "Romance",
+  878: "Sci-Fi",
+  10770: "TV Movie",
+  53: "Thriller",
+  10752: "War",
+  37: "Western",
+};
+
+const TMDB_MOVIE_GENRES_BY_NAME = Object.fromEntries(
+  Object.entries(TMDB_MOVIE_GENRES).map(([id, name]) => [String(name).toLowerCase(), Number(id)]),
+);
+
+const fetchWatchedTmdbIds = async (supabaseAdmin, userId) => {
+  const watched = new Set();
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await supabaseAdmin
+      .from("user_library_items_v2")
+      .select("tmdb_id")
+      .eq("user_id", userId)
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const rows = Array.isArray(data) ? data : [];
+    rows.forEach((r) => {
+      const id = Number(r?.tmdb_id);
+      if (Number.isFinite(id) && id > 0) watched.add(id);
+    });
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return watched;
+};
+
+// TMDb Watch Providers (US) - IDs used for discover filters.
+const TMDB_WATCH_PROVIDERS_US = {
+  netflix: 8,
+  "prime video": 9,
+  "amazon prime video": 9,
+  hulu: 15,
+  "disney+": 337,
+  "disney plus": 337,
+  max: 384,
+  "hbo max": 384,
+  "apple tv+": 350,
+  "apple tv plus": 350,
+  "paramount+": 531,
+  "paramount plus": 531,
+  peacock: 386,
+};
+
+const DEFAULT_WATCH_PROVIDER_NAMES = [
+  "Netflix",
+  "Prime Video",
+  "Hulu",
+  "Disney+",
+  "Max",
+  "Apple TV+",
+  "Paramount+",
+  "Peacock",
+];
+
+function parseImdbRatingPercent(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s || s.toUpperCase() === "N/A") return null;
+  const n = Number(s);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  // OMDb imdbRating is typically 0-10 (string). Convert to 0-100 percent.
+  const pct = Math.round(n * 10);
+  if (!Number.isFinite(pct)) return null;
+  return Math.max(0, Math.min(100, pct));
+}
+
+async function fetchOmdbImdbRatingPercent({ imdb_id, title, year, omdbApiKey }) {
+  if (!omdbApiKey) return { ok: false, pct: null, reason: "Missing OMDB_API_KEY" };
+
+  const id = String(imdb_id ?? "").trim();
+  const t = String(title ?? "").trim();
+  const y = year === null || year === undefined ? null : Number(year);
+
+  const url = new URL("https://www.omdbapi.com/");
+  url.searchParams.set("apikey", String(omdbApiKey));
+  if (id) url.searchParams.set("i", id);
+  else if (t) url.searchParams.set("t", t);
+  else return { ok: false, pct: null, reason: "Missing imdb_id/title" };
+  if (Number.isFinite(y) && y > 0) url.searchParams.set("y", String(Math.floor(y)));
+
+  const res = await fetch(url.toString());
+  if (!res.ok) {
+    const details = await res.text().catch(() => "");
+    return { ok: false, pct: null, reason: `OMDb HTTP ${res.status}${details ? `: ${details}` : ""}` };
+  }
+
+  const json = await res.json().catch(() => null);
+  const ok = String(json?.Response ?? "").toLowerCase() === "true";
+  if (!ok) {
+    const err = String(json?.Error ?? "").trim();
+    return { ok: false, pct: null, reason: err || "OMDb lookup failed" };
+  }
+
+  const pct = parseImdbRatingPercent(json?.imdbRating);
+  return { ok: pct !== null, pct, reason: pct === null ? "Missing/invalid imdbRating" : null };
+}
+
+function jsonResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function safeJsonParse(raw) {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "object") return raw;
+  try {
+    return JSON.parse(String(raw));
+  } catch (_) {
+    return null;
+  }
+}
+
+function uniqStrings(arr) {
+  const out = [];
+  const seen = new Set();
+  for (const v of Array.isArray(arr) ? arr : []) {
+    const s = String(v ?? "").trim();
+    if (!s) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+function mapGenreNamesToIds(names) {
+  const list = Array.isArray(names) ? names : [];
+  const ids = [];
+  const seen = new Set();
+  for (const raw of list) {
+    const key = String(raw ?? "").trim().toLowerCase();
+    if (!key) continue;
+    const id = TMDB_MOVIE_GENRES_BY_NAME[key];
+    if (!Number.isFinite(id)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+function mapProviderNamesToIds(names) {
+  const list = Array.isArray(names) ? names : [];
+  const ids = [];
+  const seen = new Set();
+  for (const raw of list) {
+    const key = normalizePlatformName(raw).toLowerCase();
+    if (!key) continue;
+    const id = TMDB_WATCH_PROVIDERS_US[key];
+    if (!Number.isFinite(id)) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+function extractTmdbYearFromReleaseDate(releaseDate) {
+  const y = releaseDate ? Number(String(releaseDate).slice(0, 4)) : null;
+  return Number.isFinite(y) ? y : null;
+}
+
+function inferYearRangeFromSimilarMovie(year) {
+  if (!Number.isFinite(year)) return { from: null, to: null };
+  const start = Math.floor(year / 10) * 10;
+  return { from: start, to: start + 10 };
+}
+
+function promptMentionsRuntime(prompt) {
+  const p = String(prompt ?? "").toLowerCase();
+  if (!p) return false;
+  const explicit = /\b(runtime|length|duration|minutes?|mins?|hours?|hrs?|hr\b)\b/.test(p);
+  const numeric = /\b\d{1,3}\s*(min|mins|minutes|hr|hrs|hour|hours)\b/.test(p);
+  const comparative = /\b(shorter|longer)\s+than\b/.test(p);
+  return explicit || numeric || comparative;
+}
+
+function inferGenresFromPrompt(prompt) {
+  const p = String(prompt ?? "").toLowerCase();
+  if (!p) return [];
+  const rules = [
+    { genre: "Action", kws: ["action", "explosion", "gunfight", "car chase", "martial", "kung fu", "superhero"] },
+    { genre: "Adventure", kws: ["adventure", "quest", "journey", "expedition"] },
+    { genre: "Animation", kws: ["animated", "animation", "anime", "pixar", "cartoon"] },
+    { genre: "Comedy", kws: ["comedy", "funny", "hilarious", "rom-com", "romcom", "satire"] },
+    { genre: "Crime", kws: ["crime", "heist", "detective", "murder", "gangster", "mob"] },
+    { genre: "Documentary", kws: ["documentary", "docu", "true story"] },
+    { genre: "Drama", kws: ["drama", "emotional", "character study", "heartfelt"] },
+    { genre: "Family", kws: ["family", "kids", "kid-friendly", "all ages"] },
+    { genre: "Fantasy", kws: ["fantasy", "magic", "wizard", "myth", "dragon"] },
+    { genre: "History", kws: ["historical", "history", "period piece", "biopic"] },
+    { genre: "Horror", kws: ["horror", "scary", "haunted", "slasher", "creepy", "ghost"] },
+    { genre: "Music", kws: ["music", "musical", "concert", "band"] },
+    { genre: "Mystery", kws: ["mystery", "whodunit", "investigation"] },
+    { genre: "Romance", kws: ["romance", "romantic", "love story"] },
+    { genre: "Sci-Fi", kws: ["sci-fi", "science fiction", "space", "alien", "dystopian", "future"] },
+    { genre: "Thriller", kws: ["thriller", "suspense", "edge of your seat"] },
+    { genre: "War", kws: ["war", "ww2", "world war", "battlefield", "military"] },
+    { genre: "Western", kws: ["western", "cowboy", "outlaw", "frontier"] },
+  ];
+
+  const hits = [];
+  for (const r of rules) {
+    if (r.kws.some((k) => p.includes(k))) hits.push(r.genre);
+  }
+  return uniqStrings(hits);
+}
+
+function extractOpenAiText(json) {
+  if (typeof json?.output_text === "string") return json.output_text;
+  if (Array.isArray(json?.output)) {
+    for (const item of json.output) {
+      const content = Array.isArray(item?.content) ? item.content : [];
+      for (const c of content) {
+        if (typeof c?.text === "string") return c.text;
+        if (typeof c?.content === "string") return c.content;
+      }
+    }
+  }
+  if (Array.isArray(json?.choices)) {
+    const msg = json.choices[0]?.message?.content;
+    if (typeof msg === "string") return msg;
+  }
+  return "";
+}
+
+async function callOpenAiJson({ apiKey, model, schemaName, schema, system, user }) {
+  if (!apiKey) throw new Error("Missing OPENAI_API_KEY");
+  const res = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      input: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: schemaName,
+          schema,
+          strict: true,
+        },
+      },
+    }),
+  });
+
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    const msg = json?.error?.message || `OpenAI HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+
+  const text = extractOpenAiText(json);
+  if (!text) throw new Error("OpenAI returned empty output.");
+  const parsed = JSON.parse(text);
+  return parsed;
+}
+
+function extractDirectorNameFromCredits(creditsJson) {
+  const crew = Array.isArray(creditsJson?.crew) ? creditsJson.crew : [];
+  const directors = crew
+    .filter((c) => String(c?.job ?? "").trim().toLowerCase() === "director")
+    .map((c) => String(c?.name ?? "").trim())
+    .filter(Boolean);
+  const unique = uniqStrings(directors);
+  return unique.length ? unique.join(", ") : null;
+}
+
+function extractUsCertification(releaseDatesJson) {
+  const results = Array.isArray(releaseDatesJson?.results) ? releaseDatesJson.results : [];
+  const us = results.find((r) => String(r?.iso_3166_1 ?? "").toUpperCase() === "US") || null;
+  const entries = Array.isArray(us?.release_dates) ? us.release_dates : [];
+
+  for (const e of entries) {
+    const cert = String(e?.certification ?? "").trim();
+    if (cert) return cert;
+  }
+  return "";
+}
+
+function pickBestSearchResult(
+  results,
+  releaseYear,
+) {
+  if (!Array.isArray(results) || results.length === 0) return null;
+
+  if (releaseYear) {
+    const exact = results.find((r) => {
+      const y = r?.release_date ? Number(String(r.release_date).slice(0, 4)) : null;
+      return y === releaseYear;
+    });
+    if (exact) return exact;
+  }
+
+  // TMDb already sorts by relevance
+  return results[0];
+}
+
+function normalizeTitleForMatch(s) {
+  return String(s ?? "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+}
+
+function titleMatchScore({ query, title }) {
+  const nq = normalizeTitleForMatch(query);
+  const nt = normalizeTitleForMatch(title);
+  if (!nq || !nt) return 0;
+  if (nt === nq) return 100;
+  if (nt.startsWith(nq)) return 70;
+  if (nt.includes(nq)) return 40;
+  return 0;
+}
+
+async function mapWithConcurrency(items, concurrency, fn) {
+  const list = Array.isArray(items) ? items : [];
+  const limit = Math.max(1, Number(concurrency) || 1);
+  const out = new Array(list.length);
+  let idx = 0;
+
+  const workers = Array.from({ length: Math.min(limit, list.length) }, async () => {
+    while (idx < list.length) {
+      const i = idx++;
+      out[i] = await fn(list[i], i);
+    }
+  });
+
+  await Promise.all(workers);
+  return out;
+}
+
+function normalizePosterPath(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  return s.startsWith("/") ? s : `/${s}`;
+}
+
+function normalizePlatformName(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  return s.replace(/\s+/g, " ").trim();
+}
+
+function extractProviderNamesFromWatchProvidersJson(json, region = "US") {
+  const results = json?.results && typeof json.results === "object" ? json.results : {};
+  const regionKey = String(region || "US").trim().toUpperCase() || "US";
+  const bucket = results?.[regionKey] && typeof results[regionKey] === "object" ? results[regionKey] : null;
+  if (!bucket) return [];
+
+  const collect = (arr) => {
+    const list = Array.isArray(arr) ? arr : [];
+    return list
+      .map((p) => normalizePlatformName(p?.provider_name))
+      .filter(Boolean);
+  };
+
+  const names = uniqStrings([
+    ...collect(bucket?.flatrate),
+    ...collect(bucket?.free),
+    ...collect(bucket?.ads),
+    ...collect(bucket?.rent),
+    ...collect(bucket?.buy),
+  ]);
+
+  return names;
+}
+
+async function syncMovieWatchPlatforms({
+  supabaseAdmin,
+  movie_id,
+  tmdb_id,
+  tmdbReadAccessToken,
+  region = "US",
+  timeoutMs = 1400,
+}) {
+  const out = {
+    region: String(region || "US").trim().toUpperCase() || "US",
+    requested: 0,
+    created_platforms: 0,
+    linked: 0,
+    error: null,
+  };
+
+  const movieId = String(movie_id || "").trim();
+  const tid = Number(tmdb_id);
+  if (!movieId) {
+    out.error = "Missing movie_id.";
+    return out;
+  }
+  if (!Number.isFinite(tid) || tid <= 0) {
+    out.error = "Missing/invalid tmdb_id.";
+    return out;
+  }
+  if (!tmdbReadAccessToken) {
+    out.error = "Missing TMDB token.";
+    return out;
+  }
+
+  try {
+    const url = new URL(`https://api.themoviedb.org/3/movie/${tid}/watch/providers`);
+    const r = await fetchJsonWithTimeout(
+      url.toString(),
+      { headers: { Authorization: `Bearer ${tmdbReadAccessToken}` } },
+      timeoutMs,
+    );
+
+    if (!r.ok) {
+      out.error = `TMDb watch/providers failed: HTTP ${r.status || 0}`;
+      return out;
+    }
+
+    const providerNames = extractProviderNamesFromWatchProvidersJson(r.json, out.region);
+    out.requested = providerNames.length;
+
+    // Always refresh join rows for this movie (idempotent).
+    const { error: delErr } = await supabaseAdmin
+      .from("Movie Platforms")
+      .delete()
+      .eq("movie_id", movieId);
+
+    if (delErr) {
+      out.error = `Failed to clear Movie Platforms: ${delErr.message}`;
+      return out;
+    }
+
+    if (providerNames.length === 0) {
+      // No providers for region; leave joins cleared.
+      return out;
+    }
+
+    const { data: existingPlatforms, error: platErr } = await supabaseAdmin
+      .from("Platforms")
+      .select("id, name");
+    if (platErr) {
+      out.error = `Failed to load Platforms: ${platErr.message}`;
+      return out;
+    }
+
+    const byLowerName = new Map();
+    for (const p of Array.isArray(existingPlatforms) ? existingPlatforms : []) {
+      const name = normalizePlatformName(p?.name);
+      const id = p?.id;
+      if (!name || id === null || id === undefined) continue;
+      byLowerName.set(name.toLowerCase(), id);
+    }
+
+    const missing = [];
+    for (const name of providerNames) {
+      const key = name.toLowerCase();
+      if (!byLowerName.has(key)) missing.push({ name });
+    }
+
+    if (missing.length > 0) {
+      // Insert missing Platforms. Recommend a UNIQUE constraint on Platforms.name.
+      const { data: inserted, error: insErr } = await supabaseAdmin
+        .from("Platforms")
+        .insert(missing)
+        .select("id, name");
+
+      if (insErr) {
+        // If this is a uniqueness race, we can still proceed by reloading.
+        const msg = String(insErr?.message || insErr);
+        if (!/duplicate|unique/i.test(msg)) {
+          out.error = `Failed to insert Platforms: ${msg}`;
+          return out;
+        }
+      } else {
+        out.created_platforms = Array.isArray(inserted) ? inserted.length : 0;
+        for (const p of Array.isArray(inserted) ? inserted : []) {
+          const name = normalizePlatformName(p?.name);
+          const id = p?.id;
+          if (!name || id === null || id === undefined) continue;
+          byLowerName.set(name.toLowerCase(), id);
+        }
+      }
+
+      // Re-fetch to ensure we have IDs for all names (covers uniqueness races).
+      const { data: allPlatforms2, error: platErr2 } = await supabaseAdmin
+        .from("Platforms")
+        .select("id, name");
+      if (!platErr2) {
+        for (const p of Array.isArray(allPlatforms2) ? allPlatforms2 : []) {
+          const name = normalizePlatformName(p?.name);
+          const id = p?.id;
+          if (!name || id === null || id === undefined) continue;
+          byLowerName.set(name.toLowerCase(), id);
+        }
+      }
+    }
+
+    const joinRows = [];
+    const seen = new Set();
+    for (const name of providerNames) {
+      const pid = byLowerName.get(String(name).toLowerCase());
+      if (pid === null || pid === undefined) continue;
+      const key = `${movieId}|${pid}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      joinRows.push({ movie_id: movieId, platform_id: pid });
+    }
+
+    if (joinRows.length > 0) {
+      const { error: joinErr } = await supabaseAdmin
+        .from("Movie Platforms")
+        .insert(joinRows);
+      if (joinErr) {
+        out.error = `Failed to insert Movie Platforms: ${joinErr.message}`;
+        return out;
+      }
+      out.linked = joinRows.length;
+    }
+
+    return out;
+  } catch (e) {
+    out.error = `Platform sync crashed: ${String(e?.message ?? e)}`;
+    return out;
+  }
+}
+
+async function fetchJsonWithTimeout(url, { headers } = {}, timeoutMs = 1200) {
+  const ms = Number(timeoutMs);
+  const useTimeout = Number.isFinite(ms) && ms > 0 ? ms : 1200;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), useTimeout);
+  try {
+    const res = await fetch(String(url), {
+      headers,
+      signal: controller.signal,
+    });
+    const text = await res.text().catch(() => "");
+    const json = text ? (JSON.parse(text)) : null;
+    return { ok: res.ok, status: res.status, json };
+  } catch (e) {
+    return { ok: false, status: 0, json: null, error: String(e?.message ?? e) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function tryRepairPosterPathByTmdbId({
+  supabaseAdmin,
+  tmdbId,
+  tmdbReadAccessToken,
+  timeoutMs = 1200,
+}) {
+  const id = Number(tmdbId);
+  if (!Number.isFinite(id) || id <= 0) return { ok: false, reason: "invalid_tmdb_id" };
+
+  const { data: rows, error: readErr } = await supabaseAdmin
+    .from("Movies")
+    .select("id, tmdb_id, poster_path")
+    .eq("tmdb_id", id)
+    .limit(1);
+
+  if (readErr) return { ok: false, reason: `db_read_failed: ${readErr.message}` };
+  const row = Array.isArray(rows) && rows.length ? rows[0] : null;
+  if (!row?.id) return { ok: false, reason: "movie_not_found" };
+
+  const existing = String(row?.poster_path ?? "").trim();
+  if (existing) return { ok: true, updated: false, reason: "already_present" };
+
+  const url = new URL(`https://api.themoviedb.org/3/movie/${id}`);
+  url.searchParams.set("language", "en-US");
+
+  const r = await fetchJsonWithTimeout(
+    url.toString(),
+    { headers: { Authorization: `Bearer ${tmdbReadAccessToken}` } },
+    timeoutMs,
+  );
+
+  if (!r.ok) {
+    return { ok: false, updated: false, reason: `tmdb_details_failed: HTTP ${r.status || 0}` };
+  }
+
+  const poster_path = normalizePosterPath(r?.json?.poster_path);
+  if (!poster_path) return { ok: true, updated: false, reason: "tmdb_missing_poster" };
+
+  const { error: updErr } = await supabaseAdmin
+    .from("Movies")
+    .update({ poster_path })
+    .eq("id", row.id);
+
+  if (updErr) return { ok: false, updated: false, reason: `db_update_failed: ${updErr.message}` };
+  return { ok: true, updated: true };
+}
+
+async function tryRepairSomeMissingPosterPaths({
+  supabaseAdmin,
+  tmdbReadAccessToken,
+  limit = 1,
+  perFetchTimeoutMs = 1200,
+}) {
+  const lim = Number.isFinite(Number(limit)) ? Math.max(1, Math.floor(Number(limit))) : 1;
+
+  const { data: rows, error: readErr } = await supabaseAdmin
+    .from("Movies")
+    .select("id, tmdb_id, poster_path")
+    .or("poster_path.is.null,poster_path.eq.")
+    .not("tmdb_id", "is", null)
+    .limit(lim);
+
+  if (readErr) return { ok: false, attempted: 0, updated: 0, reason: `db_read_failed: ${readErr.message}` };
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return { ok: true, attempted: 0, updated: 0 };
+
+  let attempted = 0;
+  let updated = 0;
+  for (const r of list) {
+    const tmdbId = Number(r?.tmdb_id);
+    if (!Number.isFinite(tmdbId) || tmdbId <= 0) continue;
+    attempted += 1;
+    const res = await tryRepairPosterPathByTmdbId({
+      supabaseAdmin,
+      tmdbId,
+      tmdbReadAccessToken,
+      timeoutMs: perFetchTimeoutMs,
+    });
+    if (res?.updated) updated += 1;
+  }
+
+  return { ok: true, attempted, updated };
+}
+
+async function tryRepairAllMissingPosterPathsUncapped({
+  supabaseAdmin,
+  tmdbReadAccessToken,
+  pageSize = 100,
+  perFetchTimeoutMs = 1200,
+  concurrency = 6,
+}) {
+  const size = Number.isFinite(Number(pageSize))
+    ? Math.max(1, Math.min(500, Math.floor(Number(pageSize))))
+    : 100;
+  const conc = Number.isFinite(Number(concurrency))
+    ? Math.max(1, Math.min(12, Math.floor(Number(concurrency))))
+    : 6;
+
+  const attemptedIds = new Set();
+  let attempted = 0;
+  let updated = 0;
+
+  while (true) {
+    const { data: rows, error: readErr } = await supabaseAdmin
+      .from("Movies")
+      .select("id, tmdb_id, poster_path")
+      .or("poster_path.is.null,poster_path.eq.")
+      .not("tmdb_id", "is", null)
+      .limit(size);
+
+    if (readErr) {
+      return {
+        ok: false,
+        attempted,
+        updated,
+        reason: `db_read_failed: ${readErr.message}`,
+      };
+    }
+
+    const list = (Array.isArray(rows) ? rows : [])
+      .filter((r) => r?.id && !attemptedIds.has(String(r.id)));
+
+    if (list.length === 0) break;
+
+    for (const r of list) attemptedIds.add(String(r.id));
+    attempted += list.length;
+
+    const results = await mapWithConcurrency(list, conc, async (r) => {
+      const tmdbId = Number(r?.tmdb_id);
+      if (!Number.isFinite(tmdbId) || tmdbId <= 0) return { updated: false };
+
+      return await tryRepairPosterPathByTmdbId({
+        supabaseAdmin,
+        tmdbId,
+        tmdbReadAccessToken,
+        timeoutMs: perFetchTimeoutMs,
+      });
+    });
+
+    updated += (Array.isArray(results) ? results : []).filter((r) => Boolean(r?.updated)).length;
+  }
+
+  return { ok: true, attempted, updated };
+}
+
+function uuidLike(s) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    String(s || "").trim(),
+  );
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  try {
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const TMDB_READ_ACCESS_TOKEN = Deno.env.get("TMDB_READ_ACCESS_TOKEN");
+
+    // Parse body early (some actions are public and don't require a Supabase session).
+    let body = {};
+    try {
+      body = await req.json();
+    } catch (_) {
+      body = {};
+    }
+
+    const action = String(body?.action ?? "").trim().toLowerCase();
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
+      return jsonResponse({ code: 500, message: "Missing Supabase env vars." }, 500);
+    }
+    if (!TMDB_READ_ACCESS_TOKEN) {
+      return jsonResponse({ code: 500, message: "Missing TMDB_READ_ACCESS_TOKEN." }, 500);
+    }
+
+    // Service role client for server-side repairs and upserts.
+    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    // Poster failsafe (Option B): on each invocation, opportunistically backfill missing Movies.poster_path.
+    // NOTE: We skip this during `search` since search fires rapidly while typing.
+    if (action !== "search") {
+      const hintedRaw = body?.tmdb_id ?? body?.id;
+      const hintedTmdbId = Number(hintedRaw);
+
+      // Try the hinted movie first (if any), then repair as many missing posters as possible.
+      try {
+        if (Number.isFinite(hintedTmdbId) && hintedTmdbId > 0) {
+          await tryRepairPosterPathByTmdbId({
+            supabaseAdmin,
+            tmdbId: hintedTmdbId,
+            tmdbReadAccessToken: TMDB_READ_ACCESS_TOKEN,
+            timeoutMs: 900,
+          });
+        }
+
+        await tryRepairAllMissingPosterPathsUncapped({
+          supabaseAdmin,
+          tmdbReadAccessToken: TMDB_READ_ACCESS_TOKEN,
+          pageSize: 150,
+          perFetchTimeoutMs: 900,
+          concurrency: 6,
+        });
+      } catch (_) {
+        // Best-effort only: never fail the main request.
+      }
+    }
+
+    // Public action: TMDb search (used by the Home search dropdown).
+    // This intentionally does NOT require a logged-in Supabase user; saving still requires auth.
+    if (action === "search") {
+      const query = String(body?.query ?? "").trim();
+      const pageRaw = body?.page === null || body?.page === undefined ? 1 : Number(body.page);
+      const page = Number.isFinite(pageRaw) && pageRaw > 0 ? Math.floor(pageRaw) : 1;
+
+      const yearRaw = body?.year ?? body?.release_year ?? body?.primary_release_year;
+      const yearNum = yearRaw === null || yearRaw === undefined || String(yearRaw).trim() === ""
+        ? null
+        : Number(yearRaw);
+      const year = Number.isFinite(yearNum) && yearNum > 1800 ? Math.floor(yearNum) : null;
+
+      const mpaFilterRaw = String(body?.mpa ?? "").trim();
+      const mpaFilter = mpaFilterRaw ? mpaFilterRaw.toUpperCase() : "";
+
+      const limitRaw = body?.limit === null || body?.limit === undefined ? 8 : Number(body.limit);
+      const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(12, Math.floor(limitRaw))) : 8;
+
+      // Do not search until the user types at least 3 characters.
+      if (!query || query.length < 3) {
+        return jsonResponse({ results: [], page, total_pages: 0 }, 200);
+      }
+
+      const url = new URL("https://api.themoviedb.org/3/search/movie");
+      url.searchParams.set("query", query);
+      url.searchParams.set("include_adult", "false");
+      url.searchParams.set("language", "en-US");
+      url.searchParams.set("page", String(page));
+      if (year) url.searchParams.set("primary_release_year", String(year));
+
+      const tmdbRes = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` },
+      });
+
+      if (!tmdbRes.ok) {
+        const details = await tmdbRes.text().catch(() => "");
+        return jsonResponse(
+          {
+            code: 502,
+            message: "TMDb search failed.",
+            details: `HTTP ${tmdbRes.status}${details ? `: ${details}` : ""}`,
+          },
+          502,
+        );
+      }
+
+      const tmdbJson = await tmdbRes.json();
+      const results = Array.isArray(tmdbJson?.results) ? tmdbJson.results : [];
+
+      const cleaned = results
+        .map((r, idx) => ({ r, idx }))
+        .filter(({ r }) => Number.isFinite(Number(r?.id)) && String(r?.title ?? "").trim());
+
+      const scored = cleaned
+        .map(({ r, idx }) => {
+          const score = titleMatchScore({ query, title: r?.title });
+          const pop = Number(r?.popularity ?? 0) || 0;
+          return { r, idx, score, pop };
+        })
+        .sort((a, b) => (b.score - a.score) || (b.pop - a.pop) || (a.idx - b.idx));
+
+      // If the user asked for MPA filtering, keep a slightly larger candidate pool so filtering doesn't empty the list.
+      const candidateCount = mpaFilter ? 18 : Math.max(limit, 8);
+      const candidates = scored.slice(0, candidateCount).map((x) => x.r);
+
+      let filtered = candidates;
+      if (mpaFilter) {
+        const fetchCert = async (tmdbId) => {
+          try {
+            const rdUrl = new URL(`https://api.themoviedb.org/3/movie/${tmdbId}/release_dates`);
+            const res = await fetch(rdUrl.toString(), { headers: { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` } });
+            if (!res.ok) return "";
+            const json = await res.json().catch(() => null);
+            return extractUsCertification(json) || "";
+          } catch (_) {
+            return "";
+          }
+        };
+
+        const withCert = await mapWithConcurrency(filtered, 6, async (r) => {
+          const cert = await fetchCert(Number(r?.id));
+          return { r, cert: String(cert || "").trim().toUpperCase() };
+        });
+
+        filtered = withCert
+          .filter(({ cert }) => {
+            if (mpaFilter === "NR") return !cert || cert === "NR" || cert === "NOT RATED";
+            return cert === mpaFilter;
+          })
+          .map(({ r }) => r);
+      }
+
+      const mapped = filtered
+        .slice(0, limit)
+        .map((r) => {
+          const y = r?.release_date ? Number(String(r.release_date).slice(0, 4)) : null;
+          const ids = Array.isArray(r?.genre_ids) ? r.genre_ids : [];
+          const genres = uniqStrings(ids.map((id) => TMDB_MOVIE_GENRES[Number(id)]).filter(Boolean));
+          const genre = genres.length ? genres.join(", ") : "Movie";
+          return {
+            id: Number(r.id),
+            tmdb_id: Number(r.id),
+            title: String(r.title).trim(),
+            year: Number.isFinite(y) ? y : null,
+            genres,
+            genre,
+            poster_path: r?.poster_path ? String(r.poster_path) : null,
+          };
+        });
+
+      return jsonResponse(
+        {
+          results: mapped,
+          page: Number(tmdbJson?.page ?? page) || page,
+          total_pages: Number(tmdbJson?.total_pages ?? 0) || 0,
+        },
+        200,
+      );
+    }
+
+    // Public action: TMDb person search (used for actor/director avatars).
+    if (action === "person") {
+      const query = String(body?.query ?? body?.name ?? "").trim();
+      const departmentRaw = String(body?.department ?? "").trim().toLowerCase();
+      const department = departmentRaw ? departmentRaw : null;
+      const limitRaw = body?.limit === null || body?.limit === undefined ? 3 : Number(body.limit);
+      const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(10, Math.floor(limitRaw))) : 3;
+
+      if (!query || query.length < 2) {
+        return jsonResponse({ results: [] }, 200);
+      }
+
+      const url = new URL("https://api.themoviedb.org/3/search/person");
+      url.searchParams.set("query", query);
+      url.searchParams.set("include_adult", "false");
+      url.searchParams.set("language", "en-US");
+      url.searchParams.set("page", "1");
+
+      const tmdbRes = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` },
+      });
+
+      if (!tmdbRes.ok) {
+        const details = await tmdbRes.text().catch(() => "");
+        return jsonResponse(
+          {
+            code: 502,
+            message: "TMDb person search failed.",
+            details: `HTTP ${tmdbRes.status}${details ? `: ${details}` : ""}`,
+          },
+          502,
+        );
+      }
+
+      const tmdbJson = await tmdbRes.json();
+      let results = Array.isArray(tmdbJson?.results) ? tmdbJson.results : [];
+
+      if (department) {
+        results = results.filter((r) => String(r?.known_for_department ?? "").trim().toLowerCase() === department);
+      }
+
+      const mapped = results
+        .slice(0, limit)
+        .map((r) => ({
+          id: Number(r?.id ?? 0) || null,
+          name: String(r?.name ?? "").trim(),
+          profile_path: r?.profile_path ? String(r.profile_path).trim() : null,
+          known_for_department: String(r?.known_for_department ?? "").trim(),
+        }));
+
+      return jsonResponse({ results: mapped }, 200);
+    }
+
+    // Public action: fetch full movie details for prefill.
+    if (action === "details") {
+      const tmdb_id_raw = body?.tmdb_id ?? body?.id;
+      const tmdb_id = Number(tmdb_id_raw);
+      if (!Number.isFinite(tmdb_id) || tmdb_id <= 0) {
+        return jsonResponse({ code: 400, message: "tmdb_id must be a positive number." }, 400);
+      }
+
+      const url = new URL(`https://api.themoviedb.org/3/movie/${tmdb_id}`);
+      url.searchParams.set("language", "en-US");
+      url.searchParams.set("append_to_response", "credits,release_dates,external_ids");
+
+      const tmdbRes = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` },
+      });
+
+      if (!tmdbRes.ok) {
+        const details = await tmdbRes.text().catch(() => "");
+        return jsonResponse(
+          {
+            code: 502,
+            message: "TMDb details fetch failed.",
+            details: `HTTP ${tmdbRes.status}${details ? `: ${details}` : ""}`,
+          },
+          502,
+        );
+      }
+
+      const tmdbJson = await tmdbRes.json();
+
+      const title = String(tmdbJson?.title ?? "").trim();
+      const year = tmdbJson?.release_date ? Number(String(tmdbJson.release_date).slice(0, 4)) : null;
+      const runtime = Number.isFinite(Number(tmdbJson?.runtime)) ? Number(tmdbJson.runtime) : null;
+      const isSeries = Boolean(tmdbJson?.belongs_to_collection);
+      const director = extractDirectorNameFromCredits(tmdbJson?.credits);
+
+      const genres = uniqStrings(
+        (Array.isArray(tmdbJson?.genres) ? tmdbJson.genres : []).map((g) => String(g?.name ?? "").trim()),
+      );
+      const genre = genres.length ? genres.join(", ") : "";
+
+      const mpa = extractUsCertification(tmdbJson?.release_dates);
+
+      const imdb_id_raw = String(tmdbJson?.external_ids?.imdb_id ?? "").trim();
+      const imdb_id = imdb_id_raw ? imdb_id_raw : null;
+
+      const OMDB_API_KEY = Deno.env.get("OMDB_API_KEY");
+      let imdb_rating_pct = null;
+      let imdb_rating_error = null;
+      try {
+        const r = await fetchOmdbImdbRatingPercent({
+          imdb_id,
+          title,
+          year,
+          omdbApiKey: OMDB_API_KEY,
+        });
+        imdb_rating_pct = r?.pct ?? null;
+        imdb_rating_error = r?.ok ? null : (r?.reason ?? null);
+      } catch (e) {
+        imdb_rating_pct = null;
+        imdb_rating_error = `OMDb fetch crashed: ${String(e?.message ?? e)}`;
+      }
+
+      return jsonResponse(
+        {
+          tmdb_id,
+          title,
+          year: Number.isFinite(year) ? year : null,
+          runtime,
+          mpa,
+          isSeries,
+          director: director || "",
+          genres,
+          genre,
+          poster_path: tmdbJson?.poster_path ? String(tmdbJson.poster_path) : null,
+          imdb_id,
+          imdb_rating_pct,
+          ...(imdb_rating_error ? { imdb_rating_error } : {}),
+        },
+        200,
+      );
+    }
+
+    // Public action: fetch top movie backdrops for Theme Creator.
+    if (action === "backdrops") {
+      const tmdb_id_raw = body?.tmdb_id ?? body?.id;
+      const tmdb_id = Number(tmdb_id_raw);
+      if (!Number.isFinite(tmdb_id) || tmdb_id <= 0) {
+        return jsonResponse({ code: 400, message: "tmdb_id must be a positive number." }, 400);
+      }
+
+      const url = new URL(`https://api.themoviedb.org/3/movie/${tmdb_id}/images`);
+      url.searchParams.set("include_image_language", "en,null");
+
+      const tmdbRes = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` },
+      });
+
+      if (!tmdbRes.ok) {
+        const details = await tmdbRes.text().catch(() => "");
+        return jsonResponse(
+          {
+            code: 502,
+            message: "TMDb backdrops fetch failed.",
+            details: `HTTP ${tmdbRes.status}${details ? `: ${details}` : ""}`,
+          },
+          502,
+        );
+      }
+
+      const tmdbJson = await tmdbRes.json();
+      const backdrops = Array.isArray(tmdbJson?.backdrops) ? tmdbJson.backdrops : [];
+
+      const parsed = backdrops
+        .filter((b) => String(b?.file_path || "").trim())
+        .map((b) => ({
+          file_path: String(b.file_path).trim(),
+          vote_average: Number(b?.vote_average ?? 0) || 0,
+          vote_count: Number(b?.vote_count ?? 0) || 0,
+          width: Number(b?.width ?? 0) || 0,
+          height: Number(b?.height ?? 0) || 0,
+          aspect_ratio: Number(b?.aspect_ratio ?? 0) || 0,
+        }));
+
+      const sizeScore = (b) => (Number(b.width) || 0) * (Number(b.height) || 0);
+      const pickByMinWidth = (minWidth) => parsed
+        .filter((b) => Number(b.width) >= minWidth)
+        .sort((a, b) => sizeScore(b) - sizeScore(a));
+
+      const tier1 = pickByMinWidth(3840);
+      const tier2 = pickByMinWidth(2560);
+      const tier3 = pickByMinWidth(1920);
+
+      const mapped = (tier1.length ? tier1 : (tier2.length ? tier2 : tier3))
+        .slice(0, 20);
+
+      return jsonResponse({ tmdb_id, backdrops: mapped }, 200);
+    }
+
+    // Public action: TMDb trending movies (used by the Home "Trending Now" marquee).
+    if (action === "trending") {
+      const time_window_raw = String(body?.time_window ?? "day").trim().toLowerCase();
+      const time_window = time_window_raw === "week" ? "week" : "day";
+      const limit_raw = body?.limit === null || body?.limit === undefined ? 10 : Number(body.limit);
+      const limit = Number.isFinite(limit_raw) && limit_raw > 0 ? Math.min(20, Math.floor(limit_raw)) : 10;
+
+      const url = new URL(`https://api.themoviedb.org/3/trending/movie/${time_window}`);
+      url.searchParams.set("language", "en-US");
+
+      const tmdbRes = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` },
+      });
+
+      if (!tmdbRes.ok) {
+        const details = await tmdbRes.text().catch(() => "");
+        return jsonResponse(
+          {
+            code: 502,
+            message: "TMDb trending fetch failed.",
+            details: `HTTP ${tmdbRes.status}${details ? `: ${details}` : ""}`,
+          },
+          502,
+        );
+      }
+
+      const tmdbJson = await tmdbRes.json();
+      const results = Array.isArray(tmdbJson?.results) ? tmdbJson.results : [];
+
+      const mapped = results
+        .filter((r) => Number.isFinite(Number(r?.id)) && String(r?.title ?? "").trim())
+        // Prefer only items with posters since this drives a poster marquee.
+        .filter((r) => Boolean(String(r?.poster_path ?? "").trim()))
+        .slice(0, limit)
+        .map((r) => {
+          const year = r?.release_date ? Number(String(r.release_date).slice(0, 4)) : null;
+          const ids = Array.isArray(r?.genre_ids) ? r.genre_ids : [];
+          const genres = uniqStrings(ids.map((id) => TMDB_MOVIE_GENRES[Number(id)]).filter(Boolean));
+          const genre = genres.length ? genres[0] : "";
+          return {
+            id: Number(r.id),
+            tmdb_id: Number(r.id),
+            title: String(r.title).trim(),
+            year: Number.isFinite(year) ? year : null,
+            genres,
+            genre,
+            poster_path: String(r.poster_path).trim(),
+          };
+        });
+
+      return jsonResponse({ results: mapped, time_window, limit }, 200);
+    }
+
+    // Verify caller is authenticated (since Verify JWT is OFF at the platform layer)
+    const authHeader = req.headers.get("Authorization") ?? "";
+    if (!authHeader.toLowerCase().startsWith("bearer ")) {
+      return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+    }
+
+    const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+    if (userErr || !userData?.user?.id) {
+      return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+    }
+
+    if (action === "ai_picks") {
+      const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+      const OPENAI_MODEL = String(body?.model ?? "").trim()
+        || Deno.env.get("OPENAI_MODEL")
+        || "gpt-5-nano";
+
+      const debugEnabled = Boolean(body?.debug);
+
+      const prompt = String(body?.prompt ?? "").trim();
+      if (!prompt) {
+        return jsonResponse({ code: 400, message: "Missing prompt." }, 400);
+      }
+
+      const filters = body?.filters && typeof body.filters === "object" ? body.filters : {};
+      let tasteProfile = {};
+      const similarMoviesRaw = Array.isArray(body?.similar_movie)
+        ? body.similar_movie
+        : (body?.similar_movie && typeof body.similar_movie === "object" ? [body.similar_movie] : []);
+      const similarMovies = similarMoviesRaw.filter((m) => m && typeof m === "object").slice(0, 5);
+
+      try {
+        const { data: tasteRows, error: tasteErr } = await supabaseAdmin
+          .from("Taste Profiles")
+          .select("runtime_bins_json, decade_bins_json, imdb_delta, subrating_weights_json, people_affinity_json")
+          .eq("user_id", userData.user.id)
+          .limit(1);
+        if (!tasteErr && Array.isArray(tasteRows) && tasteRows.length > 0) {
+          const row = tasteRows[0] || {};
+
+          const runtimeBins = row?.runtime_bins_json && typeof row.runtime_bins_json === "object"
+            ? row.runtime_bins_json
+            : {};
+          const decadeBins = row?.decade_bins_json && typeof row.decade_bins_json === "object"
+            ? row.decade_bins_json
+            : {};
+
+          const topRuntime = Object.entries(runtimeBins)
+            .map(([bin, info]) => ({
+              bin: Number(bin),
+              avg: Number(info?.avg ?? 0),
+              count: Number(info?.count ?? 0),
+            }))
+            .filter((x) => Number.isFinite(x.bin) && Number.isFinite(x.avg) && x.count > 0)
+            .sort((a, b) => (b.avg - a.avg) || (b.count - a.count))
+            .slice(0, 1);
+
+          const topDecade = Object.entries(decadeBins)
+            .map(([decade, info]) => ({
+              decade: Number(decade),
+              avg: Number(info?.avg ?? 0),
+              count: Number(info?.count ?? 0),
+            }))
+            .filter((x) => Number.isFinite(x.decade) && Number.isFinite(x.avg) && x.count > 0)
+            .sort((a, b) => (b.avg - a.avg) || (b.count - a.count))
+            .slice(0, 1);
+
+          tasteProfile = {
+            taste_profile_query: {
+              preferred_runtime_bin: topRuntime.length ? topRuntime[0] : null,
+              preferred_decade: topDecade.length ? topDecade[0] : null,
+            },
+            taste_profile_rerank: {
+              imdb_delta: Number(row?.imdb_delta ?? 0),
+              subrating_weights: row?.subrating_weights_json && typeof row.subrating_weights_json === "object"
+                ? row.subrating_weights_json
+                : {},
+              people_affinity: row?.people_affinity_json && typeof row.people_affinity_json === "object"
+                ? row.people_affinity_json
+                : {},
+            },
+          };
+        }
+      } catch (_) {
+        tasteProfile = {};
+      }
+
+      const parserSchema = {
+        type: "object",
+        additionalProperties: false,
+        required: ["criteria", "taste_hints"],
+        properties: {
+          criteria: {
+            type: "object",
+            additionalProperties: false,
+            required: [
+              "genres_include",
+              "release_year_from",
+              "release_year_to",
+              "runtime_min",
+              "runtime_max",
+              "tmdb_rating_min",
+              "watch_region",
+              "watch_providers",
+            ],
+            properties: {
+              genres_include: { type: "array", items: { type: "string" } },
+              release_year_from: { type: "integer" },
+              release_year_to: { type: "integer" },
+              runtime_min: { type: "integer" },
+              runtime_max: { type: "integer" },
+              tmdb_rating_min: { type: "integer", minimum: 0, maximum: 100 },
+              watch_region: { type: "string" },
+              watch_providers: { type: "array", items: { type: "string" } },
+            },
+          },
+          taste_hints: { type: "array", items: { type: "string" } },
+        },
+      };
+
+      const parserSystem =
+        "You are a movie expert. Convert the prompt into TMDb-searchable criteria and taste hints. " +
+        "Return only JSON matching the provided schema. Use genres by name (e.g., Comedy, Drama). " +
+        "tmdb_rating_min is 0-100 (percent). " +
+        "Never invent runtime or release-year constraints; only set them when explicitly mentioned, " +
+        "unless taste_profile_query is provided AND user_runtime_context or user_year_context is false (then you may use it). " +
+        "Always include at least one genre (use the user's choices if provided; otherwise infer from the prompt). " +
+        "If watch providers aren't specified, include all known providers. " +
+        "If the prompt or filters do not explicitly mention a constraint (runtime/year/rating), set that field to 0. " +
+        "If no watch_region is specified, set it to \"\" (empty string).";
+
+      const promptHasRuntime = /\b(\d{2,3})\s*(min|mins|minutes|hr|hrs|hour|hours)\b|\b(short|long)\b/i.test(prompt);
+      const promptHasYear = /\b(19\d{2}|20\d{2})\b/.test(prompt);
+      const filterHasYear = Number(filters?.release_year_from ?? 0) > 0 || Number(filters?.release_year_to ?? 0) > 0;
+
+      const parserUser = JSON.stringify({
+        prompt,
+        filters,
+        similar_movie: similarMovies,
+        user_runtime_context: promptHasRuntime,
+        user_year_context: promptHasYear || filterHasYear,
+        taste_profile_query: tasteProfile?.taste_profile_query || {},
+      });
+
+      let parsed = null;
+      try {
+        parsed = await callOpenAiJson({
+          apiKey: OPENAI_API_KEY,
+          model: OPENAI_MODEL,
+          schemaName: "tmdb_query_json",
+          schema: parserSchema,
+          system: parserSystem,
+          user: parserUser,
+        });
+      } catch (err) {
+        return jsonResponse(
+          {
+            code: 502,
+            message: `OpenAI parse failed: ${String(err?.message || err)}`,
+            debug: debugEnabled
+              ? {
+                  parser_request: safeJsonParse(parserUser),
+                }
+              : null,
+          },
+          502,
+        );
+      }
+
+      const criteria = parsed?.criteria && typeof parsed.criteria === "object" ? parsed.criteria : {};
+      const tasteHints = Array.isArray(parsed?.taste_hints) ? parsed.taste_hints : [];
+      const tmdbHeaders = { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` };
+
+      const includeNamesFromInputs = uniqStrings([
+        ...(Array.isArray(criteria.genres_include) ? criteria.genres_include : []),
+        ...(Array.isArray(filters.genres_include) ? filters.genres_include : []),
+      ]);
+
+      let similarMovieGenres = [];
+      let similarMovieYears = [];
+      let similarMovieVotes = [];
+      let similarMovieIds = [];
+
+      if (similarMovies.length > 0) {
+        const ids = similarMovies
+          .map((m) => Number(m?.tmdb_id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+          .slice(0, 5);
+        similarMovieIds = ids;
+
+        const details = await mapWithConcurrency(ids, 3, async (id) => {
+          try {
+            const simUrl = new URL(`https://api.themoviedb.org/3/movie/${Number(id)}`);
+            const simRes = await fetch(simUrl.toString(), { headers: tmdbHeaders });
+            if (!simRes.ok) return null;
+            return await simRes.json().catch(() => null);
+          } catch (_) {
+            return null;
+          }
+        });
+
+        const genreNames = [];
+        const years = [];
+        const votes = [];
+        for (const simJson of details) {
+          if (!simJson) continue;
+          const g = Array.isArray(simJson?.genres)
+            ? simJson.genres.map((x) => String(x?.name || '').trim()).filter(Boolean)
+            : [];
+          genreNames.push(...g);
+          const y = extractTmdbYearFromReleaseDate(simJson?.release_date);
+          if (Number.isFinite(y)) years.push(y);
+          const v = Number(simJson?.vote_average ?? null);
+          if (Number.isFinite(v)) votes.push(v);
+        }
+
+        similarMovieGenres = uniqStrings(genreNames);
+        similarMovieYears = years;
+        similarMovieVotes = votes;
+      }
+
+      const inferredGenres = includeNamesFromInputs.length
+        ? []
+        : (similarMovieGenres.length ? similarMovieGenres : inferGenresFromPrompt(prompt));
+      const includeNames = uniqStrings([
+        ...includeNamesFromInputs,
+        ...inferredGenres,
+      ]);
+
+      if (includeNames.length === 0) includeNames.push("Drama");
+
+      const providerNamesFromInputs = uniqStrings([
+        ...(Array.isArray(criteria.watch_providers) ? criteria.watch_providers : []),
+        ...(Array.isArray(filters.watch_providers) ? filters.watch_providers : []),
+      ]);
+      const providerNames = providerNamesFromInputs.length
+        ? providerNamesFromInputs
+        : DEFAULT_WATCH_PROVIDER_NAMES.slice();
+
+      const watchRegionRaw =
+        (typeof criteria.watch_region === "string" ? criteria.watch_region : null)
+        || (typeof filters.watch_region === "string" ? filters.watch_region : null)
+        || "US";
+      const watchRegion = String(watchRegionRaw || "US").trim().toUpperCase() || "US";
+
+      const yearFrom = Number(criteria.release_year_from ?? null);
+      const yearTo = Number(criteria.release_year_to ?? null);
+      const filterYearFrom = Number(filters.release_year_from ?? null);
+      const filterYearTo = Number(filters.release_year_to ?? null);
+
+      const mergedYearFrom = [yearFrom, filterYearFrom].filter((v) => Number.isFinite(v) && v > 1800);
+      const mergedYearTo = [yearTo, filterYearTo].filter((v) => Number.isFinite(v) && v > 1800);
+      let finalYearFrom = mergedYearFrom.length ? Math.max(...mergedYearFrom) : null;
+      let finalYearTo = mergedYearTo.length ? Math.min(...mergedYearTo) : null;
+
+      if (!finalYearFrom && !finalYearTo && similarMovieYears.length > 0) {
+        const ranges = similarMovieYears
+          .filter((y) => Number.isFinite(y))
+          .map((y) => inferYearRangeFromSimilarMovie(y));
+        const froms = ranges.map((r) => r.from).filter((v) => Number.isFinite(v));
+        const tos = ranges.map((r) => r.to).filter((v) => Number.isFinite(v));
+        finalYearFrom = froms.length ? Math.min(...froms) : null;
+        finalYearTo = tos.length ? Math.max(...tos) : null;
+      }
+
+      if (finalYearFrom && finalYearTo && finalYearFrom > finalYearTo) {
+        const tmp = finalYearFrom;
+        finalYearFrom = finalYearTo;
+        finalYearTo = tmp;
+      }
+
+      const ratingFromCriteria = Number(criteria.tmdb_rating_min ?? null);
+      const ratingFromFilter = Number(filters.tmdb_rating_min ?? null);
+      const ratingCandidates = [ratingFromCriteria, ratingFromFilter].filter((v) => Number.isFinite(v));
+      let ratingMinPct = ratingCandidates.length ? Math.max(...ratingCandidates) : null;
+      if (!Number.isFinite(ratingMinPct) || ratingMinPct <= 0) ratingMinPct = null;
+
+      // NOTE: Do not auto-derive a minimum rating from similar movies; it over-filters results.
+
+      const hasRuntimeHint = promptMentionsRuntime(prompt);
+      const runtimeMin = hasRuntimeHint && Number.isFinite(Number(criteria.runtime_min))
+        ? Number(criteria.runtime_min)
+        : null;
+      const runtimeMax = hasRuntimeHint && Number.isFinite(Number(criteria.runtime_max))
+        ? Number(criteria.runtime_max)
+        : null;
+
+      const includeIds = mapGenreNamesToIds(includeNames);
+      const providerIds = mapProviderNamesToIds(providerNames);
+      const candidates = [];
+
+      let watchedTmdbIds = null;
+      if (filters?.exclude_watched) {
+        try {
+          watchedTmdbIds = await fetchWatchedTmdbIds(supabaseAdmin, userData.user.id);
+        } catch (_) {
+          watchedTmdbIds = null;
+        }
+      }
+
+      const excludeTmdbIds = new Set(similarMovieIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0));
+
+      for (let page = 1; page <= 10 && candidates.length < 200; page += 1) {
+        const url = new URL("https://api.themoviedb.org/3/discover/movie");
+        url.searchParams.set("include_adult", "false");
+        url.searchParams.set("page", String(page));
+        url.searchParams.set("sort_by", "popularity.desc");
+        if (includeIds.length) url.searchParams.set("with_genres", includeIds.join("|"));
+        if (finalYearFrom) url.searchParams.set("primary_release_date.gte", `${finalYearFrom}-01-01`);
+        if (finalYearTo) url.searchParams.set("primary_release_date.lte", `${finalYearTo}-12-31`);
+        if (Number.isFinite(runtimeMin)) url.searchParams.set("with_runtime.gte", String(Math.max(0, Math.floor(runtimeMin))));
+        if (Number.isFinite(runtimeMax)) url.searchParams.set("with_runtime.lte", String(Math.max(0, Math.floor(runtimeMax))));
+        if (Number.isFinite(ratingMinPct)) {
+          const voteAvg = Math.max(0, Math.min(10, ratingMinPct / 10));
+          url.searchParams.set("vote_average.gte", String(voteAvg.toFixed(1)));
+        }
+        if (providerIds.length > 0) {
+          url.searchParams.set("watch_region", watchRegion);
+          url.searchParams.set("with_watch_providers", providerIds.join("|"));
+        }
+
+        const res = await fetch(url.toString(), { headers: tmdbHeaders });
+        if (!res.ok) {
+          const details = await res.text().catch(() => "");
+          return jsonResponse(
+            { code: 502, message: "TMDb discover failed.", details: `HTTP ${res.status}${details ? `: ${details}` : ""}` },
+            502,
+          );
+        }
+
+        const json = await res.json().catch(() => null);
+        const results = Array.isArray(json?.results) ? json.results : [];
+
+        for (const r of results) {
+          if (candidates.length >= 200) break;
+          const id = Number(r?.id);
+          const title = String(r?.title ?? "").trim();
+          if (!Number.isFinite(id) || !title) continue;
+          if (excludeTmdbIds.has(id)) continue;
+          if (watchedTmdbIds && watchedTmdbIds.has(id)) continue;
+          const year = r?.release_date ? Number(String(r.release_date).slice(0, 4)) : null;
+          const ids = Array.isArray(r?.genre_ids) ? r.genre_ids : [];
+          const genres = uniqStrings(ids.map((gid) => TMDB_MOVIE_GENRES[Number(gid)]).filter(Boolean));
+          candidates.push({
+            tmdb_id: id,
+            title,
+            year: Number.isFinite(year) ? year : null,
+            genres,
+            vote_average: Number(r?.vote_average ?? 0) || 0,
+            overview: String(r?.overview ?? "").trim(),
+          });
+        }
+      }
+
+      const debugPayload = debugEnabled
+        ? {
+            parser_request: safeJsonParse(parserUser),
+            parser_response: parsed,
+            parsed_criteria: criteria,
+            taste_hints: tasteHints,
+            candidates,
+            candidates_count: candidates.length,
+          }
+        : null;
+
+      if (candidates.length === 0) {
+        return jsonResponse({ top5: [], debug: debugPayload }, 200);
+      }
+
+      const desiredCount = Math.min(5, candidates.length);
+      const rerankSchema = {
+        type: "object",
+        additionalProperties: false,
+        required: ["top5"],
+        properties: {
+          top5: {
+            type: "array",
+            minItems: desiredCount,
+            maxItems: desiredCount,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["tmdb_id", "title", "year", "reason"],
+              properties: {
+                tmdb_id: { type: "integer" },
+                title: { type: "string" },
+                year: { type: "integer" },
+                reason: { type: "string" },
+              },
+            },
+          },
+        },
+      };
+
+      const rerankSystem =
+        "You are a movie expert. Rank the candidates and return the top 5. " +
+        "Each reason should be 2-4 sentences. Briefly cover: (1) why it matches the prompt/filters, " +
+        "and (2) why it aligns with the user's taste profile (use provided taste_profile_rerank hints only). " +
+        "Use taste_profile_rerank as soft preferences only (no hard filtering). " +
+        "Only choose from the provided candidates and always keep the candidate tmdb_id/title/year exactly as given. " +
+        "Return only JSON matching the provided schema.";
+      const rerankUser = JSON.stringify({ prompt, taste_hints: tasteHints, taste_profile_rerank: tasteProfile?.taste_profile_rerank || {}, candidates });
+
+      try {
+        const reranked = await callOpenAiJson({
+          apiKey: OPENAI_API_KEY,
+          model: OPENAI_MODEL,
+          schemaName: "ai_top10_json",
+          schema: rerankSchema,
+          system: rerankSystem,
+          user: rerankUser,
+        });
+        const top5Raw = Array.isArray(reranked?.top5) ? reranked.top5 : [];
+        const candidatesById = new Map(candidates.map((c) => [Number(c.tmdb_id), c]));
+        const candidatesByKey = new Map(candidates.map((c) => [
+          `${String(c.title || "").toLowerCase()}|${Number(c.year) || ""}`,
+          c,
+        ]));
+
+        const top5 = await mapWithConcurrency(top5Raw, 5, async (item) => {
+          const rawId = Number(item?.tmdb_id);
+          const key = `${String(item?.title || "").toLowerCase()}|${Number(item?.year) || ""}`;
+          const candidate = (Number.isFinite(rawId) && rawId > 0 ? candidatesById.get(rawId) : null)
+            || candidatesByKey.get(key)
+            || null;
+          if (!candidate) return item;
+
+          const tmdbId = Number(candidate.tmdb_id);
+          if (!Number.isFinite(tmdbId) || tmdbId <= 0) return item;
+
+          try {
+            const url = new URL(`https://api.themoviedb.org/3/movie/${tmdbId}`);
+            url.searchParams.set("append_to_response", "release_dates");
+            const res = await fetch(url.toString(), { headers: tmdbHeaders });
+            if (!res.ok) return item;
+            const json = await res.json().catch(() => null);
+            const year = json?.release_date ? Number(String(json.release_date).slice(0, 4)) : null;
+            const mpa = extractUsCertification(json?.release_dates);
+            const poster = normalizePosterPath(json?.poster_path) || null;
+            const voteAvg = Number(json?.vote_average ?? 0) || 0;
+            return {
+              ...item,
+              tmdb_id: tmdbId,
+              title: candidate.title || item?.title || "",
+              year: Number.isFinite(year) ? year : candidate.year ?? item?.year ?? null,
+              poster_path: poster,
+              tmdb_rating: voteAvg,
+              mpa_rating: mpa || "",
+            };
+          } catch (_) {
+            return {
+              ...item,
+              tmdb_id: tmdbId,
+              title: candidate.title || item?.title || "",
+              year: candidate.year ?? item?.year ?? null,
+            };
+          }
+        });
+
+        if (debugPayload) {
+          debugPayload.rerank_request = safeJsonParse(rerankUser);
+          debugPayload.rerank_response = reranked;
+          debugPayload.top5 = top5;
+        }
+
+        return jsonResponse({ top5, debug: debugPayload }, 200);
+      } catch (err) {
+        if (debugPayload) {
+          debugPayload.rerank_request = safeJsonParse(rerankUser);
+        }
+        return jsonResponse(
+          { code: 502, message: `OpenAI rerank failed: ${String(err?.message || err)}`, debug: debugPayload },
+          502,
+        );
+      }
+    }
+
+    const title = String(body?.title ?? "").trim();
+    const release_year =
+      body?.release_year === null || body?.release_year === undefined
+        ? null
+        : Number(body.release_year);
+    const movie_uuid = uuidLike(body?.movie_id) ? String(body.movie_id).trim() : null;
+    const sync_people = Boolean(body?.sync_people);
+
+    if (!movie_uuid && !title) {
+      return jsonResponse(
+        { code: 400, message: 'Missing "title" (or provide "movie_id").' },
+        400,
+      );
+    }
+    if (release_year !== null && !Number.isFinite(release_year)) {
+      return jsonResponse({ code: 400, message: "release_year must be a number or null." }, 400);
+    }
+
+    // Write to Movies / read tmdb_id using service role (bypasses RLS safely on the server)
+
+    const OMDB_API_KEY = Deno.env.get("OMDB_API_KEY");
+
+    // Your schema uses a quoted, capitalized table name: "People".
+    // Using lowercase "people" will fail with a PostgREST schema cache error.
+    const PEOPLE_TABLE = "People";
+
+    const insertPeopleFromCredits = async (tmdb_id_value, movie_row_id_value) => {
+      const creditsUrl = new URL(
+        `https://api.themoviedb.org/3/movie/${tmdb_id_value}/credits`,
+      );
+      creditsUrl.searchParams.set("language", "en-US");
+
+      const creditsRes = await fetch(creditsUrl.toString(), {
+        headers: { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` },
+      });
+
+      if (!creditsRes.ok) {
+        const details = await creditsRes.text().catch(() => "");
+        return {
+          ok: false,
+          message: "TMDb credits fetch failed.",
+          details: `HTTP ${creditsRes.status}${details ? `: ${details}` : ""}`,
+        };
+      }
+
+      const creditsJson = await creditsRes.json();
+
+      const norm = (s) => String(s ?? "").trim().toLowerCase();
+      const hasIdAndName = (p) => Number.isFinite(Number(p?.id)) && String(p?.name ?? "").trim();
+
+      const cast = Array.isArray(creditsJson?.cast) ? creditsJson.cast : [];
+      const topCast = cast
+        .filter(hasIdAndName)
+        .sort((a, b) => Number(a?.order ?? 9999) - Number(b?.order ?? 9999))
+        .slice(0, 20)
+        .map((p) => ({
+          tmdb_person_id: Number(p.id),
+          name: String(p.name).trim(),
+          character: String(p?.character ?? "").trim() || null,
+        }));
+
+      const crew = Array.isArray(creditsJson?.crew) ? creditsJson.crew : [];
+
+      const pickCrewByJobs = ({
+        primary,
+        fallback,
+        max = 5,
+      }) => {
+        const normalized = crew
+          .filter(hasIdAndName)
+          .map((p) => ({
+            id: Number(p.id),
+            name: String(p.name).trim(),
+            job: norm(p?.job),
+            department: norm(p?.department),
+          }));
+
+        let hits = normalized.filter(primary);
+        if (hits.length === 0 && fallback) hits = normalized.filter(fallback);
+
+        // Preserve first-seen ordering (TMDb's crew array is usually already ordered meaningfully)
+        const unique = [];
+        const seen = new Set();
+        for (const h of hits) {
+          if (seen.has(h.id)) continue;
+          seen.add(h.id);
+          unique.push({ tmdb_person_id: h.id, name: h.name });
+          if (unique.length >= max) break;
+        }
+        return unique;
+      };
+
+      // Directors
+      const directors = pickCrewByJobs({
+        primary: (p) => p.job === "director",
+        fallback: (p) =>
+          p.job.includes("director") &&
+          !p.job.includes("assistant") &&
+          !p.job.includes("second") &&
+          !p.job.includes("third"),
+        max: 5,
+      });
+
+      // Writers (job titles vary: Writer, Screenplay, Story, Teleplay, etc.)
+      const writers = pickCrewByJobs({
+        primary: (p) =>
+          p.department === "writing" &&
+          (p.job.includes("writer") ||
+            p.job.includes("screenplay") ||
+            p.job.includes("story") ||
+            p.job.includes("teleplay")),
+        fallback: (p) =>
+          p.job.includes("writer") ||
+          p.job.includes("screenplay") ||
+          p.job.includes("story") ||
+          p.job.includes("teleplay"),
+        max: 10,
+      });
+
+      // Music composers (job titles vary: Original Music Composer, Composer, Music, Score, etc.)
+      const composers = pickCrewByJobs({
+        primary: (p) => p.job.includes("composer"),
+        fallback: (p) =>
+          (p.job.includes("music") && (p.job.includes("score") || p.job.includes("composer"))) ||
+          p.job.includes("original music"),
+        max: 5,
+      });
+
+      const tableName = PEOPLE_TABLE;
+
+      // Combine cast + key crew roles, then de-dupe by tmdb_person_id.
+      const combined = [...topCast, ...directors, ...writers, ...composers];
+      const byId = new Map();
+      for (const p of combined) {
+        if (!Number.isFinite(Number(p?.tmdb_person_id))) continue;
+        const id = Number(p.tmdb_person_id);
+        if (!byId.has(id)) byId.set(id, { tmdb_person_id: id, name: String(p?.name ?? "").trim() });
+      }
+      const people = Array.from(byId.values()).filter((p) => p.tmdb_person_id && p.name);
+
+      if (people.length === 0) {
+        return {
+          ok: true,
+          requested: 0,
+          inserted: 0,
+          skipped: 0,
+          table: tableName,
+          roles: { cast: topCast.length, directors: directors.length, writers: writers.length, composers: composers.length },
+        };
+      }
+
+      const ids = people.map((p) => p.tmdb_person_id);
+
+      // Preselect existing ids (also returns UUID ids for join tables).
+      const { data: existing, error: existingErr } = await supabaseAdmin
+        .from(tableName)
+        .select("id, tmdb_person_id")
+        .in("tmdb_person_id", ids);
+
+      if (existingErr) {
+        return {
+          ok: false,
+          message: "Failed to check existing People rows.",
+          details: existingErr.message,
+          table: tableName,
+        };
+      }
+
+      const existingSet = new Set(
+        (existing ?? [])
+          .map((r) => Number(r?.tmdb_person_id))
+          .filter((n) => Number.isFinite(n)),
+      );
+
+      const newRows = people.filter((p) => !existingSet.has(p.tmdb_person_id));
+
+      if (newRows.length > 0) {
+        const { error: insErr } = await supabaseAdmin.from(tableName).insert(newRows);
+        if (insErr) {
+          return {
+            ok: false,
+            message: "Failed to insert People rows.",
+            details: insErr.message,
+            table: tableName,
+          };
+        }
+      }
+
+      // Fetch UUID ids for all involved tmdb_person_id values (for join tables).
+      const { data: allPeopleRows, error: allPeopleErr } = await supabaseAdmin
+        .from(tableName)
+        .select("id, tmdb_person_id")
+        .in("tmdb_person_id", ids);
+
+      if (allPeopleErr) {
+        return {
+          ok: false,
+          message: "Failed to load People ids after insert.",
+          details: allPeopleErr.message,
+          table: tableName,
+        };
+      }
+
+      const tmdbToUuid = new Map();
+      for (const r of allPeopleRows ?? []) {
+        const tid = Number(r?.tmdb_person_id);
+        if (!Number.isFinite(tid)) continue;
+        if (r?.id) tmdbToUuid.set(tid, r.id);
+      }
+
+      const castSync = {
+        requested: topCast.length,
+        inserted: 0,
+        error: null,
+      };
+      const crewSync = {
+        requested: directors.length + writers.length + composers.length,
+        inserted: 0,
+        error: null,
+        preview: [],
+        duplicates_by_person: [],
+      };
+
+      const tryInsertMovieCast = async (rows) => {
+        const { error } = await supabaseAdmin.from("Movie Cast").insert(rows);
+        return error || null;
+      };
+
+      const tryInsertMovieCrew = async (rows) => {
+        const { error } = await supabaseAdmin.from("Movie Crew").insert(rows);
+        return error || null;
+      };
+
+      // Populate join tables if movie_row_id is available.
+      if (movie_row_id_value) {
+        // Movie Cast
+        try {
+          const castRows = topCast
+            .map((p) => ({
+              movie_id: movie_row_id_value,
+              person_id: tmdbToUuid.get(Number(p.tmdb_person_id)) || null,
+              character: p.character,
+            }))
+            .filter((r) => r.person_id);
+
+          // Refresh rows for this movie_id (idempotent)
+          const { error: delErr } = await supabaseAdmin
+            .from("Movie Cast")
+            .delete()
+            .eq("movie_id", movie_row_id_value);
+
+          if (delErr) {
+            castSync.error = `Failed to clear Movie Cast: ${delErr.message}`;
+          } else if (castRows.length > 0) {
+            const insErr = await tryInsertMovieCast(castRows);
+            if (insErr) castSync.error = `Failed to insert Movie Cast: ${insErr.message}`;
+            else castSync.inserted = castRows.length;
+          }
+        } catch (e) {
+          castSync.error = `Movie Cast sync crashed: ${String(e?.message ?? e)}`;
+        }
+
+        // Movie Crew
+        try {
+          const normalizeJob = (raw) => {
+            const j = norm(raw);
+            if (!j) return null;
+            if (j === "director" || j.includes("director")) return "Director";
+            if (j.includes("writer") || j.includes("screenplay") || j.includes("story") || j.includes("teleplay")) return "Writer";
+            if (j.includes("composer") || j.includes("original music")) return "Composer";
+            if (j.includes("music") && j.includes("score")) return "Composer";
+            return null;
+          };
+
+          const crewSource = [
+            ...directors.map((p) => ({ ...p, rawJob: "director" })),
+            ...writers.map((p) => ({ ...p, rawJob: "writer" })),
+            ...composers.map((p) => ({ ...p, rawJob: "composer" })),
+          ];
+
+          const crewRowsRaw = crewSource
+            .map((p) => {
+              const person_id = tmdbToUuid.get(Number(p.tmdb_person_id)) || null;
+              const job = normalizeJob(p.rawJob) || null;
+              return {
+                movie_id: movie_row_id_value,
+                person_id,
+                job,
+                name: String(p?.name ?? "").trim() || null,
+                tmdb_person_id: Number(p?.tmdb_person_id) || null,
+              };
+            })
+            .filter((r) => r.person_id && r.job);
+
+          // Dedupe by person_id+job
+          const seenCrew = new Set();
+          const crewRows = [];
+          for (const r of crewRowsRaw) {
+            const key = `${r.person_id}|${r.job}`;
+            if (seenCrew.has(key)) continue;
+            seenCrew.add(key);
+            crewRows.push({ movie_id: r.movie_id, person_id: r.person_id, job: r.job });
+          }
+
+          crewSync.preview = crewRowsRaw
+            .slice(0, 50)
+            .map((r) => ({
+              movie_id: r.movie_id,
+              person_id: r.person_id,
+              name: r.name,
+              job: r.job,
+              tmdb_person_id: r.tmdb_person_id,
+            }));
+
+          const counts = new Map();
+          for (const r of crewRowsRaw) {
+            const pid = String(r.person_id || "");
+            if (!pid) continue;
+            counts.set(pid, (counts.get(pid) || 0) + 1);
+          }
+          crewSync.duplicates_by_person = Array.from(counts.entries())
+            .filter(([, c]) => c > 1)
+            .slice(0, 50)
+            .map(([person_id, count]) => ({ person_id, count }));
+
+          const { error: delErr } = await supabaseAdmin
+            .from("Movie Crew")
+            .delete()
+            .eq("movie_id", movie_row_id_value);
+
+          if (delErr) {
+            crewSync.error = `Failed to clear Movie Crew: ${delErr.message}`;
+          } else if (crewRows.length > 0) {
+            const insErr = await tryInsertMovieCrew(crewRows);
+            if (insErr) crewSync.error = `Failed to insert Movie Crew: ${insErr.message}`;
+            else crewSync.inserted = crewRows.length;
+          }
+        } catch (e) {
+          crewSync.error = `Movie Crew sync crashed: ${String(e?.message ?? e)}`;
+        }
+      }
+
+      return {
+        ok: true,
+        requested: people.length,
+        inserted: newRows.length,
+        skipped: people.length - newRows.length,
+        table: tableName,
+        roles: { cast: topCast.length, directors: directors.length, writers: writers.length, composers: composers.length },
+        cast_sync: castSync,
+        crew_sync: crewSync,
+      };
+    };
+
+    let movieData = null;
+    let tmdb_id = null;
+    let tmdbGenres = [];
+    let tmdbGenreIds = new Set();
+    let tmdbGenreNames = new Set();
+
+    if (movie_uuid) {
+      const { data: m, error: mErr } = await supabaseAdmin
+        .from("Movies")
+        .select("id, tmdb_id, title, release_year, runtime_minutes, mpa_rating, imdb_id, poster_path")
+        .eq("id", movie_uuid)
+        .single();
+
+      if (mErr) {
+        return jsonResponse(
+          { code: 404, message: "Movie not found.", details: mErr.message },
+          404,
+        );
+      }
+
+      movieData = m;
+      tmdb_id = Number(m?.tmdb_id);
+      if (!Number.isFinite(tmdb_id) || tmdb_id <= 0) {
+        return jsonResponse(
+          {
+            code: 400,
+            message: "Movie is missing tmdb_id, cannot sync cast.",
+          },
+          400,
+        );
+      }
+
+      // Failsafe: if this existing movie is missing poster_path, try to repair it now.
+      if (!String(movieData?.poster_path ?? "").trim()) {
+        try {
+          await tryRepairPosterPathByTmdbId({
+            supabaseAdmin,
+            tmdbId: tmdb_id,
+            tmdbReadAccessToken: TMDB_READ_ACCESS_TOKEN,
+            timeoutMs: 1200,
+          });
+        } catch (_) {
+          // Best-effort only.
+        }
+      }
+    }
+
+    // If no movie_id was provided, do TMDb search by title (+ optional year)
+    // and upsert into Movies.
+    if (!movieData) {
+    const searchUrl = new URL("https://api.themoviedb.org/3/search/movie");
+    searchUrl.searchParams.set("query", title);
+    searchUrl.searchParams.set("include_adult", "false");
+    searchUrl.searchParams.set("language", "en-US");
+    searchUrl.searchParams.set("page", "1");
+    if (release_year) searchUrl.searchParams.set("year", String(release_year));
+
+    const searchRes = await fetch(searchUrl.toString(), {
+      headers: { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` },
+    });
+
+    if (!searchRes.ok) {
+      const details = await searchRes.text();
+      return jsonResponse({ code: 400, message: "TMDb search failed.", details }, 400);
+    }
+
+    const searchJson = await searchRes.json();
+    const best = pickBestSearchResult(searchJson?.results ?? [], release_year);
+    if (!best?.id) {
+      return jsonResponse({ code: 404, message: "No TMDb match found." }, 404);
+    }
+
+    tmdb_id = Number(best.id);
+
+    // TMDb details to get runtime/title/release date
+    const detailsUrl = new URL(`https://api.themoviedb.org/3/movie/${tmdb_id}`);
+    detailsUrl.searchParams.set("language", "en-US");
+
+    // TMDb release_dates to get US certification (MPA rating)
+    const releaseDatesUrl = new URL(
+      `https://api.themoviedb.org/3/movie/${tmdb_id}/release_dates`,
+    );
+
+    // TMDb external_ids to get IMDb ID
+    const externalIdsUrl = new URL(
+      `https://api.themoviedb.org/3/movie/${tmdb_id}/external_ids`,
+    );
+
+    const tmdbHeaders = { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` };
+
+    const [detailsRes, releaseDatesRes, externalIdsRes] = await Promise.all([
+      fetch(detailsUrl.toString(), { headers: tmdbHeaders }),
+      fetch(releaseDatesUrl.toString(), { headers: tmdbHeaders }),
+      fetch(externalIdsUrl.toString(), { headers: tmdbHeaders }),
+    ]);
+
+    if (!detailsRes.ok) {
+      const details = await detailsRes.text();
+      return jsonResponse({ code: 400, message: "TMDb details fetch failed.", details }, 400);
+    }
+
+    const detailsJson = await detailsRes.json();
+    const runtime_minutes = Number(detailsJson?.runtime ?? 0);
+    if (!Number.isFinite(runtime_minutes) || runtime_minutes <= 0) {
+      return jsonResponse({ code: 404, message: "TMDb did not return a usable runtime." }, 404);
+    }
+
+    const tmdbTitle = String(detailsJson?.title ?? best?.title ?? title).trim();
+    const tmdbReleaseYear = detailsJson?.release_date
+      ? Number(String(detailsJson.release_date).slice(0, 4))
+      : (release_year ?? null);
+
+    const tmdbReleaseDate = detailsJson?.release_date
+      ? String(detailsJson.release_date)
+      : null;
+
+    let mpa_rating = null;
+    if (releaseDatesRes.ok) {
+      const releaseDatesJson = await releaseDatesRes.json();
+      const us = (releaseDatesJson?.results ?? []).find((r) => r?.iso_3166_1 === "US");
+      const dates = us?.release_dates ?? [];
+
+      // Prefer theatrical-ish types if present: 3=Theatrical (limited), 2=Theatrical
+      const preferredTypes = new Set([3, 2]);
+      const preferred = dates.find((d) => d?.certification && preferredTypes.has(Number(d.type)));
+      const anyCert = dates.find((d) => d?.certification);
+
+      mpa_rating = String((preferred?.certification ?? anyCert?.certification ?? "").trim() || "") || null;
+    }
+
+    let imdb_id = null;
+    if (externalIdsRes.ok) {
+      const externalIdsJson = await externalIdsRes.json();
+      const raw = String(externalIdsJson?.imdb_id ?? "").trim();
+      imdb_id = raw ? raw : null;
+    }
+
+    // TMDb genres (prefer details endpoint which includes names)
+    tmdbGenres = Array.isArray(detailsJson?.genres) ? detailsJson.genres : [];
+    tmdbGenreIds = new Set(
+      tmdbGenres
+        .map((g) => Number(g?.id))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    );
+    tmdbGenreNames = new Set(
+      tmdbGenres
+        .map((g) => String(g?.name ?? "").trim())
+        .filter(Boolean),
+    );
+
+    // Requires a UNIQUE constraint on Movies.tmdb_id for onConflict to work cleanly
+    const poster_path_raw = String(detailsJson?.poster_path ?? best?.poster_path ?? "").trim();
+    const poster_path = poster_path_raw
+      ? (poster_path_raw.startsWith("/") ? poster_path_raw : `/${poster_path_raw}`)
+      : null;
+
+    const movieRow = {
+      tmdb_id,
+      title: tmdbTitle,
+      release_year: tmdbReleaseYear,
+      runtime_minutes,
+      mpa_rating,
+      imdb_id,
+      poster_path,
+      // Optional convenience field if you have it in your schema; safe to remove if not.
+      // release_date: tmdbReleaseDate,
+    };
+
+    const { data: upsertedMovie, error: upsertErr } = await supabaseAdmin
+      .from("Movies")
+      .upsert(movieRow, { onConflict: "tmdb_id" })
+      .select("id, tmdb_id, title, release_year, runtime_minutes, mpa_rating, imdb_id, poster_path")
+      .single();
+
+    if (upsertErr) {
+      return jsonResponse(
+        {
+          code: 400,
+          message: upsertErr.message,
+          hint: "Add a UNIQUE constraint on public.\"Movies\"(tmdb_id) if missing.",
+        },
+        400,
+      );
+    }
+
+    // Assign for downstream.
+    movieData = upsertedMovie;
+    }
+
+    // Fetch + persist external IMDb rating (best-effort; should not block rating logs).
+    const external_ratings = {
+      imdb: { ok: false, pct: null, error: null },
+    };
+
+    try {
+      const imdb_id = String(movieData?.imdb_id ?? "").trim() || null;
+      const titleForOmdb = String(movieData?.title ?? title ?? "").trim();
+      const yearForOmdb = movieData?.release_year ?? release_year ?? null;
+
+      const r = await fetchOmdbImdbRatingPercent({
+        imdb_id,
+        title: titleForOmdb,
+        year: yearForOmdb,
+        omdbApiKey: OMDB_API_KEY,
+      });
+
+      external_ratings.imdb.pct = r?.pct ?? null;
+      external_ratings.imdb.ok = Boolean(r?.ok) && r?.pct !== null;
+      external_ratings.imdb.error = external_ratings.imdb.ok ? null : (r?.reason ?? null);
+
+      if (external_ratings.imdb.ok && movieData?.id) {
+        const row = {
+          movie_id: movieData.id,
+          source: "imdb",
+          rating: external_ratings.imdb.pct,
+          fetched_at: new Date().toISOString(),
+        };
+
+        const { error: upsertErr } = await supabaseAdmin
+          .from("Movie External Ratings")
+          .upsert(row, { onConflict: "movie_id,source" });
+
+        if (upsertErr) {
+          external_ratings.imdb.ok = false;
+          external_ratings.imdb.error = `DB upsert failed: ${upsertErr.message}`;
+        }
+      }
+    } catch (e) {
+      external_ratings.imdb.ok = false;
+      external_ratings.imdb.error = `External rating sync crashed: ${String(e?.message ?? e)}`;
+    }
+
+    // Sync Movie Genres join table (one row per TMDb genre)
+    // Tables:
+    // - "Genres" (id, name)
+    // - "Movie Genres" (movie_id FK -> Movies, genre_id FK -> Genres)
+    // This uses service role, so it bypasses RLS (server-side only).
+    // IMPORTANT: This should not block saving a Movie; failures are returned as a warning.
+    const movie_row_id = movieData?.id;
+    const genreSync = {
+      requested: tmdbGenres.length,
+      matched: 0,
+      inserted: 0,
+      error: null,
+    };
+
+    if (movie_row_id && (tmdbGenreIds.size > 0 || tmdbGenreNames.size > 0)) {
+      const { data: allGenres, error: genresErr } = await supabaseAdmin
+        .from("Genres")
+        .select("id, name");
+
+      if (genresErr) {
+        genreSync.error = `Failed to load Genres: ${genresErr.message}`;
+      } else {
+        const byLowerName = new Map();
+        for (const g of allGenres ?? []) {
+          const name = String(g?.name ?? "").trim();
+          if (!name) continue;
+          byLowerName.set(name.toLowerCase(), g?.id);
+        }
+
+        // Prefer matching by TMDb genre id if your Genres.id uses TMDb ids.
+        // If not, fall back to matching by genre name (Genres.name).
+        const matchedGenreIds = new Set();
+        for (const gid of tmdbGenreIds) {
+          const hit = (allGenres ?? []).find((g) => Number(g?.id) === gid);
+          if (hit?.id !== undefined && hit?.id !== null) matchedGenreIds.add(hit.id);
+        }
+        if (matchedGenreIds.size === 0) {
+          for (const name of tmdbGenreNames) {
+            const id = byLowerName.get(String(name).toLowerCase());
+            if (id !== undefined && id !== null) matchedGenreIds.add(id);
+          }
+        }
+        genreSync.matched = matchedGenreIds.size;
+
+        // Refresh rows for this movie_id (idempotent without requiring a UNIQUE constraint)
+        const { error: delErr } = await supabaseAdmin
+          .from("Movie Genres")
+          .delete()
+          .eq("movie_id", movie_row_id);
+
+        if (delErr) {
+          genreSync.error = `Failed to clear Movie Genres: ${delErr.message}`;
+        } else {
+          const joinRows = Array.from(matchedGenreIds).map((genre_id) => ({
+            movie_id: movie_row_id,
+            genre_id,
+          }));
+
+          if (joinRows.length > 0) {
+            const { error: insErr } = await supabaseAdmin
+              .from("Movie Genres")
+              .insert(joinRows);
+
+            if (insErr) {
+              genreSync.error = `Failed to insert Movie Genres: ${insErr.message}`;
+            } else {
+              genreSync.inserted = joinRows.length;
+            }
+          }
+        }
+      }
+    }
+
+    // Sync watch providers -> Platforms + Movie Platforms (best-effort).
+    // IMPORTANT: This must not block the core save flow.
+    const platformSync = {
+      region: "US",
+      requested: 0,
+      created_platforms: 0,
+      linked: 0,
+      error: null,
+    };
+
+    if (movieData?.id && Number.isFinite(Number(tmdb_id)) && Number(tmdb_id) > 0) {
+      const watchRegionRaw = body?.watch_region ?? body?.region ?? "US";
+      const watchRegion = String(watchRegionRaw || "US").trim().toUpperCase() || "US";
+      try {
+        const r = await syncMovieWatchPlatforms({
+          supabaseAdmin,
+          movie_id: movieData.id,
+          tmdb_id,
+          tmdbReadAccessToken: TMDB_READ_ACCESS_TOKEN,
+          region: watchRegion,
+          timeoutMs: 1400,
+        });
+        platformSync.region = r?.region ?? watchRegion;
+        platformSync.requested = Number(r?.requested ?? 0) || 0;
+        platformSync.created_platforms = Number(r?.created_platforms ?? 0) || 0;
+        platformSync.linked = Number(r?.linked ?? 0) || 0;
+        platformSync.error = r?.error ?? null;
+      } catch (e) {
+        platformSync.error = `Platform sync crashed: ${String(e?.message ?? e)}`;
+      }
+    }
+
+    // Optional: sync top-billed cast into People when requested.
+    // IMPORTANT: People sync must not break the core "log rating" flow.
+    // If it fails, we return `people_sync.ok=false` but still return HTTP 200.
+    let people_sync = null;
+    if (sync_people) {
+      const peopleResult = await insertPeopleFromCredits(tmdb_id, movieData?.id || null);
+      if (!peopleResult?.ok) {
+        people_sync = {
+          ok: false,
+          message: peopleResult?.message || "People sync failed.",
+          details: peopleResult?.details || null,
+          table: peopleResult?.table || PEOPLE_TABLE,
+        };
+      } else {
+        const warnings = [peopleResult?.cast_sync?.error, peopleResult?.crew_sync?.error].filter(Boolean);
+        people_sync = {
+          ok: warnings.length === 0,
+          message: warnings.length ? "People sync completed with warnings." : null,
+          details: warnings.length ? warnings.join(" | ") : null,
+          requested: peopleResult.requested,
+          inserted: peopleResult.inserted,
+          skipped: peopleResult.skipped,
+          table: peopleResult.table,
+          roles: peopleResult.roles || null,
+          cast_sync: peopleResult.cast_sync || null,
+          crew_sync: peopleResult.crew_sync || null,
+        };
+      }
+    }
+
+    return jsonResponse({
+      movie_id: movieData.id,
+      tmdb_id: movieData.tmdb_id,
+      title: movieData.title,
+      release_year: movieData.release_year,
+      runtime_minutes: movieData.runtime_minutes,
+      mpa_rating: movieData.mpa_rating,
+      imdb_id: movieData.imdb_id,
+      genre_sync: genreSync,
+      platform_sync: platformSync,
+      imdb_rating_pct: external_ratings?.imdb?.pct ?? null,
+      external_ratings,
+      ...(people_sync ? { people_sync } : {}),
+      source: "tmdb",
+    });
+  } catch (e) {
+    return jsonResponse({ code: 500, message: String(e?.message ?? e) }, 500);
+  }
+});

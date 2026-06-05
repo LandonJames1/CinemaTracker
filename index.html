@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CinemaTracker | Your Movie Journey</title>
+    <link rel="preconnect" href="https://dbxhaseoxpnmzdxbzdpj.supabase.co">
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍿</text></svg>">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body>
+    <div class="theme-background"></div>
+    <div class="theme-gradient-overlay"></div>
+
+    <!-- Demo Mode Banner -->
+    <div id="demo-banner">
+        <span class="demo-banner-text">🍿 You're viewing Demo Mode</span>
+        <button id="demo-banner-signup" class="demo-banner-btn" onclick="exitGuestMode(); openAuthModal('signup');">Sign Up</button>
+        <button class="demo-banner-btn" onclick="exitGuestMode(); openAuthModal('login');">Log In</button>
+        <button class="demo-banner-btn" onclick="exitGuestMode(); router.navigate('home');" style="opacity:0.7;">Exit</button>
+    </div>
+
+    <!-- Navbar -->
+    <nav class="navbar glass-panel">
+        <div class="container nav-inner">
+            <div class="nav-brand" onclick="router.navigate('home')" style="cursor:pointer;">
+                <span class="icon-wrapper" id="nav-logo-icon"></span>
+                <span><span class="cinema-title">Cinema</span><span class="tracker-title">Tracker</span></span>
+            </div>
+            
+            <div class="nav-links">
+                <button onclick="router.navigate('home')" class="nav-link">Home</button>
+                <button onclick="router.navigate('feed')" class="nav-link">Feed</button>
+                <button onclick="router.navigate('library')" class="nav-link">My Movies</button>
+                <button onclick="router.navigate('lists')" class="nav-link">Lists</button>
+                <button onclick="router.navigate('ai_picks')" class="nav-link">AI Picks</button>
+                <button onclick="router.navigate('dashboard')" class="nav-link">Data Dash</button>
+            </div>
+
+            <div class="nav-actions">
+                <button id="nav-login-btn" class="nav-auth-btn" type="button" onclick="handleNavAccountButtonClick(event)">Login</button>
+
+                <div class="mobile-menu-btn">
+                    <button onclick="toggleMobileMenu()" id="menu-icon-btn"></button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Mobile Menu Dropdown -->
+        <div id="mobile-menu" class="glass-panel">
+            <button onclick="router.navigate('home')" class="mobile-link">Home</button>
+            <button onclick="router.navigate('feed')" class="mobile-link">Feed</button>
+            <button onclick="router.navigate('library')" class="mobile-link">My Movies</button>
+            <button onclick="router.navigate('lists')" class="mobile-link">Lists</button>
+            <button onclick="router.navigate('ai_picks')" class="mobile-link">AI Picks</button>
+            <button onclick="router.navigate('dashboard')" class="mobile-link">Data Dash</button>
+            <button id="mobile-auth-btn" onclick="handleNavAccountButtonClick(event); document.getElementById('mobile-menu').classList.remove('open');" class="mobile-link">Login</button>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main id="app-root" style="padding-top: var(--header-height);">
+        <!-- Content injected by JS -->
+    </main>
+
+    <button id="log-fab" class="log-fab" type="button" aria-label="Open message log">
+        <span class="icon-sm" id="log-fab-icon"></span>
+        Logs <span id="log-badge" class="log-badge">0</span>
+    </button>
+
+    <div id="log-panel" class="log-panel" aria-live="polite">
+        <div class="log-panel-header">
+            <div class="log-panel-title">Message Log</div>
+            <div class="log-panel-actions">
+                <button id="log-copy" class="log-btn" type="button">Copy</button>
+                <button id="log-clear" class="log-btn" type="button">Clear</button>
+                <button id="log-close" class="log-btn" type="button">Close</button>
+            </div>
+        </div>
+        <div id="log-body" class="log-body"></div>
+    </div>
+
+    <div id="toast" class="toast">
+        <span id="toast-icon"></span>
+        <span id="toast-message" class="font-semibold">Action successful!</span>
+    </div>
+
+    <div id="ratings-success-overlay" class="auth-overlay" onclick="if(event.target === this) closeRatingsSuccessModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="ratings-success-title" style="max-width: 420px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="ratings-success-title">Movie Ratings Saved</div>
+                <button class="auth-modal-close" type="button" onclick="closeRatingsSuccessModal()">Close</button>
+            </div>
+            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;">
+                Your diary has been updated.
+            </div>
+        </div>
+    </div>
+
+    <div id="achievement-earned-overlay" class="auth-overlay" onclick="if(event.target === this) closeAchievementPopup();" style="display:none;">
+        <div id="achievement-splash" aria-hidden="true"></div>
+        <svg id="achievement-swipe" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true">
+            <path id="achievement-swipe-path" class="achievement-swipe-path" d="M0,340 C210,120 380,120 580,220 C780,320 860,520 1000,470 L1000,600 L0,600 Z"></path>
+            <path id="achievement-swipe-stroke" class="achievement-swipe-stroke" d="M0,340 C210,120 380,120 580,220 C780,320 860,520 1000,470"></path>
+            <path id="achievement-motion-path" class="achievement-motion-path" d="M-40,520 C180,120 420,60 720,200 C980,340 900,520 1040,620"></path>
+        </svg>
+        <div id="achievement-pieces" aria-hidden="true"></div>
+        <div id="achievement-earned-modal" class="auth-modal achievement-modal" role="dialog" aria-modal="true" aria-labelledby="achievement-earned-title" style="max-width: 520px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="achievement-earned-title">Achievement Unlocked</div>
+                <button class="auth-modal-close" type="button" onclick="closeAchievementPopup()">Close</button>
+            </div>
+            <div id="achievement-earned-body" class="glass-panel" style="margin-top: 0.65rem; padding: 0.85rem; border-radius: 0.85rem; background: rgba(0,0,0,0.12); display:flex; gap: 0.85rem; align-items:center;">
+                <div class="achievement-icon" id="achievement-earned-icon"></div>
+                <div>
+                    <div class="achievement-title" id="achievement-earned-name">Achievement</div>
+                    <div class="achievement-meta" id="achievement-earned-desc">Keep rating movies to unlock more.</div>
+                </div>
+            </div>
+            <div id="achievement-earned-actions" class="auth-modal-actions">
+                <button id="achievement-replay" type="button" class="btn btn-outline" onclick="replayAchievementCelebration()">Replay Celebration</button>
+                <button id="achievement-view" type="button" class="btn btn-primary" onclick="closeAchievementPopup(); router.navigate('account');">View Achievements</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="achievement-detail-overlay" class="auth-overlay" onclick="if(event.target === this) closeAchievementDetail();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="achievement-detail-title" style="max-width: 640px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="achievement-detail-title">Achievement Details</div>
+                <button class="auth-modal-close" type="button" onclick="closeAchievementDetail()">Close</button>
+            </div>
+            <div id="achievement-detail-body" class="text-sm" style="color: var(--text-muted);"></div>
+        </div>
+    </div>
+
+    <div id="dash-kpi-ties-overlay" class="auth-overlay" onclick="if(event.target === this) closeDashKpiTies();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="dash-kpi-ties-title" style="max-width: 640px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="dash-kpi-ties-title">Tied Leaders</div>
+                <button class="auth-modal-close" type="button" onclick="closeDashKpiTies()">Close</button>
+            </div>
+            <div id="dash-kpi-ties-sub" class="text-xs text-gray" style="margin-top: 0.25rem;"></div>
+            <div id="dash-kpi-ties-body" class="dash-kpi-tie-list" style="margin-top: 0.75rem;">Loading…</div>
+        </div>
+    </div>
+
+    <div id="dash-genre-other-overlay" class="auth-overlay" onclick="if(event.target === this) closeDashGenreOther();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="dash-genre-other-title" style="max-width: 560px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="dash-genre-other-title">Other Genres</div>
+                <button class="auth-modal-close" type="button" onclick="closeDashGenreOther()">Close</button>
+            </div>
+            <div id="dash-genre-other-sub" class="text-xs text-gray" style="margin-top: 0.25rem;"></div>
+            <div id="dash-genre-other-body" class="dash-other-genre-list" style="margin-top: 0.75rem;">Loading…</div>
+        </div>
+    </div>
+
+    <div id="auth-overlay" class="auth-overlay" onclick="if(event.target === this) closeAuthModal();">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
+            <div class="auth-modal-header">
+                <div>
+                    <div class="auth-modal-title" id="auth-modal-title">Welcome Back</div>
+                    <div class="auth-modal-subtitle" id="auth-modal-subtitle">Sign in to your account</div>
+                </div>
+                <button class="auth-modal-close" id="auth-modal-close-btn" type="button" onclick="closeAuthModal()">&times;</button>
+            </div>
+
+            <!-- Login / Sign Up tab toggle (hidden when already logged in or sign-ups disabled) -->
+            <div id="auth-tab-bar" style="display:none; gap:0; border-radius:0.6rem; overflow:hidden; border:1px solid rgba(255,255,255,0.10); background:rgba(255,255,255,0.04);">
+                <button type="button" id="auth-tab-login" class="btn" onclick="setAuthMode('login')" style="flex:1; border-radius:0; border:none; font-weight:700; font-size:0.85rem; padding:0.5rem 0; background:var(--brand); color:#fff; transition: all 0.2s;">Log In</button>
+                <button type="button" id="auth-tab-signup" class="btn" onclick="setAuthMode('signup')" style="flex:1; border-radius:0; border:none; font-weight:700; font-size:0.85rem; padding:0.5rem 0; background:transparent; color:var(--text-muted); transition: all 0.2s;">Sign Up</button>
+            </div>
+
+            <div style="display:grid; gap:0.65rem; margin-top: 0.75rem;">
+                <div>
+                    <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Email</label>
+                    <input id="auth-email" type="email" class="input-field" placeholder="you@example.com" autocomplete="email">
+                </div>
+                <div>
+                    <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Password</label>
+                    <input id="auth-password" type="password" class="input-field" placeholder="••••••••" autocomplete="current-password">
+                </div>
+            </div>
+
+            <!-- Sign-up extra fields (hidden by default) -->
+            <div id="auth-signup-fields" style="display:none; margin-top:0.65rem;">
+                <div style="display:grid; gap:0.65rem;">
+                    <div>
+                        <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Confirm Password</label>
+                        <input id="auth-password-confirm" type="password" class="input-field" placeholder="••••••••" autocomplete="new-password">
+                    </div>
+                    <div>
+                        <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Username</label>
+                        <input id="auth-signup-username" type="text" class="input-field" placeholder="e.g. landon" autocomplete="username" spellcheck="false">
+                        <div class="text-xs text-gray" style="margin-top:0.25rem;">3–20 chars · letters, numbers, underscore</div>
+                    </div>
+                    <div>
+                        <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Display Name <span style="font-weight:500; color:var(--text-muted);">(optional)</span></label>
+                        <input id="auth-signup-display-name" type="text" class="input-field" placeholder="e.g. Landon James" autocomplete="name">
+                    </div>
+                </div>
+            </div>
+
+            <div id="auth-modal-status" class="text-xs" style="margin-top: 0.65rem; color: var(--text-muted); min-height: 1.1em;">Not logged in.</div>
+
+            <div class="auth-modal-actions">
+                <button type="button" id="auth-login-btn" class="btn btn-glass" onclick="handleLoginClick(event)">Log In</button>
+                <button type="button" id="auth-signup-btn" class="btn btn-primary" onclick="handleSignUpClick(event)" style="display:none;">Create Account</button>
+                <button type="button" id="auth-logout-btn" class="btn btn-outline" onclick="handleLogoutClick(event)" style="display:none;">Log Out</button>
+            </div>
+            <button type="button" id="auth-forgot-btn" onclick="openForgotModal()" style="background:none; border:none; color:var(--text-muted); font-size:0.8rem; text-decoration:underline; cursor:pointer; padding:0.35rem 0; margin-top:0.25rem; align-self:center; width:100%; text-align:center;">Forgot password?</button>
+            <button type="button" id="auth-demo-btn" class="btn-demo" onclick="enterGuestMode(); closeAuthModal();" style="display:none;">👀 Try Demo — explore with sample data</button>
+        </div>
+    </div>
+
+    <!-- Forgot Password: collect an email and send a Supabase password reset link -->
+    <div id="forgot-overlay" class="auth-overlay" style="z-index:12000;" onclick="if(event.target === this) closeForgotModal();">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="forgot-modal-title">
+            <div class="auth-modal-header">
+                <div>
+                    <div class="auth-modal-title" id="forgot-modal-title">Reset Password</div>
+                    <div class="auth-modal-subtitle">Enter your email and we'll send you a reset link</div>
+                </div>
+                <button class="auth-modal-close" type="button" onclick="closeForgotModal()">&times;</button>
+            </div>
+
+            <div style="display:grid; gap:0.65rem; margin-top: 0.75rem;">
+                <div>
+                    <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Email</label>
+                    <input id="forgot-email" type="email" class="input-field" placeholder="you@example.com" autocomplete="email">
+                </div>
+            </div>
+
+            <div id="forgot-modal-status" class="text-xs" style="margin-top: 0.65rem; color: var(--text-muted); min-height: 1.1em;"></div>
+
+            <div class="auth-modal-actions">
+                <button type="button" id="forgot-send-btn" class="btn btn-primary" onclick="handleForgotPassword(event)">Send Reset Link</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="new-features-overlay" class="auth-overlay" onclick="if(event.target === this) closeNewFeaturesPopup();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="new-features-title" style="max-width: 640px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="new-features-title">New Features Pop Up</div>
+                <button class="auth-modal-close" type="button" onclick="closeNewFeaturesPopup()">Close</button>
+            </div>
+            <div id="new-features-popup-text" class="text-sm" style="color: var(--text-muted); margin-top: 0.4rem; line-height: 1.6;">
+                Loading…
+            </div>
+            <label class="text-xs text-gray" style="display:inline-flex; gap: 8px; align-items:center; margin-top: 0.85rem;">
+                <input id="new-features-dismiss" type="checkbox" checked />
+                Don’t show again
+            </label>
+        </div>
+    </div>
+
+    <div id="ai-help-overlay" class="auth-overlay" onclick="if(event.target === this) closeAiHelpPopup();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="ai-help-title" style="max-width: 640px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="ai-help-title">AI Help Pop Up</div>
+                <button class="auth-modal-close" type="button" onclick="closeAiHelpPopup()">Close</button>
+            </div>
+            <div id="ai-help-popup-text" class="text-sm" style="color: var(--text-muted); margin-top: 0.4rem; line-height: 1.6;">
+                Loading…
+            </div>
+            <label class="text-xs text-gray" style="display:inline-flex; gap: 8px; align-items:center; margin-top: 0.85rem;">
+                <input id="ai-help-dismiss" type="checkbox" />
+                Don’t show again
+            </label>
+        </div>
+    </div>
+
+    <div id="dashboard-auth-warning" class="auth-overlay" style="display:none !important;"></div>
+
+    <!-- Feed Filter Modal (top-level so it isn't trapped by a glass-panel's backdrop-filter stacking context) -->
+    <div id="feed-filter-overlay" class="auth-overlay" onclick="if(event.target === this) closeFeedFilterModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="feed-filter-title" style="max-width: 480px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="feed-filter-title">Filter Feed</div>
+                <button class="auth-modal-close" type="button" onclick="closeFeedFilterModal()">Close</button>
+            </div>
+            <div class="text-xs text-gray" style="margin-top: 0.25rem;">Choose whose entries appear in your feed.</div>
+
+            <label class="feed-filter-own-row">
+                <input type="checkbox" id="feed-filter-compare-own" class="feed-filter-cb">
+                <span class="text-white font-semibold">Include my own movies (Compare Own)</span>
+            </label>
+
+            <input id="feed-filter-search" type="text" class="input-field" placeholder="Search people you follow…" autocomplete="off" style="margin-top: 0.85rem;">
+
+            <div style="display:flex; gap: 8px; margin-top: 0.6rem;">
+                <button type="button" class="btn btn-outline" data-feed-action="filter_select_all" style="padding: 0.4rem 0.7rem; border-radius: 0.7rem; font-size: 0.85rem;">Select all</button>
+                <button type="button" class="btn btn-outline" data-feed-action="filter_select_none" style="padding: 0.4rem 0.7rem; border-radius: 0.7rem; font-size: 0.85rem;">Select none</button>
+            </div>
+
+            <div id="feed-filter-list" class="feed-filter-list"></div>
+
+            <div style="display:flex; justify-content: flex-end; gap: 8px; margin-top: 0.85rem;">
+                <button type="button" class="btn btn-primary" data-feed-action="filter_apply" style="padding: 0.55rem 1rem; border-radius: 0.8rem;">Apply</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="feed-auth-warning" class="auth-overlay" style="display:none !important;"></div>
+
+    <div id="library-auth-warning" class="auth-overlay" style="display:none !important;"></div>
+
+    <div id="lists-auth-warning" class="auth-overlay" style="display:none !important;"></div>
+
+    <div id="list-picker-overlay" class="auth-overlay" onclick="if(event.target === this) closeListPickerModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="list-picker-title" style="max-width: 520px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="list-picker-title">Add to List</div>
+                <button class="auth-modal-close" type="button" onclick="closeListPickerModal()">Close</button>
+            </div>
+
+            <div id="list-picker-movie" class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;"></div>
+
+            <div class="glass-panel" style="margin-top: 0.85rem; padding: 0.85rem; border-radius: 0.85rem; background: rgba(0,0,0,0.10);">
+                <div class="text-white font-bold">Choose a list</div>
+                <div id="list-picker-lists" class="text-gray" style="margin-top: 0.65rem; display:flex; flex-direction: column; gap: 0.5rem;">Loading…</div>
+            </div>
+
+            <form id="list-picker-create-form" style="margin-top: 0.85rem; display:grid; gap: 0.65rem;">
+                <div class="text-white font-bold">Or create a new list</div>
+                <input id="list-picker-new-name" type="text" class="input-field" placeholder="e.g. 2026 Watchlist" maxlength="80">
+                <div style="display:flex; gap: 10px; flex-wrap: wrap;">
+                    <button type="submit" class="btn btn-primary" style="border-radius: 0.85rem;">Create & Add</button>
+                    <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="closeListPickerModal()">Cancel</button>
+                </div>
+                <div id="list-picker-status" class="text-xs" style="color: rgba(255,255,255,0.60);"></div>
+            </form>
+        </div>
+    </div>
+
+    <div id="lists-create-overlay" class="auth-overlay" onclick="if(event.target === this) closeListsCreateModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="lists-create-title" style="max-width: 520px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="lists-create-title">Create New List</div>
+                <button class="auth-modal-close" type="button" onclick="closeListsCreateModal()">Close</button>
+            </div>
+
+            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;">
+                Give your list a name (max 80 characters).
+            </div>
+
+            <form id="lists-create-form" style="margin-top: 0.85rem; display:grid; gap: 0.65rem;">
+                <input id="lists-create-name" type="text" class="input-field" placeholder="e.g. 2026 Watchlist" maxlength="80" autocomplete="off">
+                <div style="display:flex; gap: 10px; flex-wrap: wrap;">
+                    <button type="submit" class="btn btn-primary" style="border-radius: 0.85rem;">Save</button>
+                    <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="closeListsCreateModal()">Cancel</button>
+                </div>
+                <div id="lists-create-status" class="text-xs" style="color: rgba(255,255,255,0.60);"></div>
+            </form>
+        </div>
+    </div>
+
+    <div id="lists-rename-overlay" class="auth-overlay" onclick="if(event.target === this) closeListsRenameModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="lists-rename-title" style="max-width: 520px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="lists-rename-title">Rename List</div>
+                <button class="auth-modal-close" type="button" onclick="closeListsRenameModal()">Close</button>
+            </div>
+
+            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;">
+                Enter a new name (max 80 characters).
+            </div>
+
+            <form id="lists-rename-form" style="margin-top: 0.85rem; display:grid; gap: 0.65rem;">
+                <input id="lists-rename-name" type="text" class="input-field" placeholder="New list name" maxlength="80" autocomplete="off">
+                <div style="display:flex; gap: 10px; flex-wrap: wrap;">
+                    <button type="submit" class="btn btn-primary" style="border-radius: 0.85rem;">Save</button>
+                    <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="closeListsRenameModal()">Cancel</button>
+                </div>
+                <div id="lists-rename-status" class="text-xs" style="color: rgba(255,255,255,0.60);"></div>
+            </form>
+        </div>
+    </div>
+
+    <div id="lists-delete-overlay" class="auth-overlay" onclick="if(event.target === this) closeListsDeleteModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="lists-delete-title" style="max-width: 520px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="lists-delete-title">Delete List</div>
+                <button class="auth-modal-close" type="button" onclick="closeListsDeleteModal()">Close</button>
+            </div>
+
+            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;">
+                This will permanently delete <span id="lists-delete-name" class="text-white font-semibold"></span> and remove all movies from it. Ratings/logs are not affected.
+            </div>
+
+            <div style="margin-top: 0.85rem; display:flex; gap: 10px; flex-wrap: wrap;">
+                <button type="button" class="btn btn-outline" data-lists-action="confirm_delete_list" style="border-radius: 0.85rem; border-color: rgba(239,68,68,0.55); background: rgba(239,68,68,0.10);">Delete</button>
+                <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="closeListsDeleteModal()">Cancel</button>
+            </div>
+            <div id="lists-delete-status" class="text-xs" style="color: rgba(255,255,255,0.60); margin-top: 0.65rem;"></div>
+        </div>
+    </div>
+
+    <div id="lists-watch-options-overlay" class="auth-overlay" onclick="if(event.target === this) closeListsWatchOptionsModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="lists-watch-options-title" style="max-width: 520px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="lists-watch-options-title">Watch Options</div>
+                <button class="auth-modal-close" type="button" onclick="closeListsWatchOptionsModal()">Close</button>
+            </div>
+
+            <div id="lists-watch-options-movie" class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;"></div>
+
+            <div id="lists-watch-options-body" class="glass-panel" style="margin-top: 0.85rem; padding: 0.85rem; border-radius: 0.85rem; background: rgba(0,0,0,0.10);">
+                <div class="text-gray">Loading…</div>
+            </div>
+
+            <div class="auth-modal-actions">
+                <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="closeListsWatchOptionsModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="lists-sortfilter-overlay" class="auth-overlay" onclick="if(event.target === this) closeListsSortFilterModal({ restoreDraft: true });" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="lists-sortfilter-title" style="max-width: 560px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="lists-sortfilter-title">Filters & Sort</div>
+                <button class="auth-modal-close" type="button" data-lists-action="cancel_sort_filter">Close</button>
+            </div>
+
+            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;">
+                Choose filters + sorting, then press <span class="text-white font-semibold">Save</span> to update your list.
+            </div>
+
+            <div class="glass-panel" style="margin-top: 0.85rem; padding: 0.85rem; border-radius: 0.85rem; background: rgba(0,0,0,0.10);">
+                <div class="text-white font-bold" style="margin-bottom: 0.55rem;">Sort</div>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <select id="lists-modal-sort-key" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="watch_date">Watch Date</option>
+                        <option value="watch_count">Watch Count</option>
+                        <option value="overall">Overall %</option>
+                        <option value="sound">Sound %</option>
+                        <option value="pace">Pace %</option>
+                        <option value="imagery">Imagery %</option>
+                        <option value="acting">Acting %</option>
+                        <option value="plot">Plot %</option>
+                        <option value="dialogue">Dialogue %</option>
+                        <option value="imdb">IMDb %</option>
+                        <option value="release_year">Release Year</option>
+                    </select>
+                    <select id="lists-modal-sort-dir" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="desc">Descending</option>
+                        <option value="asc">Ascending</option>
+                    </select>
+                </div>
+
+                <div style="height: 1px; background: rgba(255,255,255,0.06); margin: 0.85rem 0;"></div>
+
+                <div class="text-white font-bold" style="margin-bottom: 0.55rem;">Filters</div>
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+                    <select id="lists-modal-filter-timeframe" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="all_time">Watch Date (All Time)</option>
+                        <option value="this_year">Watch Date (This Year)</option>
+                        <option value="this_month">Watch Date (This Month)</option>
+                    </select>
+
+                    <select id="lists-modal-filter-watchmethod" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="">Watch Method (All)</option>
+                        <option value="At Home">At Home</option>
+                        <option value="In Theater">In Theater</option>
+                    </select>
+
+                    <select id="lists-modal-filter-tier" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="">Tier (All)</option>
+                        <option value="S-Tier">S-Tier</option>
+                        <option value="A-Tier">A-Tier</option>
+                        <option value="B-Tier">B-Tier</option>
+                        <option value="C-Tier">C-Tier</option>
+                        <option value="D-Tier">D-Tier</option>
+                        <option value="F-Tier">F-Tier</option>
+                        <option value="UNRANKED">Unranked</option>
+                    </select>
+
+                    <select id="lists-modal-filter-decade" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="">Release Decade (All)</option>
+                    </select>
+
+                    <input id="lists-modal-filter-director" class="input-field" placeholder="Director (contains…)" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;" />
+
+                    <input id="lists-modal-filter-actor" class="input-field" placeholder="Actor (contains…)" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;" />
+
+                    <select id="lists-modal-filter-mpa" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="">MPA (All)</option>
+                    </select>
+
+                    <select id="lists-modal-filter-genre" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="">Genre (All)</option>
+                    </select>
+
+                    <div class="library-watch-range">
+                        <div class="text-xs text-gray" style="margin-bottom: 0.35rem;">Watch Count Range</div>
+                        <div id="lists-watch-count-rail" class="library-watch-rail" data-min-val="1" data-max-val="1" data-max-avail="0" aria-label="Watch count range">
+                            <div class="library-watch-rail-track"></div>
+                            <div class="library-watch-rail-fill"></div>
+                            <button type="button" class="library-watch-handle" data-handle="min" aria-label="Minimum watch count"></button>
+                            <button type="button" class="library-watch-handle" data-handle="max" aria-label="Maximum watch count"></button>
+                        </div>
+                        <div class="library-watch-range-labels">
+                            <span id="lists-watch-count-min">—</span>
+                            <span id="lists-watch-count-max">—</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="auth-modal-actions" style="margin-top: 0.85rem; display:flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
+                <button type="button" class="btn btn-outline" data-lists-action="reset_sort_filter_draft" style="border-radius: 0.85rem;">Reset</button>
+                <button type="button" class="btn btn-outline" data-lists-action="cancel_sort_filter" style="border-radius: 0.85rem;">Cancel</button>
+                <button type="button" class="btn btn-primary" data-lists-action="save_sort_filter" style="border-radius: 0.85rem;">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="library-sortfilter-overlay" class="auth-overlay" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="library-sortfilter-title" style="max-width: 560px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="library-sortfilter-title">Filters & Sort</div>
+                <button class="auth-modal-close" type="button" data-library-action="cancel_sort_filter">Close</button>
+            </div>
+
+            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;">
+                Choose filters + sorting, then press <span class="text-white font-semibold">Save</span> to update your list.
+            </div>
+
+            <div class="glass-panel" style="margin-top: 0.85rem; padding: 0.85rem; border-radius: 0.85rem; background: rgba(0,0,0,0.10);">
+                <div class="text-white font-bold" style="margin-bottom: 0.55rem;">Sort</div>
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <select id="library-modal-sort-key" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="watch_date">Watch Date</option>
+                        <option value="watch_count">Watch Count</option>
+                        <option value="overall">Overall %</option>
+                        <option value="sound">Sound %</option>
+                        <option value="pace">Pace %</option>
+                        <option value="imagery">Imagery %</option>
+                        <option value="acting">Acting %</option>
+                        <option value="plot">Plot %</option>
+                        <option value="dialogue">Dialogue %</option>
+                        <option value="imdb">IMDb %</option>
+                        <option value="release_year">Release Year</option>
+                    </select>
+                    <select id="library-modal-sort-dir" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="desc">Descending</option>
+                        <option value="asc">Ascending</option>
+                    </select>
+                </div>
+
+                <div style="height: 1px; background: rgba(255,255,255,0.06); margin: 0.85rem 0;"></div>
+
+                <div class="text-white font-bold" style="margin-bottom: 0.55rem;">Filters</div>
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+                    <select id="library-modal-filter-timeframe" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="all_time">Watch Date (All Time)</option>
+                        <option value="this_year">Watch Date (This Year)</option>
+                        <option value="this_month">Watch Date (This Month)</option>
+                    </select>
+
+                    <select id="library-modal-filter-watchmethod" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="">Watch Method (All)</option>
+                        <option value="At Home">At Home</option>
+                        <option value="In Theater">In Theater</option>
+                    </select>
+
+                    <select id="library-modal-filter-tier" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="">Tier (All)</option>
+                        <option value="S-Tier">S-Tier</option>
+                        <option value="A-Tier">A-Tier</option>
+                        <option value="B-Tier">B-Tier</option>
+                        <option value="C-Tier">C-Tier</option>
+                        <option value="D-Tier">D-Tier</option>
+                        <option value="F-Tier">F-Tier</option>
+                        <option value="UNRANKED">Unranked</option>
+                    </select>
+
+                    <select id="library-modal-filter-decade" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="">Release Decade (All)</option>
+                    </select>
+
+                    <input id="library-modal-filter-director" class="input-field" placeholder="Director (contains…)" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;" />
+
+                    <input id="library-modal-filter-actor" class="input-field" placeholder="Actor (contains…)" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;" />
+
+                    <select id="library-modal-filter-mpa" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="">MPA (All)</option>
+                    </select>
+
+                    <select id="library-modal-filter-genre" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
+                        <option value="">Genre (All)</option>
+                    </select>
+
+                    <div class="library-watch-range">
+                        <div class="text-xs text-gray" style="margin-bottom: 0.35rem;">Watch Count Range</div>
+                        <div id="library-watch-count-rail" class="library-watch-rail" data-min-val="1" data-max-val="1" data-max-avail="0" aria-label="Watch count range">
+                            <div class="library-watch-rail-track"></div>
+                            <div class="library-watch-rail-fill"></div>
+                            <button type="button" class="library-watch-handle" data-handle="min" aria-label="Minimum watch count"></button>
+                            <button type="button" class="library-watch-handle" data-handle="max" aria-label="Maximum watch count"></button>
+                        </div>
+                        <div class="library-watch-range-labels">
+                            <span id="library-watch-count-min">—</span>
+                            <span id="library-watch-count-max">—</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="auth-modal-actions" style="margin-top: 0.85rem; display:flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
+                <button type="button" class="btn btn-outline" data-library-action="reset_sort_filter_draft" style="border-radius: 0.85rem;">Reset</button>
+                <button type="button" class="btn btn-outline" data-library-action="cancel_sort_filter" style="border-radius: 0.85rem;">Cancel</button>
+                <button type="button" class="btn btn-primary" data-library-action="save_sort_filter" style="border-radius: 0.85rem;">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="account-auth-warning" class="auth-overlay" style="display:none !important;"></div>
+
+    <div id="update-watch-overlay" class="auth-overlay" onclick="if(event.target === this) closeUpdateWatchModal(null);" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="update-watch-title">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="update-watch-title">Update Ratings</div>
+                <button class="auth-modal-close" type="button" onclick="closeUpdateWatchModal(null)">Close</button>
+            </div>
+
+            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.5rem;">
+                You’re updating an existing rating. Do you also want to add <span class="text-white font-semibold">+1 watch</span>?
+            </div>
+
+            <div class="auth-modal-actions" style="margin-top: 1rem; display:flex; gap: 0.75rem;">
+                <button type="button" id="btn-update-only" class="btn btn-outline" style="flex:1;" onclick="closeUpdateWatchModal('update_only')">Only Update Rating</button>
+                <button type="button" id="btn-update-and-watch" class="btn btn-primary" style="flex:1;" onclick="closeUpdateWatchModal('update_and_watch')">Update and +1 to Watch Logs</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="delete-rating-overlay" class="auth-overlay" onclick="if(event.target === this) closeDeleteRatingModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="delete-rating-title" style="max-width: 720px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="delete-rating-title">Delete</div>
+                <button class="auth-modal-close" type="button" onclick="closeDeleteRatingModal()">Close</button>
+            </div>
+
+            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.35rem;">
+                Movie: <span id="delete-rating-movie" class="text-white font-semibold">(loading…)</span>
+            </div>
+
+            <div class="glass-panel" style="margin-top: 0.85rem; padding: 0.95rem; border-radius: 0.95rem; background: rgba(0,0,0,0.10); border: 1px solid rgba(239,68,68,0.25);">
+                <div class="text-white font-bold">Option A — Delete rating + all watch logs</div>
+                <div class="text-sm" style="color: var(--text-muted); margin-top: 0.4rem;">
+                    This permanently deletes your <span class="text-white font-semibold">Movie Ratings</span> row and all related <span class="text-white font-semibold">Watch Logs</span> for this movie.
+                </div>
+                <div style="margin-top: 0.75rem; display:flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
+                    <button type="button" class="btn btn-outline" style="border-radius: 0.85rem; border-color: rgba(239,68,68,0.55); color: rgba(239,68,68,0.95); background: rgba(239,68,68,0.10);" onclick="confirmDeleteRatingAndAllLogs()">Delete rating + all watch logs</button>
+                </div>
+                <div id="delete-rating-status" class="text-xs" style="color: rgba(255,255,255,0.60); margin-top: 0.45rem;"></div>
+            </div>
+
+            <div class="glass-panel" style="margin-top: 0.85rem; padding: 0.95rem; border-radius: 0.95rem; background: rgba(0,0,0,0.10);">
+                <div class="flex justify-between items-center" style="gap: 10px; flex-wrap: wrap;">
+                    <div class="text-white font-bold">Option B — Delete selected watch logs</div>
+                    <div id="delete-logs-count" class="text-xs" style="color: rgba(255,255,255,0.60);"></div>
+                </div>
+                <div class="text-sm" style="color: var(--text-muted); margin-top: 0.4rem;">
+                    Select watch logs to delete. You must keep <span class="text-white font-semibold">at least 1</span> watch log.
+                </div>
+
+                <div id="delete-logs-list" style="margin-top: 0.75rem; display:flex; flex-direction: column; gap: 0.5rem; max-height: 280px; overflow: auto; padding-right: 4px;">
+                    <div class="text-sm" style="color: rgba(255,255,255,0.65);">Loading watch logs…</div>
+                </div>
+
+                <div class="auth-modal-actions" style="margin-top: 0.85rem; display:flex; gap: 10px; flex-wrap: wrap; justify-content: space-between;">
+                    <div style="display:flex; gap: 10px; flex-wrap: wrap;">
+                        <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="clearDeleteLogsSelection()">Clear</button>
+                        <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="toggleSelectAllDeleteLogs()">Select all</button>
+                    </div>
+                    <button type="button" id="btn-delete-selected-logs" class="btn btn-primary" style="border-radius: 0.85rem; background: rgba(239,68,68,0.90); border-color: rgba(239,68,68,0.90);" onclick="confirmDeleteSelectedWatchLogs()" disabled aria-disabled="true" title="Select at least one watch log.">Delete selected</button>
+                </div>
+                <div id="delete-logs-status" class="text-xs" style="color: rgba(255,255,255,0.60); margin-top: 0.45rem;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="duplicate-rating-overlay" class="auth-overlay" onclick="if(event.target === this) closeDuplicateRatingModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="duplicate-rating-title">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="duplicate-rating-title">Already Rated</div>
+                <button class="auth-modal-close" type="button" onclick="closeDuplicateRatingModal()">Close</button>
+            </div>
+
+            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.5rem;">
+                You have already rated <span id="duplicate-rating-movie" class="text-white font-semibold">this movie</span>. Would you like to update your ratings?
+            </div>
+
+            <div class="auth-modal-actions" style="margin-top: 1rem; display:flex; gap: 0.75rem;">
+                <button type="button" class="btn btn-primary" style="flex:1;" onclick="proceedDuplicateUpdateRatings()">Update Ratings</button>
+                <button type="button" class="btn btn-outline" style="flex:1;" onclick="proceedDuplicateReturnHome()">Return Home</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="watch-method-overlay" class="auth-overlay" onclick="if(event.target === this) closeWatchMethodModal(null);" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="watch-method-title">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="watch-method-title">Watch Method</div>
+                <button class="auth-modal-close" type="button" onclick="closeWatchMethodModal(null)">Close</button>
+            </div>
+
+            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.5rem;">
+                How did you watch it?
+            </div>
+
+            <div style="margin-top: 0.85rem;">
+                <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Date Watched</label>
+                <input id="watch-method-date" type="date" class="input-field" onclick="openDatePickerFromInput(this)" onfocus="openDatePickerFromInput(this)" required>
+                <div class="text-xs text-gray" style="margin-top: 0.35rem;">This date will be saved to your Watch Logs.</div>
+            </div>
+
+            <div class="auth-modal-actions" style="margin-top: 1rem; display:flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button
+                    type="button"
+                    class="btn watch-method-option"
+                    style="flex:1; background-color: rgba(168, 85, 247, 0.35); border: 1px solid rgba(168, 85, 247, 0.5); color: white;"
+                    data-watch-method-option="true"
+                    onclick="selectWatchMethodModal('At Home')"
+                >At Home</button>
+                <button
+                    type="button"
+                    class="btn watch-method-option"
+                    style="flex:1; background-color: rgba(20, 184, 166, 0.35); border: 1px solid rgba(20, 184, 166, 0.5); color: white;"
+                    data-watch-method-option="true"
+                    onclick="selectWatchMethodModal('In Theater')"
+                >In Theater</button>
+                <button type="button" id="watch-method-save" class="btn btn-primary" style="width: 100%;" onclick="submitWatchMethodModal()" disabled aria-disabled="true" title="Select a watch method first.">
+                    <svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    Save
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="prior-watches-overlay" class="auth-overlay" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="prior-watches-title">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="prior-watches-title">Add Previous Watches</div>
+            </div>
+
+            <div class="text-sm" id="prior-watches-message" style="color: var(--text-muted); margin-top: 0.5rem;"></div>
+
+            <div id="prior-watches-fields" style="margin-top: 0.85rem; display:flex; flex-direction: column; gap: 0.75rem;"></div>
+
+            <div class="auth-modal-actions" style="margin-top: 1rem; display:flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button type="button" class="btn btn-primary" style="flex:1;" onclick="submitPriorWatchesModal()">Save Previous Watches</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="loading-overlay" class="auth-overlay" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="loading-title">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="loading-title">Loading</div>
+            </div>
+            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.5rem; display:flex; align-items:center; gap: 0.5rem;">
+                <span class="icon-sm"><svg viewBox="0 0 24 24" class="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>
+                <span>Hang tight — fetching your existing entry…</span>
+            </div>
+        </div>
+    </div>
+    <footer>
+        <div class="container flex flex-col md-row justify-between items-center">
+            <div class="mb-4">
+                <span class="text-gray text-sm">© 2026 CinemaTracker. Designed for film lovers.</span>
+            </div>
+            <div class="flex gap-4" id="footer-icons">
+            </div>
+        </div>
+    </footer>
+
+    <script src="assets/js/01-config.js"></script>
+    <script src="assets/js/02-router.js"></script>
+    <script src="assets/js/03-home-dashboard-core.js"></script>
+    <script src="assets/js/04-lists.js"></script>
+    <script src="assets/js/05-feed-library.js"></script>
+    <script src="assets/js/06-dashboard-controls.js"></script>
+    <script src="assets/js/07-dashboard-charts.js"></script>
+    <script src="assets/js/08-search-trending.js"></script>
+    <script src="assets/js/09-home-ui.js"></script>
+    <script src="assets/js/10-logging-form.js"></script>
+    <script src="assets/js/11-achievements.js"></script>
+    <script src="assets/js/12-watch-modals.js"></script>
+    <script src="assets/js/13-auth-guest.js"></script>
+    <script src="assets/js/14-themes.js"></script>
+    <script src="assets/js/15-auth-account-modals.js"></script>
+    <script src="assets/js/16-ai-picks.js"></script>
+    <script src="assets/js/17-theme-creator.js"></script>
+    <script src="assets/js/18-account-page.js"></script>
+    <script src="assets/js/19-logging-boot.js"></script>
+</body>
+</html>

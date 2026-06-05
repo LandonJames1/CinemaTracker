@@ -1,0 +1,44 @@
+<div style="display:flex; align-items:center; gap: 10px;">
+  <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(59,130,246,0.18); display:flex; align-items:center; justify-content:center; font-weight: 800;">AI</div>
+  <div>
+    <div style="font-weight: 800; font-size: 1rem;">AI Picks — Step by Step</div>
+    <div style="opacity: 0.85; font-size: 0.9rem;">Clear inputs = better picks.</div>
+  </div>
+</div>
+
+<div style="display:grid; gap: 0.7rem; margin-top: 0.75rem;">
+  <div style="padding: 0.75rem; border-radius: 0.85rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);">
+    <div style="font-weight: 800;">1) Describe the vibe</div>
+    <div style="margin-top: 0.25rem;">Use mood + era + pacing (e.g., “cozy, character‑driven, 2000s, slow burn”).</div>
+  </div>
+
+  <div style="padding: 0.75rem; border-radius: 0.85rem; background: rgba(59,130,246,0.12); border: 1px solid rgba(59,130,246,0.25);">
+    <div style="font-weight: 800;">2) Choose your requirement path</div>
+    <div style="margin-top: 0.25rem;">Pick <strong>one similar movie</strong> (up to 5) <em>or</em> fill out <strong>all filters</strong>.</div>
+  </div>
+
+  <div style="padding: 0.75rem; border-radius: 0.85rem; background: rgba(168,85,247,0.12); border: 1px solid rgba(168,85,247,0.25);">
+    <div style="font-weight: 800;">3) If using filters, complete all</div>
+    <div style="margin-top: 0.35rem; display:grid; gap: 0.2rem;">
+      <div>• Minimum TMDb rating</div>
+      <div>• Release year range (from + to)</div>
+      <div>• Genres (include)</div>
+      <div>• Watch providers</div>
+    </div>
+  </div>
+
+  <div style="padding: 0.75rem; border-radius: 0.85rem; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.25);">
+    <div style="font-weight: 800;">4) Generate suggestions</div>
+    <div style="margin-top: 0.25rem;">Click “Generate Suggestions” and review your results.</div>
+  </div>
+
+  <div style="padding: 0.75rem; border-radius: 0.85rem; background: rgba(14,165,233,0.12); border: 1px solid rgba(14,165,233,0.25);">
+    <div style="font-weight: 800;">Optional: Exclude already watched</div>
+    <div style="margin-top: 0.25rem;">Use the toggle to hide movies you’ve already rated or logged.</div>
+  </div>
+</div>
+
+<div style="margin-top: 0.85rem; padding: 0.65rem 0.85rem; border-radius: 0.75rem; background: rgba(255,255,255,0.05); display:flex; gap: 10px; align-items:flex-start;">
+  <div style="font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; font-size: 11px;">Tip</div>
+  <div>Short, specific prompts tend to perform best. AI reasons now include prompt match + taste‑profile alignment.</div>
+</div>

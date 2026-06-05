@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "title": "tmdb_query_json",
+  "additionalProperties": false,
+  "required": ["criteria", "taste_hints"],
+  "properties": {
+    "criteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "genres_include",
+        "release_year_from",
+        "release_year_to",
+        "runtime_min",
+        "runtime_max",
+        "tmdb_rating_min",
+        "watch_region",
+        "watch_providers"
+      ],
+      "properties": {
+        "genres_include": { "type": "array", "items": { "type": "string" } },
+        "release_year_from": { "type": "integer" },
+        "release_year_to": { "type": "integer" },
+        "runtime_min": { "type": "integer" },
+        "runtime_max": { "type": "integer" },
+        "tmdb_rating_min": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "watch_region": { "type": "string" },
+        "watch_providers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "taste_hints": { "type": "array", "items": { "type": "string" } }
+  }
+}

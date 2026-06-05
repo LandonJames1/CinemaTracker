@@ -1,0 +1,73 @@
+{
+  "type": "object",
+  "title": "ai_prompt_input",
+  "additionalProperties": false,
+  "required": ["prompt", "filters"],
+  "properties": {
+    "prompt": { "type": "string" },
+    "user_runtime_context": { "type": "boolean" },
+    "user_year_context": { "type": "boolean" },
+    "similar_movie": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tmdb_id": { "type": "integer" },
+          "title": { "type": "string" },
+          "year": { "type": "integer" },
+          "genres": { "type": "array", "items": { "type": "string" } },
+          "mpa_rating": { "type": "string" },
+          "runtime": { "type": "integer" },
+          "overview": { "type": "string" }
+        }
+      }
+    },
+    "filters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tmdb_rating_min",
+        "release_year_from",
+        "release_year_to",
+        "genres_include",
+        "watch_region",
+        "watch_providers"
+      ],
+      "properties": {
+        "tmdb_rating_min": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "release_year_from": { "type": "integer" },
+        "release_year_to": { "type": "integer" },
+        "genres_include": { "type": "array", "items": { "type": "string" } },
+        "watch_region": { "type": "string" },
+        "watch_providers": { "type": "array", "items": { "type": "string" } },
+        "exclude_watched": { "type": "boolean" }
+      }
+    },
+    "taste_profile_query": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preferred_runtime_bin": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "bin": { "type": "integer" },
+            "avg": { "type": "number" },
+            "count": { "type": "integer" }
+          }
+        },
+        "preferred_decade": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "decade": { "type": "integer" },
+            "avg": { "type": "number" },
+            "count": { "type": "integer" }
+          }
+        }
+      }
+    }
+  }
+}

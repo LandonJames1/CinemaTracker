@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); f=$(printf \"%s\" \"$input\" | jq -r \".tool_input.file_path // empty\"); case \"$f\" in *CLAUDE.md|*/_original_backup/*) exit 0 ;; *index.html|*reset-password.html|*/assets/js/*|*/assets/css/*) jq -rn --arg f \"$f\" \"{hookSpecificOutput:{hookEventName:\\\"PostToolUse\\\",additionalContext:(\\\"Reminder: you edited \\(\\$f) in CinemaTracker. If this change added, removed, renamed, or moved a file, feature, page, or function, update CLAUDE.md (file map / function list / script load order) in this same task before finishing. Skip if it was a content-only tweak.\\\")}}\" ;; *) exit 0 ;; esac"
+          }
+        ]
+      }
+    ]
+  }
+}
