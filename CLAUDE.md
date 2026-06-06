@@ -71,8 +71,8 @@ reproduces the originals exactly. No logic was changed.
 | `01-config.js` | Supabase client init (`SUPABASE_URL`/`SUPABASE_KEY`), `icons` SVG map, `COL_WATCH_DATE`, nav logo loading |
 | `02-router.js` | The `router` object — **all page view HTML templates** (home, feed, library, lists, ai_picks, dashboard, account) live here as template strings. Largest file; one big object literal. |
 | `03-home-dashboard-core.js` | `loadDashboard`, dashboard data helpers (`dash*` formatting/poster/person), feed/library/lists auth warnings |
-| `04-lists.js` | Lists feature: state, create/rename/delete modals, sort+filter modal, add-to-list, bucket list, `initListsPage`, `loadListsPage` |
-| `05-feed-library.js` | "My Movies" library (render/filter/sort/paginate, Edit/Delete buttons) AND social Feed (following, user search, feed items grouped by movie, Filter modal: per-follow checkboxes + Compare Own) |
+| `04-lists.js` | Lists feature: state, create/rename/delete modals, sort+filter modal, add-to-list, bucket list, `initListsPage`, `loadListsPage`. **Movie Recommendations** modal (`openRecModal`/`openRecModalFromHome`/`sendRecommendation`): pick people you follow → `send_recommendation` Edge action adds the movie to each recipient's auto "Recs" list + email-to-SMS |
+| `05-feed-library.js` | "My Movies" library (render/filter/sort/paginate, Edit/Delete/Recommend buttons) AND social Feed (following, user search, feed items grouped by movie, Filter modal: per-follow checkboxes + Compare Own) |
 | `06-dashboard-controls.js` | Data Dash UI: KPI clicks, tab/timeframe/metric controls, chart control wiring, `setDashboardTab`, favorites |
 | `07-dashboard-charts.js` | Data Dash rendering: `loadDashboardCharts/Ratings/General/Tiers/QuoteWall`, pie/bar/donut chart drawing |
 | `08-search-trending.js` | TMDB-backed movie search + trending (`callSwiftApi*`), home search results, lists quick-add search |
@@ -85,7 +85,7 @@ reproduces the originals exactly. No logic was changed.
 | `15-auth-account-modals.js` | Auth modal (login/signup/logout/forgot-password), account-section modal, username validation |
 | `16-ai-picks.js` | AI Picks page: filters modal, provider/genre selection, similar-movie search, loading images, `initAiPicksPage` |
 | `17-theme-creator.js` | Theme Creator UI (backdrop/AI search, selection, save/delete), `initThemeCreatorPage` (gated to `THEME_CREATOR_OWNER_EMAIL`) |
-| `18-account-page.js` | Account page: load/save profile, change password, feature requests |
+| `18-account-page.js` | Account page: load/save profile (incl. `phone` + `carrier` for SMS notifications), change password, feature requests |
 | `19-logging-boot.js` | Message log + toast (`showToast`, `emitLog`), global error handlers, and the **boot sequence** (`DOMContentLoaded`, auth-state listener). Must load last. |
 
 To regenerate this index after edits:
@@ -106,11 +106,21 @@ To regenerate this index after edits:
 
 These are deployed to Supabase, not loaded by the front end, but document the API
 the front end calls:
-- Edge Functions: `EdgeFunc`, `edgefunccopy`, `color_theme_edge.js`,
-  `taste_profile_edge.js` (the front end calls these via `callSwiftApi*` /
-  `callColorThemeEdge` in `12-watch-modals.js` and `08-search-trending.js`).
+- Edge Functions: `EdgeFunc` (deployed as `swift-api`), `edgefunccopy`,
+  `color_theme_edge.js`, `taste_profile_edge.js` (the front end calls these via
+  `callSwiftApi*` / `callColorThemeEdge` in `12-watch-modals.js` and
+  `08-search-trending.js`). `EdgeFunc` dispatches by `body.action`; notable actions
+  include `search`, AI picks, `send_recommendation` (adds a movie to each
+  recipient's "Recs" list + sends email-to-SMS), and `test_sms` (admin button in
+  Account → texts the caller's own phone to verify the pipeline). The diary save also sends an `mpa`
+  override so user-entered MPA persists when TMDb lacks it.
+  - Env vars for recommendations (Gmail SMTP via `denomailer`): `GMAIL_USER`,
+    `GMAIL_APP_PASSWORD`, optional `SITE_URL`. Email-to-SMS gateways:
+    Verizon→`vtext.com`, AT&T→`txt.att.net`. If creds are unset, the Recs add
+    still works, the text is just skipped.
 - SQL: `dashboard_rpc.sql`, `achievements_*.sql`, `lists_schema.sql`,
-  `library_views.sql`, `user_tiers.sql`, `cascades.sql`, etc.; more in
+  `library_views.sql`, `user_tiers.sql`, `cascades.sql`, `recs_and_profile.sql`
+  (auto "Recs" list per user + `Users.phone`/`Users.carrier`), etc.; more in
   `Supabase Setup/`.
 - Gating constants in JS: `ADMIN_EMAIL` (admin panel), `THEME_CREATOR_OWNER_EMAIL`
   (theme creator), `DEMO_USER_ID` (guest mode).

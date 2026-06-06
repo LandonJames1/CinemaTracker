@@ -277,6 +277,14 @@
                     })().catch(() => {});
                     return;
                 }
+
+                if (action === 'recommend') {
+                    const mid = String(btn.dataset.movieId || '').trim();
+                    const title = String(btn.dataset.movieTitle || '').trim();
+                    if (!mid) return;
+                    openRecModal({ db_movie_id: mid, title }).catch(() => {});
+                    return;
+                }
             }, { capture: true });
 
             syncLibraryViewUI();
@@ -777,6 +785,15 @@
                                             style="border-radius: 0.85rem; padding: 0.5rem 0.75rem; border-color: rgba(239,68,68,0.55); color: rgba(239,68,68,0.95); background: rgba(239,68,68,0.10);"
                                             title="Delete rating and/or watch logs"
                                         >Delete</button>
+                                        <button
+                                            type="button"
+                                            class="btn btn-outline"
+                                            data-library-action="recommend"
+                                            data-movie-id="${escapeHtml(movie_id)}"
+                                            data-movie-title="${escapeHtml(title)}"
+                                            style="border-radius: 0.85rem; padding: 0.5rem 0.75rem; border-color: color-mix(in srgb, var(--brand) 55%, transparent); color: rgba(255,255,255,0.95); background: color-mix(in srgb, var(--brand) 18%, transparent);"
+                                            title="Recommend this movie to people you follow"
+                                        >Recommend</button>
                                     </div>
                                 ` : ''}
 

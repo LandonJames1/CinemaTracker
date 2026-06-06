@@ -307,6 +307,31 @@
         </div>
     </div>
 
+    <!-- Recommend Movie Modal (top-level so it isn't trapped by a glass-panel's backdrop-filter stacking context) -->
+    <div id="rec-modal-overlay" class="auth-overlay" onclick="if(event.target === this) closeRecModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="rec-modal-title" style="max-width: 480px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="rec-modal-title">Recommend Movie</div>
+                <button class="auth-modal-close" type="button" onclick="closeRecModal()">Close</button>
+            </div>
+            <div id="rec-modal-movie" class="text-xs text-gray" style="margin-top: 0.25rem;"></div>
+            <div id="rec-modal-status" class="text-xs" style="margin-top: 0.4rem; color: rgba(255,255,255,0.6);"></div>
+
+            <input id="rec-modal-search" type="text" class="input-field" placeholder="Search people you follow…" autocomplete="off" style="margin-top: 0.85rem;">
+
+            <div style="display:flex; gap: 8px; margin-top: 0.6rem;">
+                <button type="button" class="btn btn-outline" data-rec-action="select_all" style="padding: 0.4rem 0.7rem; border-radius: 0.7rem; font-size: 0.85rem;">Select all</button>
+                <button type="button" class="btn btn-outline" data-rec-action="deselect_all" style="padding: 0.4rem 0.7rem; border-radius: 0.7rem; font-size: 0.85rem;">Deselect all</button>
+            </div>
+
+            <div id="rec-modal-list" class="feed-filter-list"></div>
+
+            <div style="display:flex; justify-content: flex-end; gap: 8px; margin-top: 0.85rem;">
+                <button id="rec-modal-send" type="button" class="btn btn-primary" data-rec-action="send" style="padding: 0.55rem 1rem; border-radius: 0.8rem;">Send Rec</button>
+            </div>
+        </div>
+    </div>
+
     <div id="feed-auth-warning" class="auth-overlay" style="display:none !important;"></div>
 
     <div id="library-auth-warning" class="auth-overlay" style="display:none !important;"></div>

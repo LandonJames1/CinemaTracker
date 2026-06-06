@@ -37,6 +37,238 @@
             listPickerBusy = false;
         }
 
+        // ===== Movie Recommendations =====
+        // Recommend a movie to people you follow. "Send Rec" adds the movie to each
+        // recipient's auto-managed "Recs" list (server-side, via the swift-api Edge
+        // Function) and fires an email-to-SMS notification.
+        let recPendingMovie = null;      // { db_movie_id, title, year, tmdb_id, accessToken, user_id }
+        let recSelectedUserIds = new Set();
+        let recRecipientsCache = [];     // [{ id, username, display_name, icon }] of people you follow
+        let recBound = false;
+        let recSending = false;
+
+        function bindRecModal() {
+            if (recBound) return;
+            recBound = true;
+
+            // Recipient checkbox toggles.
+            document.addEventListener('change', (e) => {
+                const cb = e?.target;
+                if (!cb || cb.type !== 'checkbox' || !cb.classList || !cb.classList.contains('rec-user-cb')) return;
+                const uid = String(cb.dataset.recUserId || '').trim();
+                if (!uid) return;
+                if (cb.checked) recSelectedUserIds.add(uid);
+                else recSelectedUserIds.delete(uid);
+            });
+
+            // Search box filters the followed-users list.
+            document.addEventListener('input', (e) => {
+                if (e?.target?.id !== 'rec-modal-search') return;
+                renderRecModalList();
+            });
+
+            // Send / select-all / deselect-all buttons.
+            document.addEventListener('click', (e) => {
+                const btn = e?.target?.closest ? e.target.closest('[data-rec-action]') : null;
+                if (!btn) return;
+                const a = String(btn.dataset.recAction || '');
+                if (a === 'send') {
+                    sendRecommendation();
+                } else if (a === 'select_all') {
+                    for (const u of recRecipientsCache) {
+                        const id = String(u?.id || '').trim();
+                        if (id) recSelectedUserIds.add(id);
+                    }
+                    renderRecModalList();
+                } else if (a === 'deselect_all') {
+                    recSelectedUserIds.clear();
+                    renderRecModalList();
+                }
+            });
+        }
+
+        // Open the Recommend modal from the Home search flow (uses the selected movie).
+        async function openRecModalFromHome() {
+            const picked = router?.selectedMovie || null;
+            if (!picked) { showToast('Select a movie first.', { level: 'warn' }); return; }
+            await openRecModal({
+                title: String(picked?.title || '').trim(),
+                year: Number(picked?.year ?? picked?.release_year ?? null),
+                tmdb_id: Number(picked?.tmdb_id ?? picked?.tmdbId ?? picked?.id ?? null),
+                db_movie_id: isUuidLike(picked?.id) ? String(picked.id).trim() : null,
+            });
+        }
+
+        async function openRecModal({ title, year, tmdb_id, db_movie_id } = {}) {
+            if (guardGuestWrite()) return;
+            if (!supabaseClient) { showToast('Supabase SDK failed to load.', { level: 'warn' }); return; }
+
+            let authedUser = null, accessToken = null;
+            try {
+                const res = await requireAuthOrThrow();
+                authedUser = res.user; accessToken = res.accessToken;
+            } catch (_) { openAuthModal(); return; }
+
+            recPendingMovie = {
+                title: String(title || '').trim(),
+                year: Number.isFinite(Number(year)) ? Number(year) : null,
+                tmdb_id: Number.isFinite(Number(tmdb_id)) ? Number(tmdb_id) : null,
+                db_movie_id: isUuidLike(db_movie_id) ? String(db_movie_id).trim() : null,
+                accessToken,
+                user_id: authedUser.id,
+            };
+            recSelectedUserIds = new Set();
+
+            bindRecModal();
+
+            const overlay = document.getElementById('rec-modal-overlay');
+            if (overlay) { overlay.style.display = 'flex'; overlay.classList.add('open'); }
+
+            const movieEl = document.getElementById('rec-modal-movie');
+            if (movieEl) {
+                const t = recPendingMovie.title, y = recPendingMovie.year;
+                movieEl.textContent = t
+                    ? `Recommend: ${t}${(Number.isFinite(y) && y > 0) ? ` (${y})` : ''}`
+                    : 'Recommend this movie';
+            }
+            const statusEl = document.getElementById('rec-modal-status');
+            if (statusEl) statusEl.textContent = '';
+            const searchEl = document.getElementById('rec-modal-search');
+            if (searchEl) searchEl.value = '';
+
+            const listEl = document.getElementById('rec-modal-list');
+            if (listEl) listEl.innerHTML = `<div class="text-gray" style="padding: 0.6rem;">Loading…</div>`;
+
+            try {
+                await loadRecRecipients();
+            } catch (err) {
+                if (listEl) listEl.innerHTML = `<div class="text-gray" style="padding: 0.6rem;">Could not load follows: ${escapeHtml(String(err?.message || err))}</div>`;
+                return;
+            }
+            renderRecModalList();
+        }
+
+        function closeRecModal() {
+            const overlay = document.getElementById('rec-modal-overlay');
+            if (overlay) { overlay.style.display = 'none'; overlay.classList.remove('open'); }
+            recPendingMovie = null;
+            recSelectedUserIds = new Set();
+            recSending = false;
+        }
+
+        async function loadRecRecipients() {
+            const uid = String(recPendingMovie?.user_id || '').trim();
+            recRecipientsCache = [];
+            if (!uid) return;
+
+            const { data: f, error: fErr } = await supabaseClient
+                .from('Follows').select('followed_id').eq('follower_id', uid);
+            if (fErr) throw fErr;
+            const ids = Array.from(new Set((Array.isArray(f) ? f : [])
+                .map((r) => String(r?.followed_id || '').trim()).filter(Boolean)));
+            if (ids.length === 0) return;
+
+            let data = null;
+            try {
+                const r1 = await supabaseClient.from('Users').select('id, username, display_name, icon').in('id', ids);
+                if (r1.error) throw r1.error; data = r1.data;
+            } catch (e1) {
+                if (/column\s+"?icon"?\s+does\s+not\s+exist/i.test(String(e1?.message || e1))) {
+                    const r2 = await supabaseClient.from('Users').select('id, username, display_name').in('id', ids);
+                    if (r2.error) throw r2.error; data = r2.data;
+                } else { throw e1; }
+            }
+            recRecipientsCache = Array.isArray(data) ? data : [];
+        }
+
+        function renderRecModalList() {
+            const list = document.getElementById('rec-modal-list');
+            if (!list) return;
+            const query = String(document.getElementById('rec-modal-search')?.value || '').trim().toLowerCase();
+
+            if (recRecipientsCache.length === 0) {
+                list.innerHTML = `<div class="text-gray" style="padding: 0.6rem;">You aren’t following anyone yet.</div>`;
+                return;
+            }
+            const filtered = query
+                ? recRecipientsCache.filter((u) => {
+                    const uname = String(u?.username || '').toLowerCase();
+                    const dname = String(u?.display_name || '').toLowerCase();
+                    return uname.includes(query) || dname.includes(query);
+                })
+                : recRecipientsCache;
+
+            if (filtered.length === 0) {
+                list.innerHTML = `<div class="text-gray" style="padding: 0.6rem;">No matches for “${escapeHtml(query)}”.</div>`;
+                return;
+            }
+
+            list.innerHTML = filtered.map((u) => {
+                const id = String(u?.id || '').trim();
+                const username = String(u?.username || '').trim();
+                const name = String(u?.display_name || '').trim() || (username ? `@${username}` : 'User');
+                const iconId = String(u?.icon || '').trim();
+                const checked = recSelectedUserIds.has(id);
+                return `
+                    <label class="feed-filter-user-row">
+                        <input type="checkbox" class="feed-filter-cb rec-user-cb" data-rec-user-id="${escapeHtml(id)}" ${checked ? 'checked' : ''}>
+                        ${renderUserIconHtml(iconId, 26)}
+                        <div style="min-width:0;">
+                            <div class="feed-filter-user-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(name)}</div>
+                            ${username ? `<div class="text-xs text-gray">@${escapeHtml(username)}</div>` : ''}
+                        </div>
+                    </label>
+                `;
+            }).join('');
+        }
+
+        async function sendRecommendation() {
+            if (recSending) return;
+            if (!recPendingMovie) { showToast('No movie selected.', { level: 'warn' }); return; }
+
+            const recipientIds = Array.from(recSelectedUserIds);
+            if (recipientIds.length === 0) { showToast('Pick at least one person.', { level: 'warn' }); return; }
+
+            const statusEl = document.getElementById('rec-modal-status');
+            const sendBtn = document.getElementById('rec-modal-send');
+            const setStatus = (s) => { if (statusEl) statusEl.textContent = String(s || ''); };
+
+            recSending = true;
+            if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Sending…'; }
+            setStatus('Preparing movie…');
+
+            try {
+                const accessToken = String(recPendingMovie.accessToken || '').trim();
+
+                const movieId = await ensureMovieFullySyncedForLists({
+                    accessToken,
+                    title: recPendingMovie.title,
+                    release_year: recPendingMovie.year,
+                    tmdb_id: recPendingMovie.tmdb_id,
+                    movie_id: recPendingMovie.db_movie_id,
+                });
+                if (!isUuidLike(movieId)) throw new Error('Could not resolve the movie.');
+
+                setStatus('Sending recommendation…');
+                const res = await callSwiftApi({
+                    action: 'send_recommendation',
+                    movie_id: movieId,
+                    recipient_ids: recipientIds,
+                }, accessToken);
+
+                const added = Number(res?.added || 0);
+                showToast(`Recommended to ${added} ${added === 1 ? 'person' : 'people'}.`, { level: 'success' });
+                closeRecModal();
+            } catch (err) {
+                const msg = String(err?.message || err);
+                setStatus(`Failed: ${msg}`);
+                showToast(`Recommend failed: ${msg}`, { level: 'warn' });
+            } finally {
+                recSending = false;
+                if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Send Rec'; }
+            }
+        }
+
         function openListsCreateModal() {
             const overlay = document.getElementById('lists-create-overlay');
             if (!overlay) return;

@@ -691,6 +691,9 @@
                                                     <button type="button" onclick="router.navigate('lists')" class="btn btn-outline" style="flex:1; border-radius: 0.85rem; min-height: 36px; padding: 0.4rem 0.65rem; font-size: 0.85rem;">
                                                         ${icons.arrowRight} View Lists
                                                     </button>
+                                                    <button id="btn-recommend" type="button" onclick="openRecModalFromHome()" class="btn btn-glass" style="flex:1; border-radius: 0.85rem; min-height: 36px; padding: 0.4rem 0.65rem; font-size: 0.85rem;">
+                                                        ${icons.arrowRightCircle} Recommend
+                                                    </button>
                                                 </div>
 
                                                 <div id="update-options" class="hidden grid-2 gap-3" style="padding: 0; border: 0; background: transparent;">
@@ -1887,6 +1890,13 @@
                                     </label>
                                 </div>
                                 <div id="admin-signup-status" class="text-xs" style="margin-top:0.4rem; color:var(--text-muted);"></div>
+
+                                <div style="margin-top: 0.75rem; padding:0.65rem 0.75rem; border-radius:0.75rem; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.04);">
+                                    <div class="text-sm text-white font-bold">Test SMS Notification</div>
+                                    <div class="text-xs text-gray" style="margin-top:0.2rem;">Sends a sample text to your saved phone + carrier to verify the email-to-SMS pipeline.</div>
+                                    <button type="button" onclick="sendTestText()" class="btn btn-outline" style="margin-top:0.6rem; border-radius:0.8rem; padding:0.5rem 0.9rem;">Send Test Text</button>
+                                    <div id="admin-test-sms-status" class="text-xs" style="margin-top:0.45rem; color:var(--text-muted);"></div>
+                                </div>
                             </div>
                             </div>
                         </div>
@@ -1911,6 +1921,19 @@
                                 <div>
                                     <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Display name</label>
                                     <input id="account-display-name" type="text" class="input-field" placeholder="e.g. Landon James" autocomplete="name">
+                                </div>
+                                <div>
+                                    <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Phone number</label>
+                                    <input id="account-phone" type="tel" class="input-field" placeholder="e.g. 5551234567" autocomplete="tel">
+                                    <div class="text-xs text-gray" style="margin-top: 0.35rem;">Used to text you when someone recommends you a movie.</div>
+                                </div>
+                                <div>
+                                    <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Service provider</label>
+                                    <select id="account-carrier" class="select-field">
+                                        <option value="">Select…</option>
+                                        <option value="Verizon">Verizon</option>
+                                        <option value="AT&T">AT&T</option>
+                                    </select>
                                 </div>
                                 <div style="display:flex; gap: 10px; flex-wrap: wrap;">
                                     <button id="account-save-profile" type="submit" class="btn btn-primary" style="border-radius: 0.85rem;">Save profile</button>

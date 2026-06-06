@@ -209,9 +209,61 @@
                     }
                 }
 
+                // Phone + carrier (best-effort; columns may not exist pre-migration).
+                try {
+                    const rp = await supabaseClient.from('Users').select('phone, carrier').eq('id', uid).limit(1);
+                    if (!rp.error) {
+                        const prow = Array.isArray(rp.data) && rp.data.length ? rp.data[0] : null;
+                        const phoneEl = document.getElementById('account-phone');
+                        const carrierEl = document.getElementById('account-carrier');
+                        if (phoneEl) phoneEl.value = String(prow?.phone || '').trim();
+                        if (carrierEl) carrierEl.value = String(prow?.carrier || '').trim();
+                    }
+                } catch (_) {}
+
                 if (profileStatus) profileStatus.textContent = 'Profile loaded.';
             } catch (err) {
                 if (profileStatus) profileStatus.textContent = `Could not load profile: ${String(err?.message || err)}`;
+            }
+        }
+
+        // Admin test: fire the real email-to-SMS pipeline to your own phone.
+        async function sendTestText() {
+            const statusEl = document.getElementById('admin-test-sms-status');
+            const setStatus = (s, color) => {
+                if (!statusEl) return;
+                statusEl.textContent = String(s || '');
+                if (color) statusEl.style.color = color;
+            };
+
+            if (!supabaseClient || !cachedIsAuthed) {
+                showToast('Log in first.', { level: 'warn' });
+                return;
+            }
+            let accessToken = null;
+            try {
+                const res = await requireAuthOrThrow();
+                accessToken = res.accessToken;
+            } catch (_) {
+                openAuthModal();
+                return;
+            }
+
+            setStatus('Sending test text…', 'var(--text-muted)');
+            try {
+                const res = await callSwiftApi({ action: 'test_sms' }, accessToken);
+                if (res?.sent) {
+                    setStatus('✅ Sent! Check your phone — carrier texts can take a minute.', 'rgba(74,222,128,0.95)');
+                    showToast('Test text sent.', { level: 'success' });
+                } else {
+                    const reason = String(res?.reason || res?.error || 'Unknown reason');
+                    setStatus(`⚠️ Not sent: ${reason}`, 'rgba(239,68,68,0.95)');
+                    showToast(`Test text not sent: ${reason}`, { level: 'warn' });
+                }
+            } catch (err) {
+                const msg = String(err?.message || err);
+                setStatus(`Failed: ${msg}`, 'rgba(239,68,68,0.95)');
+                showToast(`Test failed: ${msg}`, { level: 'warn' });
             }
         }
 
@@ -289,6 +341,14 @@
                         throw err1;
                     }
                 }
+
+                // Phone + carrier (best-effort, separate update so a missing column
+                // pre-migration can't fail the whole profile save).
+                try {
+                    const phoneVal = String(document.getElementById('account-phone')?.value || '').replace(/\D/g, '').slice(0, 15);
+                    const carrierVal = String(document.getElementById('account-carrier')?.value || '').trim();
+                    await supabaseClient.from('Users').update({ phone: phoneVal || null, carrier: carrierVal || null }).eq('id', uid);
+                } catch (_) {}
 
                 const row = Array.isArray(data) && data.length ? data[0] : null;
                 const savedDisplayName = String(row?.display_name || '').trim();

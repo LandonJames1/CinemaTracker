@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -787,6 +788,210 @@ Deno.serve(async (req) => {
 
     // Service role client for server-side repairs and upserts.
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    // ---- Movie recommendations: add a movie to each recipient's "Recs" list ----
+    // (Cross-user writes require the service role, so this must run server-side.)
+    if (action === "send_recommendation") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) {
+        return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      }
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const sender = userData?.user || null;
+      if (userErr || !sender?.id) {
+        return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+      }
+
+      const isUuid = (v) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || "").trim());
+
+      const movieId = String(body?.movie_id ?? "").trim();
+      if (!isUuid(movieId)) {
+        return jsonResponse({ code: 400, message: "Valid movie_id is required." }, 400);
+      }
+      const note = String(body?.note ?? "").trim().slice(0, 280);
+      const recipientIds = Array.from(new Set(
+        (Array.isArray(body?.recipient_ids) ? body.recipient_ids : [])
+          .map((x) => String(x || "").trim())
+          .filter((x) => isUuid(x) && x !== sender.id),
+      ));
+      if (recipientIds.length === 0) {
+        return jsonResponse({ code: 400, message: "No valid recipients." }, 400);
+      }
+
+      // Movie details + sender username for the notification text.
+      let movieTitle = "", movieYear = "", movieMpa = "", movieGenre = "";
+      try {
+        const { data: mrow } = await supabaseAdmin
+          .from("Movies").select("title, release_year, mpa_rating, genre, genres").eq("id", movieId).single();
+        movieTitle = String(mrow?.title ?? "").trim();
+        movieYear = (mrow?.release_year ?? "") === "" ? "" : String(mrow.release_year);
+        movieMpa = String(mrow?.mpa_rating ?? "").trim();
+        const gRaw = String(mrow?.genre ?? "").trim()
+          || (Array.isArray(mrow?.genres) ? mrow.genres.join(", ") : String(mrow?.genres ?? ""));
+        movieGenre = String(gRaw || "").split(",")[0].trim();
+      } catch (_) {}
+      let senderHandle = "";
+      try {
+        const { data: srow } = await supabaseAdmin
+          .from("Users").select("username, display_name").eq("id", sender.id).single();
+        const uname = String(srow?.username ?? "").trim();
+        senderHandle = uname ? `@${uname}` : String(srow?.display_name ?? "").trim();
+      } catch (_) {}
+      if (!senderHandle) senderHandle = "Someone";
+
+      const GMAIL_USER = Deno.env.get("GMAIL_USER");
+      const GMAIL_APP_PASSWORD = Deno.env.get("GMAIL_APP_PASSWORD");
+      const SITE_URL = Deno.env.get("SITE_URL") || "https://landonjames1.github.io/CinemaTracker/";
+
+      const carrierGateway = (carrier) => {
+        const c = String(carrier || "").trim().toLowerCase();
+        if (c === "verizon") return "vtext.com";
+        if (c === "at&t" || c === "att") return "txt.att.net";
+        return "";
+      };
+      const digitsOnly = (p) => String(p || "").replace(/\D/g, "");
+
+      // One Gmail SMTP connection reused for all recipients this request.
+      let smtp = null;
+      if (GMAIL_USER && GMAIL_APP_PASSWORD) {
+        try {
+          smtp = new SMTPClient({
+            connection: {
+              hostname: "smtp.gmail.com",
+              port: 465,
+              tls: true,
+              auth: { username: GMAIL_USER, password: GMAIL_APP_PASSWORD },
+            },
+          });
+        } catch (_) { smtp = null; }
+      }
+
+      const results = [];
+      for (const rid of recipientIds) {
+        const r = { recipient: rid, added: false, notified: false, error: null };
+        try {
+          // a) Ensure the recipient has a "Recs" list.
+          let recsListId = null;
+          const { data: existing } = await supabaseAdmin
+            .from("Lists").select("id").eq("user_id", rid).eq("list_name", "Recs").limit(1);
+          if (Array.isArray(existing) && existing.length) {
+            recsListId = existing[0].id;
+          } else {
+            const { data: created, error: cErr } = await supabaseAdmin
+              .from("Lists").insert({ user_id: rid, list_name: "Recs" }).select("id").single();
+            if (cErr) throw cErr;
+            recsListId = created.id;
+          }
+
+          // b) Add the movie to the recipient's Recs list (idempotent).
+          const { error: insErr } = await supabaseAdmin
+            .from("Movie Lists")
+            .upsert({ user_id: rid, list_id: recsListId, movie_id: movieId }, { onConflict: "list_id,movie_id" });
+          if (insErr) throw insErr;
+          r.added = true;
+
+          // c) Email-to-SMS notification (best-effort; never blocks the add).
+          try {
+            if (smtp) {
+              const { data: urow } = await supabaseAdmin.from("Users").select("phone, carrier").eq("id", rid).single();
+              const gateway = carrierGateway(urow?.carrier);
+              const digits = digitsOnly(urow?.phone);
+              if (gateway && digits.length >= 10) {
+                const to = `${digits}@${gateway}`;
+                const titleLine = `${senderHandle} just recommended "${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`;
+                const descBits = [movieMpa, movieGenre].filter(Boolean).join(" ");
+                const lines = ["New Recommendation!", titleLine];
+                if (descBits) lines.push(`An ${descBits}`);
+                lines.push(`Check it out in your "Recs" list: ${SITE_URL}`);
+                const text = lines.join("\n");
+                await smtp.send({ from: GMAIL_USER, to, subject: "New Recommendation!", content: text });
+                r.notified = true;
+              }
+            }
+          } catch (e) {
+            r.error = `notify error: ${String(e?.message ?? e)}`;
+          }
+        } catch (e) {
+          r.error = String(e?.message ?? e);
+        }
+        results.push(r);
+      }
+
+      try { if (smtp) await smtp.close(); } catch (_) {}
+
+      return jsonResponse({
+        ok: true,
+        movie_id: movieId,
+        added: results.filter((x) => x.added).length,
+        notified: results.filter((x) => x.notified).length,
+        results,
+      }, 200);
+    }
+
+    // ---- Admin test: send a sample text to the caller's own phone ----
+    // Verifies the whole email-to-SMS pipeline without needing a 2nd account.
+    if (action === "test_sms") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) {
+        return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      }
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const me = userData?.user || null;
+      if (userErr || !me?.id) {
+        return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+      }
+
+      const GMAIL_USER = Deno.env.get("GMAIL_USER");
+      const GMAIL_APP_PASSWORD = Deno.env.get("GMAIL_APP_PASSWORD");
+      if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
+        return jsonResponse({ ok: true, sent: false, reason: "Gmail secrets not set (GMAIL_USER / GMAIL_APP_PASSWORD)." }, 200);
+      }
+
+      const { data: urow } = await supabaseAdmin.from("Users").select("phone, carrier").eq("id", me.id).single();
+      const carrierGateway = (carrier) => {
+        const c = String(carrier || "").trim().toLowerCase();
+        if (c === "verizon") return "vtext.com";
+        if (c === "at&t" || c === "att") return "txt.att.net";
+        return "";
+      };
+      const digits = String(urow?.phone || "").replace(/\D/g, "");
+      const gateway = carrierGateway(urow?.carrier);
+      if (digits.length < 10) {
+        return jsonResponse({ ok: true, sent: false, reason: "No valid phone on your profile (need 10 digits). Save it in Account → Profile." }, 200);
+      }
+      if (!gateway) {
+        return jsonResponse({ ok: true, sent: false, reason: `Unsupported/missing carrier ("${String(urow?.carrier || "")}"). Pick Verizon or AT&T.` }, 200);
+      }
+
+      const to = `${digits}@${gateway}`;
+      try {
+        const smtp = new SMTPClient({
+          connection: {
+            hostname: "smtp.gmail.com",
+            port: 465,
+            tls: true,
+            auth: { username: GMAIL_USER, password: GMAIL_APP_PASSWORD },
+          },
+        });
+        await smtp.send({
+          from: GMAIL_USER,
+          to,
+          subject: "CinemaTracker test",
+          content: "New Recommendation! (test)\nThis is a CinemaTracker test text — your notifications are working.",
+        });
+        await smtp.close();
+        return jsonResponse({ ok: true, sent: true, to }, 200);
+      } catch (e) {
+        return jsonResponse({ ok: true, sent: false, reason: `SMTP error: ${String(e?.message ?? e)}` }, 200);
+      }
+    }
 
     // Poster failsafe (Option B): on each invocation, opportunistically backfill missing Movies.poster_path.
     // NOTE: We skip this during `search` since search fires rapidly while typing.
