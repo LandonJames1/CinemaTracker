@@ -253,7 +253,8 @@
             try {
                 const res = await callSwiftApi({ action: 'test_sms' }, accessToken);
                 if (res?.sent) {
-                    setStatus('✅ Sent! Check your phone — carrier texts can take a minute.', 'rgba(74,222,128,0.95)');
+                    const used = String(res?.movie || '').trim();
+                    setStatus(`✅ Sent${used ? ` (used "${used}")` : ''}! Check your phone — carrier texts can take a minute.`, 'rgba(74,222,128,0.95)');
                     showToast('Test text sent.', { level: 'success' });
                 } else {
                     const reason = String(res?.reason || res?.error || 'Unknown reason');

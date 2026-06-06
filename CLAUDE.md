@@ -120,10 +120,62 @@ the front end calls:
     still works, the text is just skipped.
 - SQL: `dashboard_rpc.sql`, `achievements_*.sql`, `lists_schema.sql`,
   `library_views.sql`, `user_tiers.sql`, `cascades.sql`, `recs_and_profile.sql`
-  (auto "Recs" list per user + `Users.phone`/`Users.carrier`), etc.; more in
-  `Supabase Setup/`.
+  (auto "Recs" list per user + `Users.phone`/`Users.carrier`),
+  `recommendations_tracking.sql` (`Recommendations` table + unique movie-per-list),
+  etc.; more in `Supabase Setup/`.
 - Gating constants in JS: `ADMIN_EMAIL` (admin panel), `THEME_CREATOR_OWNER_EMAIL`
   (theme creator), `DEMO_USER_ID` (guest mode).
+
+## ⚠️ Database schema — where every field actually lives
+
+**Source of truth: the CSV exports in `Supabase Setup/` (one file per table; the
+header row = that table's columns).** Read the relevant CSV header before writing
+any query. Do NOT guess column locations.
+
+**The #1 trap: movie metadata is split across tables. `Movies` holds only core
+fields. Genre, director/cast, platforms, and external (IMDb) ratings each live in
+their own join tables — they are NOT columns on `Movies`.** Selecting a
+non-existent column makes the whole PostgREST query fail and return nothing.
+
+### Tables and columns (exact)
+
+| Table | Columns |
+|-------|---------|
+| `Movies` | `id, created_at, tmdb_id, imdb_id, title, release_year, runtime_minutes, mpa_rating, is_series, poster_path` — **no genre, no director, no cast, no platform, no imdb rating** |
+| `Movie Genres` | `movie_id, genre_id, created_at` → join to `Genres` |
+| `Genres` | `id, name` |
+| `Movie Cast` | `movie_id, person_id, character, created_at` → join to `People` |
+| `Movie Crew` | `movie_id, person_id, job, created_at` → join to `People` (director = `job` = 'Director') |
+| `People` | `id, created_at, tmdb_person_id, name` |
+| `Movie Platforms` | `movie_id, created_at, platform_id` → join to `Platforms` |
+| `Platforms` | `id, name` |
+| `Movie External Ratings` | `movie_id, source, rating, fetched_at` (IMDb etc.; no user_id) |
+| `Movie Ratings` | `id, watch_date, updated_at, user_id, movie_id, tier, overall_rating, acting_rating, pacing_rating, sound_rating, imagery_rating, plot_rating, dialogue_rating, notes, fav_quote` (one per user+movie; **no movie metadata here**) |
+| `Watch Logs` | `id, watch_date, user_id, movie_id, watch_method` |
+| `Users` | `id, created_at, display_name, privacy_level, username, icon, theme_id, tier_id, achievement_points, phone, carrier` |
+| `Follows` | `follower_id, followed_id, created_at` (follower → followed) |
+| `Lists` | `id, created_at, list_name, user_id` (unique `(user_id, list_name)`; auto special lists: **"Bucket List"**, **"Recs"**) |
+| `Movie Lists` | `list_id, movie_id, created_at, user_id` (unique `(list_id, movie_id)` — no duplicate movie per list) |
+| `Recommendations` | `id, created_at, from_user_id, to_user_id, movie_id` (unique `(from_user_id, to_user_id, movie_id)`; logs who recommended what to whom — blocks re-recommends + drives "Recommended Again") |
+| `Achievements` | `id, created_at, name, description, icon_url, tier, points, is_active, type, rule` |
+| `User Achievements` | `id, user_id, achievement_id, earned_at` |
+| `User Tiers` | `id, created_at, tier_icon_url, name, points_needed` |
+| `Genres` | `id, name` |
+| `Themes` | `id, created_at, name, colors` |
+| `Logos` | `id, created_at, theme_id, url` |
+| `Background Images` | `id, created_at, page, url, name, theme_id` |
+| `Loading Images` | `id, image_url, last_used` |
+| `Help Pop-ups` | `user_id, "AI Picks Help", "New Feature News"` |
+| `Feature Requests` | `user_id, created_at, feature` |
+| `Settings` | `id, created_at, allow_signups` |
+| `Taste Profiles` | `user_id, computed_at, mean_overall, std_overall, like_threshold, runtime_bins_json, decade_bins_json, people_affinity_json, subrating_weights_json, imdb_delta, median_overall` |
+
+### How to read denormalized movie data
+The front end usually reads **genre/director/platforms together via SQL views**
+(`library_views.sql` → `user_library_items_v2`, `user_movie_latest_watch`), not by
+joining the base tables itself. Server-side (Edge Function) you must join the base
+tables manually: genre = `Movie Genres`→`Genres`; director = `Movie Crew`
+(`job='Director'`)→`People`.
 
 ## Editing conventions
 

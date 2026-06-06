@@ -2,6 +2,7 @@
         let listsLoading = false;
         let listsActiveListId = null;
         let listsActiveListName = '';
+        let listsPendingSelectName = ''; // when set, loadListsPage opens the list with this name (deep-links, e.g. "Recs")
         let cachedLists = [];
         let cachedListsUserId = null;
 
@@ -257,8 +258,28 @@
                 }, accessToken);
 
                 const added = Number(res?.added || 0);
-                showToast(`Recommended to ${added} ${added === 1 ? 'person' : 'people'}.`, { level: 'success' });
-                closeRecModal();
+                const results = Array.isArray(res?.results) ? res.results : [];
+                const movieTitle = String(recPendingMovie?.title || 'this movie').trim();
+
+                // Recipients this sender had already recommended this movie to (blocked).
+                const blocked = results.filter(r => r?.already);
+                if (blocked.length) {
+                    const names = blocked.map(b => {
+                        const u = recRecipientsCache.find(x => String(x?.id) === String(b?.recipient));
+                        const uname = String(u?.username || '').trim();
+                        return uname ? `@${uname}` : 'that user';
+                    }).join(', ');
+                    showToast(`You already recommended "${movieTitle}" to ${names}`, { level: 'warn' });
+                }
+
+                if (added > 0) {
+                    showToast(`Recommended to ${added} ${added === 1 ? 'person' : 'people'}.`, { level: 'success' });
+                    closeRecModal();
+                } else if (blocked.length) {
+                    setStatus('Already recommended — pick someone else.');
+                } else {
+                    setStatus('Nothing sent.');
+                }
             } catch (err) {
                 const msg = String(err?.message || err);
                 setStatus(`Failed: ${msg}`);
@@ -2054,6 +2075,14 @@
 
                 await ensureBucketListForUser({ user_id: user.id }).catch(() => null);
                 const lists = await loadUserLists({ user_id: user.id, force: true });
+
+                // Deep-link: open a specific list by name (e.g. "Recs" from a notification link).
+                if (listsPendingSelectName) {
+                    const want = lists.find(l =>
+                        String(l?.list_name || '').trim().toLowerCase() === listsPendingSelectName.toLowerCase());
+                    if (want?.id) listsActiveListId = String(want.id);
+                    listsPendingSelectName = '';
+                }
 
                 if (!listsActiveListId) {
                     listsActiveListId = cachedBucketListId || (lists[0]?.id || null);

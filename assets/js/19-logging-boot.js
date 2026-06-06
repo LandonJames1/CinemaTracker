@@ -252,6 +252,15 @@
             if (!cachedIsAuthed) {
                 openAuthModal();
             }
+
+            // Deep-link: a recommendation notification link (…/#recs) opens the Recs list.
+            try {
+                if (cachedIsAuthed && /^#recs$/i.test(String(window.location.hash || ''))) {
+                    history.replaceState(null, '', window.location.pathname + window.location.search);
+                    listsPendingSelectName = 'Recs';
+                    router.navigate('lists');
+                }
+            } catch (_) {}
         });
 
         document.addEventListener('keydown', (e) => {

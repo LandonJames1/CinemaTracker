@@ -1,6 +1,39 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 
+// Build the MPA + genre line for recommendation texts with correct grammar,
+// e.g. "An R rated Drama", "A PG-13 rated Action", "An NC-17 rated Comedy".
+// The article depends on how the rating is *pronounced* (R = "arr" → "An").
+function buildRecDescLine(mpa, genre) {
+  const m = String(mpa || "").trim();
+  const g = String(genre || "").trim();
+  const vowelSound = new Set(["A", "E", "F", "H", "I", "L", "M", "N", "O", "R", "S", "X"]);
+  const article = (w) => (vowelSound.has(String(w || "").trim().charAt(0).toUpperCase()) ? "An" : "A");
+  if (m && g) return `${article(m)} ${m}-rated ${g} film`;
+  if (m) return `${article(m)} ${m}-rated film`;
+  if (g) return `${article(g)} ${g} film`;
+  return "";
+}
+
+// Email-to-SMS notification subject + length cap.
+const REC_SUBJECT = "New Movie Rec!";
+// Verizon vtext.com delivers ~153 chars (one concatenated GSM-7 segment) then
+// drops the rest. The carrier prepends "(<subject>) ", which counts toward this.
+const SMS_LIMIT = 153;
+
+// Pad the body up to the limit so any gateway-appended "[Attachment(s) removed]"
+// footer overflows past 153 and gets truncated away. We use a visible filler
+// (dashes) because trailing spaces get stripped by mail encoding and never count.
+function padToSmsLimit(text, subject) {
+  const prefixLen = String(subject || "").length + 3; // carrier adds "(" + subject + ") "
+  const target = SMS_LIMIT - prefixLen;
+  const t = String(text || "");
+  if (t.length >= target) return t;
+  const need = target - t.length;
+  // newline + dashes (newline counts as 1 char) so the filler is on its own line.
+  return need <= 1 ? t + "-".repeat(need) : t + "\n" + "-".repeat(need - 1);
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -826,13 +859,20 @@ Deno.serve(async (req) => {
       let movieTitle = "", movieYear = "", movieMpa = "", movieGenre = "";
       try {
         const { data: mrow } = await supabaseAdmin
-          .from("Movies").select("title, release_year, mpa_rating, genre, genres").eq("id", movieId).single();
+          .from("Movies").select("title, release_year, mpa_rating").eq("id", movieId).single();
         movieTitle = String(mrow?.title ?? "").trim();
         movieYear = (mrow?.release_year ?? "") === "" ? "" : String(mrow.release_year);
         movieMpa = String(mrow?.mpa_rating ?? "").trim();
-        const gRaw = String(mrow?.genre ?? "").trim()
-          || (Array.isArray(mrow?.genres) ? mrow.genres.join(", ") : String(mrow?.genres ?? ""));
-        movieGenre = String(gRaw || "").split(",")[0].trim();
+      } catch (_) {}
+      // Genre lives in "Movie Genres" -> "Genres" (Movies has no genre column).
+      try {
+        const { data: mg } = await supabaseAdmin
+          .from("Movie Genres").select("genre_id").eq("movie_id", movieId).limit(1);
+        const gid = Array.isArray(mg) && mg.length ? mg[0]?.genre_id : null;
+        if (gid !== null && gid !== undefined) {
+          const { data: g } = await supabaseAdmin.from("Genres").select("name").eq("id", gid).single();
+          movieGenre = String(g?.name ?? "").trim();
+        }
       } catch (_) {}
       let senderHandle = "";
       try {
@@ -870,10 +910,29 @@ Deno.serve(async (req) => {
         } catch (_) { smtp = null; }
       }
 
+      const AGAIN_SUBJECT = "Recommended Again!";
       const results = [];
       for (const rid of recipientIds) {
-        const r = { recipient: rid, added: false, notified: false, error: null };
+        const r = { recipient: rid, added: false, notified: false, already: false, error: null };
         try {
+          // Who has already recommended THIS movie to THIS recipient?
+          const { data: recRows } = await supabaseAdmin
+            .from("Recommendations")
+            .select("from_user_id")
+            .eq("to_user_id", rid)
+            .eq("movie_id", movieId);
+          const priorRows = Array.isArray(recRows) ? recRows : [];
+
+          // Block: this exact sender already recommended this movie to this person.
+          if (priorRows.some((x) => String(x.from_user_id) === String(sender.id))) {
+            r.already = true;
+            results.push(r);
+            continue;
+          }
+
+          // "Recommended Again" when someone else already recommended it to them.
+          const isRepeat = priorRows.length > 0;
+
           // a) Ensure the recipient has a "Recs" list.
           let recsListId = null;
           const { data: existing } = await supabaseAdmin
@@ -894,7 +953,14 @@ Deno.serve(async (req) => {
           if (insErr) throw insErr;
           r.added = true;
 
-          // c) Email-to-SMS notification (best-effort; never blocks the add).
+          // c) Record the recommendation so future repeats from this sender are blocked.
+          try {
+            await supabaseAdmin
+              .from("Recommendations")
+              .upsert({ from_user_id: sender.id, to_user_id: rid, movie_id: movieId }, { onConflict: "from_user_id,to_user_id,movie_id" });
+          } catch (_) {}
+
+          // d) Email-to-SMS notification (best-effort; never blocks the add).
           try {
             if (smtp) {
               const { data: urow } = await supabaseAdmin.from("Users").select("phone, carrier").eq("id", rid).single();
@@ -902,13 +968,13 @@ Deno.serve(async (req) => {
               const digits = digitsOnly(urow?.phone);
               if (gateway && digits.length >= 10) {
                 const to = `${digits}@${gateway}`;
+                const subject = isRepeat ? AGAIN_SUBJECT : REC_SUBJECT;
                 const titleLine = `${senderHandle} just recommended "${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`;
-                const descBits = [movieMpa, movieGenre].filter(Boolean).join(" ");
-                const lines = ["New Recommendation!", titleLine];
-                if (descBits) lines.push(`An ${descBits}`);
-                lines.push(`Check it out in your "Recs" list: ${SITE_URL}`);
-                const text = lines.join("\n");
-                await smtp.send({ from: GMAIL_USER, to, subject: "New Recommendation!", content: text });
+                const descLine = buildRecDescLine(movieMpa, movieGenre);
+                const lines = [titleLine];
+                if (descLine) lines.push(descLine);
+                const text = padToSmsLimit(lines.join("\n"), subject);
+                await smtp.send({ from: GMAIL_USER, to, subject, content: text });
                 r.notified = true;
               }
             }
@@ -928,6 +994,7 @@ Deno.serve(async (req) => {
         movie_id: movieId,
         added: results.filter((x) => x.added).length,
         notified: results.filter((x) => x.notified).length,
+        already: results.filter((x) => x.already).length,
         results,
       }, 200);
     }
@@ -971,6 +1038,48 @@ Deno.serve(async (req) => {
       }
 
       const to = `${digits}@${gateway}`;
+
+      // Caller's @handle for the "from" line.
+      let myHandle = "@you";
+      try {
+        const { data: srow } = await supabaseAdmin.from("Users").select("username, display_name").eq("id", me.id).single();
+        const uname = String(srow?.username ?? "").trim();
+        myHandle = uname ? `@${uname}` : (String(srow?.display_name ?? "").trim() || "@you");
+      } catch (_) {}
+
+      // Pull a RANDOM real movie and format with its actual data — this exercises
+      // the exact title/year/mpa/genre fetch path that real recommendations use.
+      let tTitle = "", tYear = "", tMpa = "", tGenre = "";
+      try {
+        const { count } = await supabaseAdmin.from("Movies").select("id", { count: "exact", head: true });
+        const total = Number(count || 0);
+        if (total > 0) {
+          const offset = Math.floor(Math.random() * total);
+          const { data: mrows } = await supabaseAdmin
+            .from("Movies").select("id, title, release_year, mpa_rating").range(offset, offset);
+          const mv = Array.isArray(mrows) && mrows.length ? mrows[0] : null;
+          if (mv) {
+            tTitle = String(mv.title ?? "").trim();
+            tYear = (mv.release_year ?? "") === "" ? "" : String(mv.release_year);
+            tMpa = String(mv.mpa_rating ?? "").trim();
+            try {
+              const { data: mg } = await supabaseAdmin.from("Movie Genres").select("genre_id").eq("movie_id", mv.id).limit(1);
+              const gid = Array.isArray(mg) && mg.length ? mg[0]?.genre_id : null;
+              if (gid !== null && gid !== undefined) {
+                const { data: g } = await supabaseAdmin.from("Genres").select("name").eq("id", gid).single();
+                tGenre = String(g?.name ?? "").trim();
+              }
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+
+      const titleLine = `${myHandle} just recommended "${tTitle || "a movie"}${tYear ? ` (${tYear})` : ""}"`;
+      const descLine = buildRecDescLine(tMpa, tGenre);
+      const sampleLines = [titleLine];
+      if (descLine) sampleLines.push(descLine);
+      const sampleText = padToSmsLimit(sampleLines.join("\n"), REC_SUBJECT);
+
       try {
         const smtp = new SMTPClient({
           connection: {
@@ -980,14 +1089,9 @@ Deno.serve(async (req) => {
             auth: { username: GMAIL_USER, password: GMAIL_APP_PASSWORD },
           },
         });
-        await smtp.send({
-          from: GMAIL_USER,
-          to,
-          subject: "CinemaTracker test",
-          content: "New Recommendation! (test)\nThis is a CinemaTracker test text — your notifications are working.",
-        });
+        await smtp.send({ from: GMAIL_USER, to, subject: REC_SUBJECT, content: sampleText });
         await smtp.close();
-        return jsonResponse({ ok: true, sent: true, to }, 200);
+        return jsonResponse({ ok: true, sent: true, to, movie: tTitle, sample: sampleText }, 200);
       } catch (e) {
         return jsonResponse({ ok: true, sent: false, reason: `SMTP error: ${String(e?.message ?? e)}` }, 200);
       }
