@@ -1669,13 +1669,99 @@
                 });
             }
 
+            // Capture the highlight threshold BEFORE marking seen, so new items in
+            // this view glow once, then read as normal next time.
+            try { feedHighlightSince = getNotifLastSeen(FEED_LAST_SEEN_KEY); } catch (_) { feedHighlightSince = ''; }
+
             try {
                 await loadMyFollowingIds();
                 await loadFeedFollowingList();
                 await loadFeedItems();
+                markFeedSeen(); // viewing the feed clears its unread badge
             } catch (err) {
                 showToast(`Feed failed: ${String(err?.message || err)}`, { level: 'warn' });
             }
+        }
+
+        let feedHighlightSince = ''; // items with updated_at newer than this glow as "new" for one view
+
+        // ===== Nav notification badges (Feed = new follow activity, Lists = new recs) =====
+        const FEED_LAST_SEEN_KEY = 'ct_feed_last_seen';
+        const RECS_LAST_SEEN_KEY = 'ct_recs_last_seen';
+
+        function getNotifLastSeen(key) {
+            try {
+                const v = localStorage.getItem(key);
+                if (v) return v;
+                const now = new Date().toISOString();
+                localStorage.setItem(key, now); // first run: start "now" so there's no huge backlog
+                return now;
+            } catch (_) {
+                return new Date().toISOString();
+            }
+        }
+
+        function setNavBadge(elId, count) {
+            const el = document.getElementById(elId);
+            if (!el) return;
+            const n = Number(count) || 0;
+            if (n > 0) {
+                el.textContent = n > 99 ? '99+' : String(n);
+                el.classList.add('show');
+            } else {
+                el.textContent = '';
+                el.classList.remove('show');
+            }
+        }
+
+        async function refreshNavBadges() {
+            try {
+                if (!supabaseClient || !cachedIsAuthed) {
+                    setNavBadge('nav-badge-feed', 0);
+                    setNavBadge('nav-badge-lists', 0);
+                    return;
+                }
+                const meId = String(cachedAuthUser?.id || '').trim();
+                if (!meId) return;
+
+                // Lists badge: recommendations sent to me since last seen.
+                try {
+                    const since = getNotifLastSeen(RECS_LAST_SEEN_KEY);
+                    const { count } = await supabaseClient
+                        .from('Recommendations')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('to_user_id', meId)
+                        .gt('created_at', since);
+                    setNavBadge('nav-badge-lists', count || 0);
+                } catch (_) { /* Recommendations table may not exist pre-migration */ }
+
+                // Feed badge: ratings from people I follow (excluding me) since last seen.
+                try {
+                    await loadMyFollowingIds();
+                    const followed = Array.from(feedFollowingIds).filter(id => id && id !== meId);
+                    if (followed.length) {
+                        const since = getNotifLastSeen(FEED_LAST_SEEN_KEY);
+                        const { count } = await supabaseClient
+                            .from('Movie Ratings')
+                            .select('id', { count: 'exact', head: true })
+                            .in('user_id', followed)
+                            .gt('updated_at', since);
+                        setNavBadge('nav-badge-feed', count || 0);
+                    } else {
+                        setNavBadge('nav-badge-feed', 0);
+                    }
+                } catch (_) {}
+            } catch (_) {}
+        }
+
+        function markFeedSeen() {
+            try { localStorage.setItem(FEED_LAST_SEEN_KEY, new Date().toISOString()); } catch (_) {}
+            setNavBadge('nav-badge-feed', 0);
+        }
+
+        function markRecsSeen() {
+            try { localStorage.setItem(RECS_LAST_SEEN_KEY, new Date().toISOString()); } catch (_) {}
+            setNavBadge('nav-badge-lists', 0);
         }
 
         const FEED_FILTER_EXCLUDED_KEY = 'ct_feed_excluded_user_ids';
@@ -2179,8 +2265,10 @@
                     { k: 'Dialogue', v: dashFormatScoreWhole(r?.dialogue_rating) },
                 ].filter(x => String(x.v || '').trim());
 
+                const isNew = feedHighlightSince && String(r?.updated_at || '') > feedHighlightSince;
+
                 return `
-                    <div class="glass-panel feed-item-card" data-feed-card="1" style="padding: 0.9rem; border-radius: 1rem;">
+                    <div class="glass-panel feed-item-card${isNew ? ' is-new' : ''}" data-feed-card="1" style="padding: 0.9rem; border-radius: 1rem;">
                         <div class="feed-card-row">
                             <div class="feed-card-poster">
                                 ${posterUrl

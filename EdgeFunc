@@ -913,8 +913,21 @@ Deno.serve(async (req) => {
       const AGAIN_SUBJECT = "Recommended Again!";
       const results = [];
       for (const rid of recipientIds) {
-        const r = { recipient: rid, added: false, notified: false, already: false, error: null };
+        const r = { recipient: rid, added: false, notified: false, already: false, seen: false, error: null };
         try {
+          // Block: the recipient has already seen (rated/logged) this movie.
+          const { data: seenRows } = await supabaseAdmin
+            .from("Movie Ratings")
+            .select("movie_id")
+            .eq("user_id", rid)
+            .eq("movie_id", movieId)
+            .limit(1);
+          if (Array.isArray(seenRows) && seenRows.length) {
+            r.seen = true;
+            results.push(r);
+            continue;
+          }
+
           // Who has already recommended THIS movie to THIS recipient?
           const { data: recRows } = await supabaseAdmin
             .from("Recommendations")
@@ -995,6 +1008,7 @@ Deno.serve(async (req) => {
         added: results.filter((x) => x.added).length,
         notified: results.filter((x) => x.notified).length,
         already: results.filter((x) => x.already).length,
+        seen: results.filter((x) => x.seen).length,
         results,
       }, 200);
     }

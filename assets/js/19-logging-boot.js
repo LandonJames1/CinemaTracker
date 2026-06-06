@@ -253,6 +253,9 @@
                 openAuthModal();
             }
 
+            // Populate unread-notification badges (Feed / Lists) on load.
+            try { refreshNavBadges(); } catch (_) {}
+
             // Deep-link: a recommendation notification link (…/#recs) opens the Recs list.
             try {
                 if (cachedIsAuthed && /^#recs$/i.test(String(window.location.hash || ''))) {

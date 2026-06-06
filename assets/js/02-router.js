@@ -116,6 +116,9 @@
 
                 document.getElementById('mobile-menu').classList.remove('open');
 
+                // Refresh unread-notification badges on every navigation.
+                try { refreshNavBadges(); } catch (_) {}
+
                 if (page === 'home') {
                     root.innerHTML = this.renderHome();
                     this.selectedMovie = null;

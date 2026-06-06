@@ -173,6 +173,7 @@
         }
         .nav-links { display: flex; gap: 0.75rem; }
         .nav-link {
+            position: relative;
             font-size: 0.95rem;
             font-weight: 800;
             letter-spacing: 0.03em;
@@ -185,6 +186,62 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
+        }
+        /* Unread-notification badge (top-right of a nav button) */
+        .nav-badge {
+            position: absolute;
+            top: 0;
+            right: 0;
+            transform: translate(40%, -40%);
+            min-width: 18px;
+            height: 18px;
+            padding: 0 5px;
+            border-radius: 999px;
+            background: #ef4444;
+            color: #fff;
+            font-size: 10px;
+            font-weight: 800;
+            line-height: 18px;
+            text-align: center;
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.35);
+            display: none;
+            pointer-events: none;
+        }
+        .nav-badge.show { display: inline-block; }
+        /* Recommender avatar(s) on Recs list cards */
+        .lists-rec-by {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+        }
+        .lists-rec-by-multi {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+        }
+        .lists-rec-plus {
+            margin-left: -6px;
+            width: 18px;
+            height: 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: 800;
+            color: var(--brand, #14b8a6);
+            background: color-mix(in srgb, var(--brand) 20%, #18181b);
+            border: 1px solid color-mix(in srgb, var(--brand) 50%, transparent);
+            border-radius: 999px;
+        }
+        /* "New since last view" highlight for feed items + recommended movies */
+        .feed-item-card.is-new,
+        .lists-movie-card.is-new {
+            box-shadow: 0 0 0 2px var(--brand, #14b8a6), 0 0 16px color-mix(in srgb, var(--brand) 40%, transparent);
+            border-radius: 1rem;
         }
         .nav-link:hover {
             color: #fff;

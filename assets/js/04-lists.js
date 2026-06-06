@@ -3,6 +3,7 @@
         let listsActiveListId = null;
         let listsActiveListName = '';
         let listsPendingSelectName = ''; // when set, loadListsPage opens the list with this name (deep-links, e.g. "Recs")
+        let recByDataByMovieId = new Map(); // movie_id -> [{ id, username, icon }] recommenders (for the Recs "+" modal)
         let cachedLists = [];
         let cachedListsUserId = null;
 
@@ -261,22 +262,31 @@
                 const results = Array.isArray(res?.results) ? res.results : [];
                 const movieTitle = String(recPendingMovie?.title || 'this movie').trim();
 
-                // Recipients this sender had already recommended this movie to (blocked).
+                const namesFor = (arr) => arr.map(b => {
+                    const u = recRecipientsCache.find(x => String(x?.id) === String(b?.recipient));
+                    const uname = String(u?.username || '').trim();
+                    return uname ? `@${uname}` : 'that user';
+                }).join(', ');
+
+                // Recipients who have already SEEN (rated/logged) this movie.
+                const seen = results.filter(r => r?.seen);
+                if (seen.length) {
+                    const names = namesFor(seen);
+                    const verb = seen.length === 1 ? 'has' : 'have';
+                    showToast(`${names} ${verb} already seen this movie`, { level: 'warn' });
+                }
+
+                // Recipients this sender had already recommended this movie to.
                 const blocked = results.filter(r => r?.already);
                 if (blocked.length) {
-                    const names = blocked.map(b => {
-                        const u = recRecipientsCache.find(x => String(x?.id) === String(b?.recipient));
-                        const uname = String(u?.username || '').trim();
-                        return uname ? `@${uname}` : 'that user';
-                    }).join(', ');
-                    showToast(`You already recommended "${movieTitle}" to ${names}`, { level: 'warn' });
+                    showToast(`You already recommended "${movieTitle}" to ${namesFor(blocked)}`, { level: 'warn' });
                 }
 
                 if (added > 0) {
                     showToast(`Recommended to ${added} ${added === 1 ? 'person' : 'people'}.`, { level: 'success' });
                     closeRecModal();
-                } else if (blocked.length) {
-                    setStatus('Already recommended — pick someone else.');
+                } else if (seen.length || blocked.length) {
+                    setStatus('Pick someone else.');
                 } else {
                     setStatus('Nothing sent.');
                 }
@@ -288,6 +298,29 @@
                 recSending = false;
                 if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Send Rec'; }
             }
+        }
+
+        // Modal listing everyone who recommended a given movie (Recs list "+" button).
+        function openRecByModal(movieId) {
+            const recs = recByDataByMovieId.get(String(movieId || '')) || [];
+            const overlay = document.getElementById('rec-by-overlay');
+            const listEl = document.getElementById('rec-by-list');
+            if (!overlay || !listEl) return;
+            listEl.innerHTML = recs.length
+                ? recs.map(u => `
+                    <div class="feed-filter-user-row">
+                        ${renderUserIconHtml(u.icon, 28)}
+                        <div class="feed-filter-user-name">@${escapeHtml(u.username)}</div>
+                    </div>
+                `).join('')
+                : `<div class="text-gray" style="padding:0.6rem;">No recommenders.</div>`;
+            overlay.style.display = 'flex';
+            overlay.classList.add('open');
+        }
+
+        function closeRecByModal() {
+            const overlay = document.getElementById('rec-by-overlay');
+            if (overlay) { overlay.style.display = 'none'; overlay.classList.remove('open'); }
         }
 
         function openListsCreateModal() {
@@ -2174,6 +2207,60 @@
                     if (m?.id) moviesById.set(m.id, m);
                 }
 
+                // For the "Recs" list: who recommended each movie (avatars + "+" modal),
+                // and which recommendations are new since last view (for highlighting).
+                const isRecsList = String(listsActiveListName || '').trim().toLowerCase() === 'recs';
+                const recsNewByMovieId = new Set();
+                if (isRecsList) {
+                    recByDataByMovieId = new Map();
+                    let recsHighlightSince = '';
+                    try { recsHighlightSince = getNotifLastSeen(RECS_LAST_SEEN_KEY); } catch (_) {}
+                    try {
+                        const { data: recRows } = await supabaseClient
+                            .from('Recommendations')
+                            .select('from_user_id, movie_id, created_at')
+                            .eq('to_user_id', user.id)
+                            .in('movie_id', movieIds);
+                        const rows = Array.isArray(recRows) ? recRows : [];
+                        const senderIds = Array.from(new Set(rows.map(r => String(r?.from_user_id || '').trim()).filter(Boolean)));
+                        const userById = new Map();
+                        if (senderIds.length) {
+                            let us = null;
+                            try {
+                                const r1 = await supabaseClient.from('Users').select('id, username, display_name, icon').in('id', senderIds);
+                                if (r1.error) throw r1.error; us = r1.data;
+                            } catch (e1) {
+                                if (/column\s+"?icon"?\s+does\s+not\s+exist/i.test(String(e1?.message || e1))) {
+                                    const r2 = await supabaseClient.from('Users').select('id, username, display_name').in('id', senderIds);
+                                    if (r2.error) throw r2.error; us = r2.data;
+                                } else { throw e1; }
+                            }
+                            for (const u of (Array.isArray(us) ? us : [])) {
+                                const uname = String(u?.username || '').trim();
+                                userById.set(String(u.id), {
+                                    id: String(u.id),
+                                    username: uname || String(u?.display_name || '').trim() || 'someone',
+                                    icon: String(u?.icon || '').trim(),
+                                });
+                            }
+                        }
+                        for (const r of rows) {
+                            const mid = String(r?.movie_id || '').trim();
+                            const fid = String(r?.from_user_id || '').trim();
+                            if (!mid || !fid) continue;
+                            const info = userById.get(fid) || { id: fid, username: 'someone', icon: '' };
+                            if (!recByDataByMovieId.has(mid)) recByDataByMovieId.set(mid, []);
+                            const arr = recByDataByMovieId.get(mid);
+                            if (!arr.some(x => x.id === info.id)) arr.push(info);
+                            // New recommendation since last view?
+                            if (recsHighlightSince && String(r?.created_at || '') > recsHighlightSince) {
+                                recsNewByMovieId.add(mid);
+                            }
+                        }
+                    } catch (_) { /* table may not exist pre-migration */ }
+                    try { markRecsSeen(); } catch (_) {}
+                }
+
                 // Fetch genres and IMDb rating from external API for each movie (like rating/log flow)
                 await Promise.allSettled(Array.from(moviesById.values()).map(async (movie) => {
                     const tmdb_id = Number(movie?.tmdb_id);
@@ -2466,7 +2553,7 @@
                         });
 
                         return `
-                            <div class="lists-movie-card">
+                            <div class="lists-movie-card${recsNewByMovieId.has(String(id)) ? ' is-new' : ''}">
                                 <div class="lists-poster-wrap">
                                     <button type="button" class="lists-poster-btn" data-lists-action="open_movie" data-movie-id="${escapeHtml(String(id))}" title="Open entry">
                                         <div class="lists-poster" style="width:100%; aspect-ratio:2/3;">
@@ -2483,6 +2570,16 @@
                                         ${escapeHtml(title)}
                                         ${year ? ` <span class=\"lists-title-year\">(${escapeHtml(year)})</span>` : ''}
                                     </div>
+                                    ${(() => {
+                                        const recs = recByDataByMovieId.get(String(id)) || [];
+                                        if (!recs.length) return '';
+                                        const first = recs[0];
+                                        const avatar = renderUserIconHtml(first.icon, 26);
+                                        if (recs.length === 1) {
+                                            return `<div class="lists-rec-by" title="Recommended by @${escapeHtml(first.username)}">${avatar}</div>`;
+                                        }
+                                        return `<button type="button" class="lists-rec-by lists-rec-by-multi" title="Recommended by ${recs.length} people" onclick="event.stopPropagation(); openRecByModal('${escapeHtml(String(id))}')">${avatar}<span class="lists-rec-plus">+</span></button>`;
+                                    })()}
                                     <div class="lists-meta-list">
                                         <div class="lists-meta-item" style="color:rgba(255,255,255,0.82);">
                                             <span style="font-weight:700;">IMDb:</span> <span>${imdbVal || '—'}</span>

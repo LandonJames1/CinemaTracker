@@ -34,9 +34,9 @@
             
             <div class="nav-links">
                 <button onclick="router.navigate('home')" class="nav-link">Home</button>
-                <button onclick="router.navigate('feed')" class="nav-link">Feed</button>
+                <button onclick="router.navigate('feed')" class="nav-link">Feed<span id="nav-badge-feed" class="nav-badge"></span></button>
                 <button onclick="router.navigate('library')" class="nav-link">My Movies</button>
-                <button onclick="router.navigate('lists')" class="nav-link">Lists</button>
+                <button onclick="router.navigate('lists')" class="nav-link">Lists<span id="nav-badge-lists" class="nav-badge"></span></button>
                 <button onclick="router.navigate('ai_picks')" class="nav-link">AI Picks</button>
                 <button onclick="router.navigate('dashboard')" class="nav-link">Data Dash</button>
             </div>
@@ -329,6 +329,17 @@
             <div style="display:flex; justify-content: flex-end; gap: 8px; margin-top: 0.85rem;">
                 <button id="rec-modal-send" type="button" class="btn btn-primary" data-rec-action="send" style="padding: 0.55rem 1rem; border-radius: 0.8rem;">Send Rec</button>
             </div>
+        </div>
+    </div>
+
+    <!-- "Recommended by" list modal (Recs list "+" button) -->
+    <div id="rec-by-overlay" class="auth-overlay" onclick="if(event.target === this) closeRecByModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="rec-by-title" style="max-width: 420px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="rec-by-title">Recommended by</div>
+                <button class="auth-modal-close" type="button" onclick="closeRecByModal()">Close</button>
+            </div>
+            <div id="rec-by-list" class="feed-filter-list"></div>
         </div>
     </div>
 
