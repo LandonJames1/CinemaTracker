@@ -563,6 +563,7 @@
                 ensureListsSortFilterStateInitialized();
                 const labels = {
                     sortKey: {
+                        rec_added: 'Recommended (newest)',
                         watch_date: 'Watch Date',
                         watch_count: 'Watch Count',
                         overall: 'Overall %',
@@ -770,10 +771,30 @@
         }
 
         function getDefaultListsSortFilterStateForActiveList() {
-            return getDefaultListsSortFilterState();
+            const base = getDefaultListsSortFilterState();
+            // The "Recs" list defaults to newest recommendation first.
+            if (String(listsActiveListName || '').trim().toLowerCase() === 'recs') {
+                return { ...base, sortKey: 'rec_added', sortDir: 'desc' };
+            }
+            return base;
         }
 
         function getAllowedListsSortKeysForActiveList() {
+            // Recs are usually unwatched, so watch-based sorts don't apply; offer rec date instead.
+            if (String(listsActiveListName || '').trim().toLowerCase() === 'recs') {
+                return [
+                    'rec_added',
+                    'overall',
+                    'sound',
+                    'pace',
+                    'imagery',
+                    'acting',
+                    'plot',
+                    'dialogue',
+                    'imdb',
+                    'release_year',
+                ];
+            }
             return [
                 'watch_date',
                 'watch_count',
@@ -802,6 +823,7 @@
             const allowed = new Set(getAllowedListsSortKeysForActiveList());
 
             const sortOptions = [
+                { value: 'rec_added', label: 'Recommended (newest)' },
                 { value: 'watch_date', label: 'Watch Date' },
                 { value: 'watch_count', label: 'Watch Count' },
                 { value: 'overall', label: 'Overall %' },
@@ -821,9 +843,10 @@
                 els.sortKey.value = prev;
             }
 
-            // If current state is incompatible with this list, coerce it.
+            // If current state is incompatible with this list, coerce it to the
+            // list's own default (e.g. entering "Recs" → newest-recommended first).
             ensureListsSortFilterStateInitialized();
-            const def = getDefaultListsSortFilterState();
+            const def = getDefaultListsSortFilterStateForActiveList();
             const next = { ...listsSortFilterState };
 
             if (!allowed.has(String(next.sortKey || '').trim())) {
@@ -1241,6 +1264,12 @@
             const dirMul = asc ? 1 : -1;
 
             const getSortVal = (it) => {
+                if (sortKey === 'rec_added') {
+                    const raw = String(it?.added_at || '').trim();
+                    if (!raw) return null;
+                    const d = new Date(raw);
+                    return Number.isNaN(d.getTime()) ? null : d.getTime();
+                }
                 if (sortKey === 'watch_date') {
                     const raw = String(it?.latest_watch_date || '').trim();
                     if (!raw) return null;
@@ -2150,6 +2179,7 @@
                     ensureListsSortFilterStateInitialized();
                     const labels = {
                         sortKey: {
+                            rec_added: 'Recommended (newest)',
                             watch_date: 'Watch Date',
                             watch_count: 'Watch Count',
                             overall: 'Overall %',
@@ -2189,6 +2219,12 @@
 
                 const joinRows = Array.isArray(joins) ? joins : [];
                 const movieIds = joinRows.map(r => r?.movie_id).filter(Boolean);
+                // When each movie was added to this list (drives the "Recommended (newest)" sort).
+                const addedAtByMovieId = new Map();
+                for (const j of joinRows) {
+                    const mid = String(j?.movie_id || '').trim();
+                    if (mid && !addedAtByMovieId.has(mid)) addedAtByMovieId.set(mid, j?.created_at || null);
+                }
                 if (movieIds.length === 0) {
                     elItems.innerHTML = `<div class="text-gray">No movies in this list yet.</div>`;
                     try { setListsQuickAddEnabledState(); } catch (_) {}
@@ -2450,6 +2486,7 @@
                 if (elSub) {
                     const labels = {
                         sortKey: {
+                            rec_added: 'Recommended (newest)',
                             watch_date: 'Watch Date',
                             watch_count: 'Watch Count',
                             overall: 'Overall %',
@@ -2477,6 +2514,7 @@
                     const genresArr = listsNormalizeGenresToArray(movie);
                     return {
                         movie_id: String(id),
+                        added_at: addedAtByMovieId.get(String(id)) || null,
                         title: String(movie?.title || '').trim() || 'Untitled',
                         release_year: movie?.release_year ?? null,
                         director: normalizeMovieFieldValue(movie?.director ?? movie?.director_name),

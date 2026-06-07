@@ -332,6 +332,17 @@
         </div>
     </div>
 
+    <!-- User profile overview modal (opened from the Feed) -->
+    <div id="profile-overlay" class="auth-overlay" onclick="if(event.target === this) closeUserProfile();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="profile-title" style="max-width: 760px; width: 100%; max-height: 88vh; overflow-y: auto;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="profile-title">Profile</div>
+                <button class="auth-modal-close" type="button" onclick="closeUserProfile()">Close</button>
+            </div>
+            <div id="profile-body"><div class="text-gray" style="padding:1rem;">Loading…</div></div>
+        </div>
+    </div>
+
     <!-- "Recommended by" list modal (Recs list "+" button) -->
     <div id="rec-by-overlay" class="auth-overlay" onclick="if(event.target === this) closeRecByModal();" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="rec-by-title" style="max-width: 420px;">

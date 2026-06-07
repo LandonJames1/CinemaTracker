@@ -60,6 +60,11 @@
                     return;
                 }
 
+                if (action === 'open_profile') {
+                    if (targetUserId) openUserProfile(targetUserId);
+                    return;
+                }
+
                 if (action === 'open_filter') {
                     await openFeedFilterModal();
                     return;
@@ -1764,6 +1769,240 @@
             setNavBadge('nav-badge-lists', 0);
         }
 
+        // ===== Public profile overview (opened by clicking a user in the Feed) =====
+        // Computes the user's KPIs client-side and reuses the Data Dash card markup +
+        // helpers so the posters/ratings/tiers look IDENTICAL to the dashboard.
+        let profileMode = 'recent'; // 'recent' | 'top'
+        let profileTop5 = [];
+        let profileRecent5 = [];
+
+        async function openUserProfile(userId) {
+            const uid = String(userId || '').trim();
+            if (!uid) return;
+            if (!supabaseClient || !cachedIsAuthed) { openAuthModal(); return; }
+
+            const overlay = document.getElementById('profile-overlay');
+            const body = document.getElementById('profile-body');
+            const titleEl = document.getElementById('profile-title');
+            if (!overlay || !body) return;
+            overlay.style.display = 'flex';
+            overlay.classList.add('open');
+            if (titleEl) titleEl.textContent = 'Profile';
+            body.innerHTML = `<div class="text-gray" style="padding:1rem;">Loading…</div>`;
+            profileMode = 'recent';
+            profileTop5 = [];
+            profileRecent5 = [];
+
+            try {
+                // The user
+                let urow = null;
+                try {
+                    const r1 = await supabaseClient.from('Users').select('id, username, display_name, icon').eq('id', uid).single();
+                    if (r1.error) throw r1.error; urow = r1.data;
+                } catch (e1) {
+                    if (/column\s+"?icon"?\s+does\s+not\s+exist/i.test(String(e1?.message || e1))) {
+                        const r2 = await supabaseClient.from('Users').select('id, username, display_name').eq('id', uid).single();
+                        urow = r2.data;
+                    } else { throw e1; }
+                }
+                const username = String(urow?.username || '').trim();
+                const displayName = String(urow?.display_name || '').trim() || (username ? `@${username}` : 'User');
+                const iconId = String(urow?.icon || '').trim();
+
+                // Their ratings
+                const { data: ratingsData, error: rErr } = await supabaseClient
+                    .from('Movie Ratings')
+                    .select('movie_id, overall_rating, tier, watch_date')
+                    .eq('user_id', uid);
+                if (rErr) throw rErr;
+                const ratings = Array.isArray(ratingsData) ? ratingsData : [];
+
+                const overalls = ratings.map(r => Number(r?.overall_rating)).filter(n => Number.isFinite(n));
+                const avgOverall = overalls.length ? (overalls.reduce((a, b) => a + b, 0) / overalls.length) : null;
+                const ratingByMovieId = new Map(
+                    ratings.map(r => [String(r?.movie_id || '').trim(), r]).filter(e => e[0])
+                );
+
+                // Latest watch date per movie from Watch Logs — this is what "My Movies"
+                // sorts by, so Recent matches the library's recency order exactly.
+                const latestByMovie = new Map();
+                try {
+                    const { data: wlData } = await supabaseClient
+                        .from('Watch Logs').select('movie_id, watch_date').eq('user_id', uid);
+                    for (const w of (Array.isArray(wlData) ? wlData : [])) {
+                        const mid = String(w?.movie_id || '').trim();
+                        const wd = String(w?.watch_date || '').trim();
+                        if (!mid || !wd) continue;
+                        const prev = latestByMovie.get(mid);
+                        if (!prev || wd > prev) latestByMovie.set(mid, wd);
+                    }
+                } catch (_) {}
+
+                const uniqueCount = latestByMovie.size
+                    || new Set(ratings.map(r => String(r?.movie_id || '').trim()).filter(Boolean)).size;
+
+                // Movies (posters/titles/year) for everything rated or watched.
+                const movieIds = Array.from(new Set([
+                    ...ratings.map(r => r?.movie_id),
+                    ...latestByMovie.keys(),
+                ].map(x => String(x || '').trim()).filter(Boolean)));
+                const moviesById = new Map();
+                if (movieIds.length) {
+                    const { data: movies } = await supabaseClient
+                        .from('Movies').select('id, title, release_year, tmdb_id, poster_path').in('id', movieIds);
+                    for (const m of (Array.isArray(movies) ? movies : [])) moviesById.set(String(m.id), m);
+                }
+
+                const toItem = (movieId) => {
+                    const id = String(movieId || '').trim();
+                    const m = moviesById.get(id) || {};
+                    const rr = ratingByMovieId.get(id) || {};
+                    return {
+                        movie_id: id,
+                        title: String(m?.title || '').trim() || 'Untitled',
+                        release_year: m?.release_year ?? null,
+                        tmdb_id: m?.tmdb_id ?? null,
+                        poster_path: String(m?.poster_path || '').trim(),
+                        overall_rating: rr?.overall_rating ?? null,
+                        tier: String(rr?.tier || '').trim(),
+                    };
+                };
+
+                // Top 5 by overall rating.
+                profileTop5 = ratings
+                    .filter(r => Number.isFinite(Number(r?.overall_rating)))
+                    .sort((a, b) => Number(b.overall_rating) - Number(a.overall_rating))
+                    .slice(0, 5)
+                    .map(r => toItem(r.movie_id));
+
+                // 5 most recently watched (latest Watch Log date), matching My Movies order.
+                profileRecent5 = Array.from(latestByMovie.entries())
+                    .sort((a, b) => b[1].localeCompare(a[1]))
+                    .slice(0, 5)
+                    .map(([mid]) => toItem(mid));
+
+                // Highest-rated director (avg overall, min 2 movies, round 1) — matches the dashboard RPC.
+                let highestDirector = '';
+                let highestDirectorAvg = null;
+                try {
+                    if (movieIds.length) {
+                        const { data: crew } = await supabaseClient
+                            .from('Movie Crew').select('movie_id, person_id, job').in('movie_id', movieIds);
+                        const directors = (Array.isArray(crew) ? crew : [])
+                            .filter(c => String(c?.job || '').trim().toLowerCase() === 'director');
+                        const personIds = Array.from(new Set(directors.map(c => c?.person_id).filter(Boolean)));
+                        const nameById = new Map();
+                        if (personIds.length) {
+                            const { data: ppl } = await supabaseClient.from('People').select('id, name').in('id', personIds);
+                            for (const p of (Array.isArray(ppl) ? ppl : [])) nameById.set(String(p.id), String(p?.name || '').trim());
+                        }
+                        const overallByMovie = new Map(
+                            ratings.filter(r => Number.isFinite(Number(r?.overall_rating)))
+                                .map(r => [String(r.movie_id), Number(r.overall_rating)])
+                        );
+                        const agg = new Map(); // name -> { sum, n }
+                        for (const c of directors) {
+                            const mid = String(c?.movie_id || '');
+                            if (!overallByMovie.has(mid)) continue;
+                            const name = nameById.get(String(c?.person_id)) || '';
+                            if (!name) continue;
+                            const cur = agg.get(name) || { sum: 0, n: 0 };
+                            cur.sum += overallByMovie.get(mid); cur.n += 1;
+                            agg.set(name, cur);
+                        }
+                        let best = null;
+                        for (const [name, { sum, n }] of agg) {
+                            if (n < 2) continue;
+                            const avg = sum / n;
+                            if (!best || avg > best.avg || (avg === best.avg && n > best.n)) best = { name, avg, n };
+                        }
+                        if (best) { highestDirector = best.name; highestDirectorAvg = best.avg; }
+                    }
+                } catch (_) {}
+
+                if (titleEl) titleEl.textContent = displayName;
+                body.innerHTML = renderProfileBody({ iconId, displayName, username, uniqueCount, avgOverall, highestDirector, highestDirectorAvg });
+                renderProfileGrid();
+            } catch (err) {
+                body.innerHTML = `<div class="text-gray" style="padding:1rem;">Could not load profile: ${escapeHtml(String(err?.message || err))}</div>`;
+            }
+        }
+
+        function renderProfileBody({ iconId, displayName, username, uniqueCount, avgOverall, highestDirector, highestDirectorAvg }) {
+            const avgText = (avgOverall === null) ? '—' : dashFormatScore(avgOverall);
+            const dirText = highestDirector
+                ? `${escapeHtml(highestDirector)}${highestDirectorAvg !== null ? ` (${dashFormatScore(highestDirectorAvg)})` : ''}`
+                : '—';
+            return `
+                <div class="profile-head">
+                    ${renderUserIconHtml(iconId, 64)}
+                    <div style="min-width:0;">
+                        <div class="profile-name">${escapeHtml(displayName)}</div>
+                        ${username ? `<div class="text-xs text-gray">@${escapeHtml(username)}</div>` : ''}
+                    </div>
+                </div>
+                <div class="profile-kpis">
+                    <div class="profile-kpi"><div class="profile-kpi-value tabular-nums">${uniqueCount}</div><div class="profile-kpi-label">Movies Watched</div></div>
+                    <div class="profile-kpi"><div class="profile-kpi-value tabular-nums">${avgText}</div><div class="profile-kpi-label">Avg Overall</div></div>
+                    <div class="profile-kpi"><div class="profile-kpi-value" style="font-size:0.95rem;">${dirText}</div><div class="profile-kpi-label">Highest-Rated Director</div></div>
+                </div>
+                <div class="profile-toggle">
+                    <button type="button" class="nav-link profile-toggle-btn" data-profile-mode="recent" onclick="setProfileMode('recent')">Recent</button>
+                    <button type="button" class="nav-link profile-toggle-btn" data-profile-mode="top" onclick="setProfileMode('top')">Top Rated</button>
+                </div>
+                <div id="profile-grid"></div>
+            `;
+        }
+
+        function renderProfileMovieCard(it) {
+            const title = String(it?.title || '').trim() || 'Untitled';
+            const year = (it?.release_year === null || it?.release_year === undefined) ? '' : String(it.release_year);
+            const tmdb_id = Number(it?.tmdb_id);
+            const poster_path = dashNormalizePosterPath(String(it?.poster_path || '').trim() || (Number.isFinite(tmdb_id) ? (dashPosterCacheByTmdbId.get(tmdb_id) || '') : ''));
+            const posterUrl = dashBuildPosterUrl(poster_path, 'w342');
+            const metricText = dashFormatScore(it?.overall_rating);
+            const tierLabel = dashNormalizeTierLabel(it?.tier);
+            const metaHtml = dashJoinHelpParts([
+                year ? escapeHtml(year) : '',
+                metricText ? `${dashRenderHelpScore(metricText)} Overall` : '',
+                tierLabel ? dashRenderHelpTier(tierLabel) : '',
+            ]);
+            return `
+                <div style="display:flex; flex-direction: column; gap: 8px;">
+                    <div style="width: 100%; aspect-ratio: 2/3; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.06);">
+                        ${posterUrl
+                            ? `<img src="${posterUrl}" loading="lazy" decoding="async" alt="${escapeHtml(title)}" style="width: 100%; height: 100%; object-fit: cover; display:block;">`
+                            : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size: 12px;">No poster</div>`
+                        }
+                    </div>
+                    <div class="text-sm text-white" style="font-weight: 700; line-height: 1.2;">${escapeHtml(title)}</div>
+                    <div class="text-xs text-gray tabular-nums">${metaHtml}</div>
+                </div>
+            `;
+        }
+
+        function renderProfileGrid() {
+            const grid = document.getElementById('profile-grid');
+            if (!grid) return;
+            document.querySelectorAll('.profile-toggle-btn').forEach(b => {
+                b.classList.toggle('active', String(b.dataset.profileMode || '') === profileMode);
+            });
+            const items = profileMode === 'top' ? profileTop5 : profileRecent5;
+            grid.innerHTML = items.length
+                ? `<div class="dash-fav-grid">${items.map(renderProfileMovieCard).join('')}</div>`
+                : `<div class="text-gray" style="padding:0.5rem;">No rated movies yet.</div>`;
+        }
+
+        function setProfileMode(mode) {
+            profileMode = (mode === 'top') ? 'top' : 'recent';
+            renderProfileGrid();
+        }
+
+        function closeUserProfile() {
+            const overlay = document.getElementById('profile-overlay');
+            if (overlay) { overlay.style.display = 'none'; overlay.classList.remove('open'); }
+        }
+
         const FEED_FILTER_EXCLUDED_KEY = 'ct_feed_excluded_user_ids';
         const FEED_FILTER_COMPARE_OWN_KEY = 'ct_feed_compare_own';
 
@@ -1982,7 +2221,7 @@
                 const iconId = String(u?.icon || '').trim();
                 return `
                     <div class="glass-panel" style="padding: 0.75rem; border-radius: 0.9rem; display:flex; align-items:center; justify-content: space-between; gap: 10px;">
-                        <div style="min-width:0; display:flex; gap: 10px; align-items: center;">
+                        <div style="min-width:0; display:flex; gap: 10px; align-items: center; cursor:pointer;" data-feed-action="open_profile" data-feed-user-id="${escapeHtml(id)}" role="button" tabindex="0" title="View ${escapeHtml(username || 'profile')}">
                             ${renderUserIconHtml(iconId, 28)}
                             <div style="min-width:0;">
                                 <div class="text-white font-semibold" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(name)}</div>
@@ -2287,7 +2526,7 @@
                                 ${watched ? `<div class="text-xs" style="margin-top: 0.25rem; color: rgba(255,255,255,0.55);">Watched: ${escapeHtml(watched)}</div>` : ''}
                             </div>
 
-                            <div class="feed-card-actor" title="${escapeHtml(actorUsernameRaw || '')}">
+                            <div class="feed-card-actor" title="View ${escapeHtml(actorUsernameRaw || 'profile')}" data-feed-action="open_profile" data-feed-user-id="${escapeHtml(actorId)}" role="button" tabindex="0" style="cursor:pointer;">
                                 ${renderUserIconHtml(actorIconId, 52)}
                                 <span class="feed-card-actor-name">${(authedUserId && actorId === authedUserId) ? 'You' : escapeHtml(actorUsername)}</span>
                             </div>

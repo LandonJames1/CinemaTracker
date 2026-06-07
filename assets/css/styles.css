@@ -243,6 +243,59 @@
             box-shadow: 0 0 0 2px var(--brand, #14b8a6), 0 0 16px color-mix(in srgb, var(--brand) 40%, transparent);
             border-radius: 1rem;
         }
+        /* User profile overview modal */
+        .profile-head {
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+            margin-top: 0.85rem;
+        }
+        .profile-name {
+            color: #fff;
+            font-weight: 800;
+            font-size: 1.15rem;
+            line-height: 1.2;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .profile-kpis {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 1rem;
+        }
+        .profile-kpi {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 0.85rem;
+            padding: 0.7rem 0.6rem;
+            text-align: center;
+            min-width: 0;
+        }
+        .profile-kpi-value {
+            color: #fff;
+            font-weight: 800;
+            font-size: 1.4rem;
+            line-height: 1.15;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .profile-kpi-label {
+            color: var(--text-muted, #a1a1aa);
+            font-size: 0.72rem;
+            font-weight: 600;
+            margin-top: 0.25rem;
+        }
+        .profile-toggle {
+            display: flex;
+            gap: 8px;
+            margin: 1.1rem 0 0.85rem;
+        }
+        .profile-toggle-btn { font-size: 0.85rem; padding: 0.4rem 0.9rem; }
+        @media (max-width: 520px) {
+            .profile-kpis { grid-template-columns: 1fr; }
+        }
         .nav-link:hover {
             color: #fff;
             background: rgba(255,255,255,0.07);
