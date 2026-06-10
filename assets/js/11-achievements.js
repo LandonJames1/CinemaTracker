@@ -3,6 +3,9 @@
         let watchMethodPendingSelection = null;
         let priorWatchesChoiceResolver = null;
         let priorWatchesPendingCount = 0;
+        let watchDetailsResolver = null;
+        let watchDetailsPendingMethod = null;
+        let watchDetailsPendingBefore = null; // true | false | null (unset)
 
         let ratingsSuccessTimer = null;
         let achievementPopupQueue = [];

@@ -1117,10 +1117,10 @@
                                 </div>
 
                                 <div class="grid md-row gap-6 mb-6" style="margin-top: 0px;">
-                                    <div style="flex:1;">
+                                    ${isUpdate ? `<div style="flex:1;">
                                         <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Date Watched</label>
-                                        <input id="fld-datewatch" name="Date Watch" type="date" class="input-field ${isUpdate ? 'input-readonly' : ''}" value="${u.date}" ${isUpdate ? 'readonly title="Locked while updating"' : ''} onclick="openDatePickerFromInput(this)" onfocus="openDatePickerFromInput(this)" required>
-                                    </div>
+                                        <input id="fld-datewatch" name="Date Watch" type="date" class="input-field input-readonly" value="${u.date}" readonly title="Locked while updating" onclick="openDatePickerFromInput(this)" onfocus="openDatePickerFromInput(this)" required>
+                                    </div>` : ''}
                                     <div style="flex:1;">
                                         <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Tier List</label>
                                         <input type="hidden" id="fld-tier" name="Tier List" value="${(['S','A','B','C','D','F'].includes(tierLetter) ? `${tierLetter}-Tier` : String(u.tier || ''))}">
@@ -1174,7 +1174,7 @@
                                         <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Notes / Review</label>
                                         <textarea id="fld-notes" name="Notes" class="textarea-field" rows="4" placeholder="Review...">${u.notes}</textarea>
                                     </div>
-                                        <div class="grid grid-2 gap-6">
+                                        ${isUpdate ? `<div class="grid grid-2 gap-6">
                                             <div class="flex items-center justify-start" style="gap: 25px;">
                                                 <span class="text-sm text-white font-bold label-gap capitalize">Times Watched</span>
                                                 <input id="fld-timeswatch" name="Times Watch" type="number" min="1" value="${u.watched}" class="input-field text-center ${timesWatchedLocked ? 'input-readonly' : ''}" style="width: 100px; height: 42px;" ${timesWatchedLocked ? 'readonly' : ''}>
@@ -1192,7 +1192,7 @@
                                                 </button>
                                                 <input type="hidden" id="fld-watchmethod" name="Watch Method" value="${String(u.watch_method || 'At Home').toLowerCase().includes('theater') ? 'In Theater' : 'At Home'}">
                                             </div>
-                                        </div>
+                                        </div>` : ''}
                                 </div>
 
                                 <div class="flex" style="border-top: 1px solid rgba(255,255,255,0.05); margin-top: 15px; padding-top: 15px; justify-content: ${isUpdate ? 'space-between' : 'center'}; gap: 10px; flex-wrap: wrap;">
@@ -1510,6 +1510,10 @@
 
                                     <div id="feed-list" style="margin-top: 0.9rem; display: grid; gap: 12px;"></div>
                                 </div>
+
+                                <button id="feed-jump-new-btn" type="button" class="feed-jump-new-btn" onclick="jumpToNewFeed()" aria-label="Jump to new entries">
+                                    <span>↓ Jump to New</span>
+                                </button>
 
                                 <div class="glass-panel" style="padding: 1rem; border-radius: 1rem;">
                                     <div class="text-white font-bold">Follow People</div>

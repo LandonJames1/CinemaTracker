@@ -46,6 +46,7 @@
         let recPendingMovie = null;      // { db_movie_id, title, year, tmdb_id, accessToken, user_id }
         let recSelectedUserIds = new Set();
         let recRecipientsCache = [];     // [{ id, username, display_name, icon }] of people you follow
+        let recSeenInfoByUserId = new Map(); // user_id -> their Movie Ratings row for the pending movie (already seen it)
         let recBound = false;
         let recSending = false;
 
@@ -155,12 +156,68 @@
             if (overlay) { overlay.style.display = 'none'; overlay.classList.remove('open'); }
             recPendingMovie = null;
             recSelectedUserIds = new Set();
+            recSeenInfoByUserId = new Map();
             recSending = false;
+        }
+
+        // Shows a follower's existing review of the pending movie (opened from the
+        // "View review" link next to a greyed-out, already-seen recipient).
+        function openRecReviewModal(userId) {
+            const uid = String(userId || '').trim();
+            const row = recSeenInfoByUserId.get(uid) || null;
+            const u = recRecipientsCache.find(x => String(x?.id) === uid) || null;
+
+            const overlay = document.getElementById('rec-review-overlay');
+            const titleEl = document.getElementById('rec-review-title');
+            const bodyEl = document.getElementById('rec-review-body');
+            if (!overlay || !bodyEl) return;
+
+            if (!row) {
+                if (titleEl) titleEl.textContent = 'Review';
+                bodyEl.innerHTML = `<div class="text-gray" style="padding:0.6rem;">No review found.</div>`;
+            } else {
+                const username = String(u?.username || '').trim();
+                const name = String(u?.display_name || '').trim() || (username ? `@${username}` : 'User');
+                const movieTitle = String(recPendingMovie?.title || 'this movie').trim();
+                const overall = dashFormatScoreWhole(row?.overall_rating);
+                const tierLabel = dashNormalizeTierLabel(row?.tier);
+                const watched = String(row?.watch_date || '').trim();
+                const quote = String(row?.fav_quote || '').trim();
+                const notes = String(row?.notes || '').trim();
+                const subs = [
+                    { k: 'Sound', v: dashFormatScoreWhole(row?.sound_rating) },
+                    { k: 'Pace', v: dashFormatScoreWhole(row?.pacing_rating) },
+                    { k: 'Imagery', v: dashFormatScoreWhole(row?.imagery_rating) },
+                    { k: 'Acting', v: dashFormatScoreWhole(row?.acting_rating) },
+                    { k: 'Plot', v: dashFormatScoreWhole(row?.plot_rating) },
+                    { k: 'Dialogue', v: dashFormatScoreWhole(row?.dialogue_rating) },
+                ].filter(x => String(x.v || '').trim());
+
+                if (titleEl) titleEl.textContent = `${name} · ${movieTitle}`;
+                bodyEl.innerHTML = `
+                    ${(overall || tierLabel)
+                        ? `<div class="feed-metrics" style="margin-bottom: 0.5rem;">${overall ? dashRenderHelpScore(overall) : ''}${tierLabel ? dashRenderHelpTier(tierLabel) : ''}</div>`
+                        : `<div class="text-xs text-gray">No rating recorded.</div>`}
+                    ${watched ? `<div class="text-xs" style="color: rgba(255,255,255,0.55); margin-bottom: 0.5rem;">Watched: ${escapeHtml(watched)}</div>` : ''}
+                    ${subs.length ? `<div class="library-chip-row" style="margin-top: 0.4rem;">${subs.map(d => `<span class="dash-quote-pill">${escapeHtml(d.k)}: ${escapeHtml(d.v)}</span>`).join('')}</div>` : ''}
+                    ${quote ? `<div style="margin-top: 0.75rem;"><div class="text-xs text-gray" style="margin-bottom: 0.25rem;">Favorite Quote</div><div class="text-white" style="line-height: 1.4;">${escapeHtml(quote)}</div></div>` : ''}
+                    ${notes ? `<div style="margin-top: 0.75rem;"><div class="text-xs text-gray" style="margin-bottom: 0.25rem;">Notes</div><div class="text-white" style="line-height: 1.4; white-space: pre-wrap;">${escapeHtml(notes)}</div></div>` : ''}
+                `;
+            }
+
+            overlay.style.display = 'flex';
+            overlay.classList.add('open');
+        }
+
+        function closeRecReviewModal() {
+            const overlay = document.getElementById('rec-review-overlay');
+            if (overlay) { overlay.style.display = 'none'; overlay.classList.remove('open'); }
         }
 
         async function loadRecRecipients() {
             const uid = String(recPendingMovie?.user_id || '').trim();
             recRecipientsCache = [];
+            recSeenInfoByUserId = new Map();
             if (!uid) return;
 
             const { data: f, error: fErr } = await supabaseClient
@@ -181,6 +238,34 @@
                 } else { throw e1; }
             }
             recRecipientsCache = Array.isArray(data) ? data : [];
+
+            // Best-effort: figure out which of these followers have already SEEN
+            // (rated/reviewed) this movie, so we can grey them out and link to their
+            // review. Resolve a read-only movie id first (don't create the movie here).
+            try {
+                let movieId = isUuidLike(recPendingMovie?.db_movie_id) ? String(recPendingMovie.db_movie_id).trim() : null;
+                if (!movieId && Number.isFinite(Number(recPendingMovie?.tmdb_id)) && Number(recPendingMovie.tmdb_id) > 0) {
+                    const mapped = await getDbMovieIdByTmdbId(Number(recPendingMovie.tmdb_id));
+                    if (isUuidLike(mapped)) movieId = String(mapped).trim();
+                }
+                recPendingMovie.resolved_movie_id = movieId || null;
+
+                if (movieId) {
+                    const { data: ratings, error: rErr } = await supabaseClient
+                        .from('Movie Ratings')
+                        .select('user_id, overall_rating, tier, watch_date, fav_quote, notes, sound_rating, pacing_rating, imagery_rating, acting_rating, plot_rating, dialogue_rating')
+                        .eq('movie_id', movieId)
+                        .in('user_id', ids);
+                    if (!rErr && Array.isArray(ratings)) {
+                        for (const row of ratings) {
+                            const ruid = String(row?.user_id || '').trim();
+                            if (ruid) recSeenInfoByUserId.set(ruid, row);
+                        }
+                    }
+                }
+            } catch (_) {
+                // If the seen-lookup fails, fall back to no grey-out (send-time still blocks).
+            }
         }
 
         function renderRecModalList() {
@@ -210,6 +295,23 @@
                 const username = String(u?.username || '').trim();
                 const name = String(u?.display_name || '').trim() || (username ? `@${username}` : 'User');
                 const iconId = String(u?.icon || '').trim();
+
+                // Already saw this movie → not selectable; link to their review instead.
+                if (recSeenInfoByUserId.has(id)) {
+                    recSelectedUserIds.delete(id);
+                    return `
+                        <div class="feed-filter-user-row" style="opacity: 0.6;">
+                            <input type="checkbox" class="feed-filter-cb" disabled title="Already seen this movie">
+                            ${renderUserIconHtml(iconId, 26)}
+                            <div style="min-width:0; flex:1;">
+                                <div class="feed-filter-user-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(name)}</div>
+                                <div class="text-xs" style="color: rgba(255,255,255,0.55);">Already seen this${username ? ` · @${escapeHtml(username)}` : ''}</div>
+                            </div>
+                            <button type="button" class="btn btn-outline" style="padding: 0.3rem 0.6rem; border-radius: 0.6rem; font-size: 0.78rem; white-space: nowrap;" onclick="openRecReviewModal('${escapeHtml(id)}')">View review</button>
+                        </div>
+                    `;
+                }
+
                 const checked = recSelectedUserIds.has(id);
                 return `
                     <label class="feed-filter-user-row">
@@ -2147,7 +2249,10 @@
                 }
 
                 if (!listsActiveListId) {
-                    listsActiveListId = cachedBucketListId || (lists[0]?.id || null);
+                    // Default to the "Recs" list when nothing is selected yet.
+                    const recsList = lists.find(l =>
+                        String(l?.list_name || '').trim().toLowerCase() === 'recs');
+                    listsActiveListId = (recsList?.id) || cachedBucketListId || (lists[0]?.id || null);
                 }
 
                 const active = lists.find(l => String(l?.id || '') === String(listsActiveListId || '')) || null;

@@ -70,7 +70,15 @@
                 if (signupBtn) { signupBtn.disabled = true; signupBtn.textContent = 'Creating…'; }
                 if (statusEl) { statusEl.textContent = 'Creating account…'; statusEl.style.color = 'var(--text-muted)'; }
 
-                // 1) Check username availability first
+                // 1) Re-check the admin sign-up gate against the live DB value (not a
+                //    possibly-stale page-load cache). The DB trigger enforces this too,
+                //    but checking here gives a clear message instead of a generic error.
+                await loadSiteSignupSetting();
+                if (!siteSignupEnabled) {
+                    throw new Error('Sign-ups are currently disabled. Please check back later.');
+                }
+
+                // 2) Check username availability.
                 const { data: existingUser, error: checkErr } = await supabaseClient
                     .from('Users')
                     .select('id')
@@ -80,69 +88,54 @@
                     throw new Error('That username is already taken.');
                 }
 
-                // 2) Create Supabase auth account
+                // 3) Create the auth account. The username/display_name + a self_signup
+                //    flag ride along as auth metadata so the server-side trigger
+                //    handle_new_auth_user() (signup_system.sql) can fully provision the
+                //    account: it creates the public."Users" row, the "Bucket List", and
+                //    the "Recs" list — all server-side, so it works regardless of RLS,
+                //    client auth timing, or the email-confirmation setting. No client-side
+                //    table writes are needed here.
                 const { data: signUpData, error: signUpError } = await supabaseClient.auth.signUp({
                     email,
                     password,
+                    options: { data: { username, display_name: displayName || null, self_signup: 'true' } },
                 });
                 if (signUpError) throw signUpError;
 
                 const newUser = signUpData?.user;
                 if (!newUser?.id) throw new Error('Sign-up succeeded but no user ID returned.');
 
-                // Check if email confirmation is required
-                const needsConfirmation = signUpData?.user?.identities?.length === 0
-                    || signUpData?.session === null;
-
-                if (needsConfirmation) {
-                    // Email confirmation required — we can still try to create the Users row
-                    // but the user won't have a session yet. Show a message.
-                    if (statusEl) {
-                        statusEl.textContent = 'Check your email to confirm your account, then log in.';
-                        statusEl.style.color = 'rgba(74, 222, 128, 0.95)';
-                    }
-                    showToast('Account created! Check your email to confirm, then log in.');
-                    // Try to insert Users row (may fail if RLS requires auth)
-                    try {
-                        await supabaseClient.from('Users').upsert({
-                            id: newUser.id,
-                            username: username,
-                            display_name: displayName || null,
-                            privacy_level: 'public',
-                        }, { onConflict: 'id' });
-                    } catch (_) { /* Will be created when they first log in if needed */ }
-
-                    // Clear password fields
-                    const pwdEl = document.getElementById('auth-password');
-                    const pwdConfEl = document.getElementById('auth-password-confirm');
-                    if (pwdEl) pwdEl.value = '';
-                    if (pwdConfEl) pwdConfEl.value = '';
-
-                    // Switch back to login mode so they can log in after confirming
-                    setAuthMode('login');
-                    return;
-                }
-
-                // 3) No confirmation needed — user has a session. Create Users row.
-                await supabaseClient.from('Users').upsert({
-                    id: newUser.id,
-                    username: username,
-                    display_name: displayName || null,
-                    privacy_level: 'public',
-                }, { onConflict: 'id' });
-
-                // Clear password fields
+                // Clear password fields.
                 const pwdEl = document.getElementById('auth-password');
                 const pwdConfEl = document.getElementById('auth-password-confirm');
                 if (pwdEl) pwdEl.value = '';
                 if (pwdConfEl) pwdConfEl.value = '';
 
-                // Hard reload to initialize all user data fresh
+                // If email confirmation is ON, there's no session yet — the account is
+                // already fully provisioned server-side, so just send them to log in.
+                const needsConfirmation = signUpData?.user?.identities?.length === 0
+                    || signUpData?.session === null;
+                if (needsConfirmation) {
+                    if (statusEl) {
+                        statusEl.textContent = 'Check your email to confirm your account, then log in.';
+                        statusEl.style.color = 'rgba(74, 222, 128, 0.95)';
+                    }
+                    showToast('Account created! Check your email to confirm, then log in.');
+                    setAuthMode('login');
+                    return;
+                }
+
+                // Confirmation OFF: the user has a session now. Hard reload so the app
+                // initializes fresh with the fully provisioned profile + lists.
                 window.location.href = window.location.pathname;
             } catch (err) {
                 const msg = String(err?.message || err);
                 if (statusEl) {
-                    statusEl.textContent = msg;
+                    // The DB gate raises a generic "Database error saving new user";
+                    // translate that to the real cause for the user.
+                    statusEl.textContent = /database error saving new user/i.test(msg)
+                        ? 'Sign-ups are currently disabled. Please check back later.'
+                        : msg;
                     statusEl.style.color = 'rgba(239,68,68,0.95)';
                 }
             } finally {

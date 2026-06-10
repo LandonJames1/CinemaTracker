@@ -492,43 +492,160 @@
             });
         }
 
-        function openPriorWatchesModal(count) {
-            priorWatchesPendingCount = Math.max(0, Math.floor(Number(count || 0)));
+        // ---- Watch Details (Modal 1 of the new-entry save flow) -----------------
+        // Asks: When did you watch? / Where did you watch? / Have you watched before?
+        function openWatchDetailsModal() {
+            const overlay = document.getElementById('watch-details-overlay');
+            if (!overlay) return;
+
+            // Reset state every open so nothing carries over between saves.
+            watchDetailsPendingMethod = null;
+            watchDetailsPendingBefore = null;
+
+            const dateEl = document.getElementById('watch-details-date');
+            if (dateEl) dateEl.value = getLocalISODate();
+
+            overlay.querySelectorAll('[data-wd-method-option]').forEach((b) => setModalOptionSelected(b, false));
+            overlay.querySelectorAll('[data-wd-before-option]').forEach((b) => setModalOptionSelected(b, false));
+
+            overlay.style.display = 'flex';
+            overlay.classList.add('open');
+        }
+
+        function setModalOptionSelected(btn, isSelected) {
+            if (!btn) return;
+            btn.classList.toggle('selected', !!isSelected);
+            btn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+        }
+
+        function selectWatchDetailsMethod(method) {
+            watchDetailsPendingMethod = String(method || '').trim() || null;
+            const overlay = document.getElementById('watch-details-overlay');
+            if (!overlay) return;
+            overlay.querySelectorAll('[data-wd-method-option]').forEach((b) => {
+                setModalOptionSelected(b, b.getAttribute('data-wd-method-option') === watchDetailsPendingMethod);
+            });
+        }
+
+        function selectWatchDetailsBefore(before) {
+            watchDetailsPendingBefore = !!before;
+            const overlay = document.getElementById('watch-details-overlay');
+            if (!overlay) return;
+            const want = before ? 'yes' : 'no';
+            overlay.querySelectorAll('[data-wd-before-option]').forEach((b) => {
+                setModalOptionSelected(b, b.getAttribute('data-wd-before-option') === want);
+            });
+        }
+
+        function submitWatchDetailsModal() {
+            const dateEl = document.getElementById('watch-details-date');
+            const watch_date = String(dateEl?.value || '').trim();
+            if (!watch_date) {
+                showToast('Please pick when you watched it.', { level: 'warn' });
+                try { dateEl?.focus?.(); } catch (_) {}
+                return;
+            }
+            if (!watchDetailsPendingMethod) {
+                showToast('Please choose where you watched it.', { level: 'warn' });
+                return;
+            }
+            if (watchDetailsPendingBefore === null) {
+                showToast('Please answer whether you\'ve watched this before.', { level: 'warn' });
+                return;
+            }
+            closeWatchDetailsModal({
+                watch_date,
+                watch_method: watchDetailsPendingMethod,
+                watched_before: watchDetailsPendingBefore,
+            });
+        }
+
+        function closeWatchDetailsModal(result) {
+            const overlay = document.getElementById('watch-details-overlay');
+            if (overlay) {
+                overlay.classList.remove('open');
+                overlay.style.display = 'none';
+            }
+            try {
+                if (typeof watchDetailsResolver === 'function') {
+                    const resolve = watchDetailsResolver;
+                    watchDetailsResolver = null;
+                    resolve(result);
+                }
+            } catch (_) {
+                watchDetailsResolver = null;
+            }
+        }
+
+        function promptWatchDetails() {
+            // Returns: { watch_date, watch_method, watched_before: boolean } | null (canceled)
+            return new Promise((resolve) => {
+                watchDetailsResolver = resolve;
+                openWatchDetailsModal();
+            });
+        }
+
+        function openPriorWatchesModal() {
             const overlay = document.getElementById('prior-watches-overlay');
             const msg = document.getElementById('prior-watches-message');
-            const fields = document.getElementById('prior-watches-fields');
-            if (!overlay || !fields) return;
+            const countEl = document.getElementById('prior-watches-count');
+            if (!overlay) return;
 
             if (msg) {
-                msg.textContent = `It looks like you've seen this movie multiple times; please tell us about the first ${priorWatchesPendingCount} time${priorWatchesPendingCount === 1 ? '' : 's'} you've seen this movie.`;
+                msg.textContent = "Tell us about the times you watched this before. Set how many previous watches to add, then fill in each one.";
+            }
+
+            // Reset the count input to 1 and render its rows.
+            if (countEl) countEl.value = '1';
+            renderPriorWatchesRows(1);
+
+            overlay.style.display = 'flex';
+            overlay.classList.add('open');
+        }
+
+        // Renders `n` date+method rows, preserving any values already entered so
+        // changing the count doesn't wipe what the user typed.
+        function renderPriorWatchesRows(count) {
+            const fields = document.getElementById('prior-watches-fields');
+            if (!fields) return;
+
+            const n = Math.max(1, Math.min(100, Math.floor(Number(count) || 1)));
+            priorWatchesPendingCount = n;
+
+            // Snapshot existing values before re-rendering.
+            const prev = [];
+            for (let i = 1; i <= 100; i++) {
+                const d = document.getElementById(`prior-watch-date-${i}`);
+                const m = document.getElementById(`prior-watch-method-${i}`);
+                if (!d && !m) break;
+                prev[i] = { date: d?.value || '', method: m?.value || '' };
             }
 
             const today = getLocalISODate();
-            fields.innerHTML = Array.from({ length: priorWatchesPendingCount }).map((_, i) => {
-                const n = i + 1;
+            fields.innerHTML = Array.from({ length: n }).map((_, i) => {
+                const num = i + 1;
+                const pd = prev[num]?.date || '';
+                const pm = prev[num]?.method || '';
                 return `
                     <div style="border: 1px solid rgba(255,255,255,0.08); border-radius: 0.75rem; padding: 0.85rem; background: rgba(255,255,255,0.03);">
-                        <div class="text-sm text-white font-semibold" style="margin-bottom: 0.5rem;">Previous viewing #${n}</div>
+                        <div class="text-sm text-white font-semibold" style="margin-bottom: 0.5rem;">Previous viewing #${num}</div>
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
                             <div>
                                 <label class="text-xs text-gray" style="display:block; margin-bottom: 0.35rem;">Date</label>
-                                <input id="prior-watch-date-${n}" type="date" class="input-field" max="${today}" onclick="openDatePickerFromInput(this)" onfocus="openDatePickerFromInput(this)" required>
+                                <input id="prior-watch-date-${num}" type="date" class="input-field" max="${today}" value="${pd}" onclick="openDatePickerFromInput(this)" onfocus="openDatePickerFromInput(this)" required>
                             </div>
                             <div>
                                 <label class="text-xs text-gray" style="display:block; margin-bottom: 0.35rem;">Watch Method</label>
-                                <select id="prior-watch-method-${n}" class="input-field" required>
-                                    <option value="" disabled selected>Select...</option>
-                                    <option value="At Home">At Home</option>
-                                    <option value="In Theater">In Theater</option>
+                                <select id="prior-watch-method-${num}" class="input-field" required>
+                                    <option value="" disabled ${pm ? '' : 'selected'}>Select...</option>
+                                    <option value="At Home" ${pm === 'At Home' ? 'selected' : ''}>At Home</option>
+                                    <option value="In Theater" ${pm === 'In Theater' ? 'selected' : ''}>In Theater</option>
                                 </select>
                             </div>
                         </div>
                     </div>
                 `;
             }).join('');
-
-            overlay.style.display = 'flex';
-            overlay.classList.add('open');
         }
 
         function closePriorWatchesModal(result) {
@@ -550,6 +667,11 @@
         }
 
         function submitPriorWatchesModal() {
+            // Use the live count from the input (defensive: re-sync the rendered rows).
+            const countEl = document.getElementById('prior-watches-count');
+            const wanted = Math.max(1, Math.min(100, Math.floor(Number(countEl?.value) || priorWatchesPendingCount || 1)));
+            if (wanted !== priorWatchesPendingCount) renderPriorWatchesRows(wanted);
+
             const entries = [];
             for (let i = 1; i <= priorWatchesPendingCount; i++) {
                 const dateEl = document.getElementById(`prior-watch-date-${i}`);
@@ -572,11 +694,12 @@
             closePriorWatchesModal({ entries });
         }
 
-        function promptPriorWatches(count) {
-            // Returns: { entries: Array<{watch_date, watch_method}> }
+        function promptPriorWatches() {
+            // The user sets how many previous watches inside the modal itself.
+            // Returns: { entries: Array<{watch_date, watch_method}> } | null (canceled)
             return new Promise((resolve) => {
                 priorWatchesChoiceResolver = resolve;
-                openPriorWatchesModal(count);
+                openPriorWatchesModal();
             });
         }
 

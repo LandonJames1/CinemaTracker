@@ -285,24 +285,41 @@
                 <div class="auth-modal-title" id="feed-filter-title">Filter Feed</div>
                 <button class="auth-modal-close" type="button" onclick="closeFeedFilterModal()">Close</button>
             </div>
-            <div class="text-xs text-gray" style="margin-top: 0.25rem;">Choose whose entries appear in your feed.</div>
+            <div class="text-xs text-gray" style="margin-top: 0.25rem;">Choose what appears in your feed.</div>
 
-            <label class="feed-filter-own-row">
-                <input type="checkbox" id="feed-filter-compare-own" class="feed-filter-cb">
-                <span class="text-white font-semibold">Include my own movies (Compare Own)</span>
-            </label>
-
-            <input id="feed-filter-search" type="text" class="input-field" placeholder="Search people you follow…" autocomplete="off" style="margin-top: 0.85rem;">
-
-            <div style="display:flex; gap: 8px; margin-top: 0.6rem;">
-                <button type="button" class="btn btn-outline" data-feed-action="filter_select_all" style="padding: 0.4rem 0.7rem; border-radius: 0.7rem; font-size: 0.85rem;">Select all</button>
-                <button type="button" class="btn btn-outline" data-feed-action="filter_select_none" style="padding: 0.4rem 0.7rem; border-radius: 0.7rem; font-size: 0.85rem;">Select none</button>
+            <div class="feed-filter-section-label">Display options</div>
+            <div class="feed-filter-options">
+                <label class="feed-filter-toggle">
+                    <input type="checkbox" id="feed-filter-compare-own" class="feed-filter-cb">
+                    <span class="feed-filter-toggle-text">
+                        <span class="feed-filter-toggle-title">Include my own movies</span>
+                        <span class="feed-filter-toggle-sub">Show your entries alongside the people you follow.</span>
+                    </span>
+                </label>
+                <label class="feed-filter-toggle">
+                    <input type="checkbox" id="feed-filter-in-common" class="feed-filter-cb">
+                    <span class="feed-filter-toggle-text">
+                        <span class="feed-filter-toggle-title">Only movies in common</span>
+                        <span class="feed-filter-toggle-sub">Keep only movies that 2+ of the selected people watched.</span>
+                    </span>
+                </label>
             </div>
+
+            <div class="feed-filter-section-row">
+                <span class="feed-filter-section-label" style="margin:0;">People you follow</span>
+                <span class="feed-filter-bulk">
+                    <button type="button" class="feed-filter-link" data-feed-action="filter_select_all">Select all</button>
+                    <span class="feed-filter-dot">·</span>
+                    <button type="button" class="feed-filter-link" data-feed-action="filter_select_none">Select none</button>
+                </span>
+            </div>
+
+            <input id="feed-filter-search" type="text" class="input-field" placeholder="Search people you follow…" autocomplete="off" style="margin-top: 0.5rem;">
 
             <div id="feed-filter-list" class="feed-filter-list"></div>
 
-            <div style="display:flex; justify-content: flex-end; gap: 8px; margin-top: 0.85rem;">
-                <button type="button" class="btn btn-primary" data-feed-action="filter_apply" style="padding: 0.55rem 1rem; border-radius: 0.8rem;">Apply</button>
+            <div style="display:flex; justify-content: flex-end; gap: 8px; margin-top: 1rem;">
+                <button type="button" class="btn btn-primary" data-feed-action="filter_apply" style="padding: 0.55rem 1.25rem; border-radius: 0.8rem;">Apply</button>
             </div>
         </div>
     </div>
@@ -329,6 +346,17 @@
             <div style="display:flex; justify-content: flex-end; gap: 8px; margin-top: 0.85rem;">
                 <button id="rec-modal-send" type="button" class="btn btn-primary" data-rec-action="send" style="padding: 0.55rem 1rem; border-radius: 0.8rem;">Send Rec</button>
             </div>
+        </div>
+    </div>
+
+    <!-- A follower's existing review of a movie (opened from "View review" in the Recommend modal) -->
+    <div id="rec-review-overlay" class="auth-overlay" onclick="if(event.target === this) closeRecReviewModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="rec-review-title" style="max-width: 480px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="rec-review-title">Review</div>
+                <button class="auth-modal-close" type="button" onclick="closeRecReviewModal()">Close</button>
+            </div>
+            <div id="rec-review-body" style="margin-top: 0.6rem;"></div>
         </div>
     </div>
 
@@ -793,6 +821,41 @@
         </div>
     </div>
 
+    <!-- Watch Details (shown after a valid "Save to Diary" on a NEW entry) -->
+    <div id="watch-details-overlay" class="auth-overlay" onclick="if(event.target === this) closeWatchDetailsModal(null);" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="watch-details-title">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="watch-details-title">Watch Details</div>
+                <button class="auth-modal-close" type="button" onclick="closeWatchDetailsModal(null)">Close</button>
+            </div>
+
+            <div style="margin-top: 0.85rem;">
+                <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">When did you watch?</label>
+                <input id="watch-details-date" type="date" class="input-field" onclick="openDatePickerFromInput(this)" onfocus="openDatePickerFromInput(this)" required>
+            </div>
+
+            <div style="margin-top: 0.85rem;">
+                <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Where did you watch?</label>
+                <div style="display:flex; gap: 0.75rem;">
+                    <button type="button" class="choice-btn" data-wd-method-option="At Home" onclick="selectWatchDetailsMethod('At Home')">At Home</button>
+                    <button type="button" class="choice-btn" data-wd-method-option="In Theater" onclick="selectWatchDetailsMethod('In Theater')">In Theater</button>
+                </div>
+            </div>
+
+            <div style="margin-top: 0.85rem;">
+                <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Have you watched this before?</label>
+                <div style="display:flex; gap: 0.75rem;">
+                    <button type="button" class="choice-btn" data-wd-before-option="no" onclick="selectWatchDetailsBefore(false)">No</button>
+                    <button type="button" class="choice-btn" data-wd-before-option="yes" onclick="selectWatchDetailsBefore(true)">Yes</button>
+                </div>
+            </div>
+
+            <div class="auth-modal-actions" style="margin-top: 1rem; display:flex; gap: 0.75rem;">
+                <button type="button" id="watch-details-save" class="btn btn-primary" style="width:100%;" onclick="submitWatchDetailsModal()">Save</button>
+            </div>
+        </div>
+    </div>
+
     <div id="prior-watches-overlay" class="auth-overlay" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="prior-watches-title">
             <div class="auth-modal-header">
@@ -801,10 +864,15 @@
 
             <div class="text-sm" id="prior-watches-message" style="color: var(--text-muted); margin-top: 0.5rem;"></div>
 
+            <div style="margin-top: 0.85rem;">
+                <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">How many times had you watched this before?</label>
+                <input id="prior-watches-count" type="number" min="1" step="1" value="1" class="input-field" style="width: 120px;" oninput="renderPriorWatchesRows(this.value)">
+            </div>
+
             <div id="prior-watches-fields" style="margin-top: 0.85rem; display:flex; flex-direction: column; gap: 0.75rem;"></div>
 
             <div class="auth-modal-actions" style="margin-top: 1rem; display:flex; gap: 0.75rem; flex-wrap: wrap;">
-                <button type="button" class="btn btn-primary" style="flex:1;" onclick="submitPriorWatchesModal()">Save Previous Watches</button>
+                <button type="button" class="btn btn-primary" style="flex:1;" onclick="submitPriorWatchesModal()">Save to Diary</button>
             </div>
         </div>
     </div>

@@ -225,9 +225,6 @@
                 }
             };
 
-            // Basic required fields
-            ensureText('fld-datewatch', 'Date Watched');
-
             // Tier uses a hidden input + button group.
             {
                 const tierEl = document.getElementById('fld-tier');
@@ -250,14 +247,10 @@
             ensureNumber('num-dialogue', 'Dialogue', { min: 0, max: 100 });
 
             ensureText('fld-notes', 'Notes');
-            ensureNumber('fld-timeswatch', 'Times Watched', { min: 1 });
 
-            // Watch method is stored in a hidden input controlled by a toggle button.
-            {
-                const el = document.getElementById('watchmethod-toggle') || getEl('fld-watchmethod');
-                const raw = getText('fld-watchmethod');
-                if (!el || isBlank(raw)) missing.push({ label: 'Watch Method', el, kind: 'review' });
-            }
+            // Watch Date, Times Watched, and Watch Method are NOT validated here:
+            // for new entries they're collected in the post-save Watch Details modal;
+            // for updates they use the locked inline fields + the update watch modals.
 
             return missing;
         }
@@ -297,8 +290,6 @@
                 }
             };
 
-            ensureText('fld-datewatch', 'Date Watched');
-
             // Tier uses a hidden input + button group.
             {
                 const tierEl = document.getElementById('fld-tier');
@@ -333,14 +324,10 @@
             ensureNumber('num-dialogue', 'Dialogue', { min: 0, max: 100 });
 
             ensureText('fld-notes', 'Notes');
-            ensureNumber('fld-timeswatch', 'Times Watched', { min: 1 });
 
-            // Watch method is stored in a hidden input controlled by a toggle button.
-            {
-                const el = document.getElementById('watchmethod-toggle') || getEl('fld-watchmethod');
-                const raw = getText('fld-watchmethod');
-                if (!el || isBlank(raw)) missing.push({ label: 'Watch Method', el, kind: 'review' });
-            }
+            // Watch Date, Times Watched, and Watch Method are collected outside this
+            // form (post-save Watch Details modal for new entries; locked inline
+            // fields + update modals for updates), so they're not validated here.
 
             // IMPORTANT: IMDb rating is required and 0 means "missing" in this UI.
             // Block save unless it's a real value.
@@ -625,19 +612,40 @@
                 const dialogue_rating = toNumberOrNull(document.getElementById('num-dialogue')?.value);
                 const notes = String(document.getElementById('fld-notes')?.value || '').trim() || null;
                 const fav_quote = String(document.getElementById('fld-quote')?.value || '').trim() || null;
-                const watch_method = String(document.getElementById('fld-watchmethod')?.value || '').trim() || null;
-                const watch_date_from_form = String(document.getElementById('fld-datewatch')?.value || '').trim();
-                const times_watched_raw = toNumberOrNull(document.getElementById('fld-timeswatch')?.value);
-                const times_watched = Number.isFinite(times_watched_raw)
-                    ? Math.max(1, Math.floor(Number(times_watched_raw)))
-                    : 1;
+                // Watch details:
+                //  • New entries → collected now via the post-save Watch Details modal
+                //    (when / where / have you watched before?). If "before" = Yes, the
+                //    Previous Watches modal gathers each historical viewing.
+                //  • Updates → preserve existing behavior via the locked inline fields;
+                //    adding a watch on update is handled later by its own modals.
+                let watch_method = null;
+                let watch_date_from_form = '';
+                let historicalEntries = [];
+
+                if (entryType === 'new') {
+                    const details = await promptWatchDetails();
+                    if (!details) {
+                        showToast('Save canceled.', { level: 'warn' });
+                        return;
+                    }
+                    watch_date_from_form = String(details.watch_date || '').trim();
+                    watch_method = String(details.watch_method || '').trim() || null;
+
+                    if (details.watched_before) {
+                        const prior = await promptPriorWatches();
+                        if (!prior) {
+                            showToast('Save canceled.', { level: 'warn' });
+                            return;
+                        }
+                        historicalEntries = Array.isArray(prior.entries) ? prior.entries : [];
+                    }
+                } else {
+                    watch_method = String(document.getElementById('fld-watchmethod')?.value || '').trim() || null;
+                    watch_date_from_form = String(document.getElementById('fld-datewatch')?.value || '').trim();
+                }
 
                 if (!watch_date_from_form) {
                     throw new Error('Date Watched is required.');
-                }
-
-                if (!Number.isFinite(times_watched) || times_watched < 1) {
-                    throw new Error('Times Watched must be at least 1.');
                 }
 
                 const insertRow = {
@@ -752,19 +760,16 @@
                     });
                 }
 
-                // If user says they've watched this movie multiple times, collect the prior watches now.
-                // We treat the current save as 1 watch, and ask for the previous (times_watched - 1) entries.
-                if (entryType === 'new' && times_watched > 1) {
-                    const priorCount = times_watched - 1;
-                    const prior = await promptPriorWatches(priorCount);
-                    if (prior && Array.isArray(prior.entries) && prior.entries.length > 0) {
-                        await insertWatchLogsBulk({
-                            user_id: authedUser.id,
-                            movie_id,
-                            entries: prior.entries,
-                        });
-                        showToast(`Added ${prior.entries.length} previous watch${prior.entries.length === 1 ? '' : 'es'}!`);
-                    }
+                // Previous watches the user described in the Watch Details → Previous
+                // Watches modal flow (each its own date + method) become extra Watch
+                // Logs rows. The save above already logged the current viewing.
+                if (entryType === 'new' && historicalEntries.length > 0) {
+                    await insertWatchLogsBulk({
+                        user_id: authedUser.id,
+                        movie_id,
+                        entries: historicalEntries,
+                    });
+                    showToast(`Added ${historicalEntries.length} previous watch${historicalEntries.length === 1 ? '' : 'es'}!`);
                 }
 
                 // Best-effort: if this movie was in Bucket List, remove it now that it's rated.

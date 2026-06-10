@@ -3,6 +3,12 @@
         let feedLastSearchQuery = '';
         let feedExcludedUserIds = new Set(); // followed users the active user has UNchecked (excluded from feed)
         let feedCompareOwn = false;          // include the active user's own entries in the feed
+        let feedInCommonOnly = false;        // only show movies watched by 2+ of the shown users
+        // In-common paging: load 1000 watch logs at a time, "Load More" appends another page.
+        const FEED_IN_COMMON_PAGE = 1000;
+        let feedInCommonWatchRows = [];      // accumulated raw watch logs across loaded pages
+        let feedInCommonOffset = 0;          // how many watch-log rows fetched so far
+        let feedInCommonHasMore = false;     // last page came back full → more may exist
         let feedFilterUsersCache = [];       // [{id, username, display_name, icon}] of people you follow (for the Filter modal)
         let feedFilterPrefsLoaded = false;
 
@@ -156,6 +162,12 @@
 
                 if (cb.id === 'feed-filter-compare-own') {
                     feedCompareOwn = Boolean(cb.checked);
+                    saveFeedFilterPrefs();
+                    return;
+                }
+
+                if (cb.id === 'feed-filter-in-common') {
+                    feedInCommonOnly = Boolean(cb.checked);
                     saveFeedFilterPrefs();
                     return;
                 }
@@ -2005,6 +2017,7 @@
 
         const FEED_FILTER_EXCLUDED_KEY = 'ct_feed_excluded_user_ids';
         const FEED_FILTER_COMPARE_OWN_KEY = 'ct_feed_compare_own';
+        const FEED_FILTER_IN_COMMON_KEY = 'ct_feed_in_common_only';
 
         function loadFeedFilterPrefs() {
             if (feedFilterPrefsLoaded) return;
@@ -2016,6 +2029,7 @@
                     if (Array.isArray(arr)) feedExcludedUserIds = new Set(arr.map((x) => String(x)));
                 }
                 feedCompareOwn = localStorage.getItem(FEED_FILTER_COMPARE_OWN_KEY) === '1';
+                feedInCommonOnly = localStorage.getItem(FEED_FILTER_IN_COMMON_KEY) === '1';
             } catch (_) {
                 // Best-effort; defaults already set.
             }
@@ -2025,6 +2039,7 @@
             try {
                 localStorage.setItem(FEED_FILTER_EXCLUDED_KEY, JSON.stringify(Array.from(feedExcludedUserIds)));
                 localStorage.setItem(FEED_FILTER_COMPARE_OWN_KEY, feedCompareOwn ? '1' : '0');
+                localStorage.setItem(FEED_FILTER_IN_COMMON_KEY, feedInCommonOnly ? '1' : '0');
             } catch (_) {
                 // Best-effort.
             }
@@ -2037,7 +2052,7 @@
             if (!btn) return;
             const followed = Array.from(feedFollowingIds);
             const excludedCount = followed.filter((id) => feedExcludedUserIds.has(id)).length;
-            const active = excludedCount > 0 || feedCompareOwn;
+            const active = excludedCount > 0 || feedCompareOwn || feedInCommonOnly;
             btn.classList.toggle('active', active);
             btn.textContent = active ? 'Filter •' : 'Filter';
         }
@@ -2136,6 +2151,10 @@
             // Sync the "Compare Own" checkbox.
             const ownCb = document.getElementById('feed-filter-compare-own');
             if (ownCb) ownCb.checked = Boolean(feedCompareOwn);
+
+            // Sync the "Only movies in common" checkbox.
+            const commonCb = document.getElementById('feed-filter-in-common');
+            if (commonCb) commonCb.checked = Boolean(feedInCommonOnly);
 
             // Reset the search box each open.
             const search = document.getElementById('feed-filter-search');
@@ -2325,10 +2344,17 @@
             }).join('');
         }
 
-        async function loadFeedItems() {
+        async function loadFeedItems(opts = {}) {
+            // appendInCommon=true → "Load More" pressed: fetch the next in-common page
+            // and re-render WITHOUT resetting the accumulated rows or the scroll-jarring
+            // "Loading…" placeholder.
+            const appendInCommon = opts.appendInCommon === true;
             const elList = document.getElementById('feed-list');
             const elMeta = document.getElementById('feed-meta');
             if (!elList) return;
+
+            // Hide the "Jump to New" pill during (re)loads; it's re-shown after render.
+            document.getElementById('feed-jump-new-btn')?.classList.remove('show');
 
             if (!supabaseClient || !cachedIsAuthed) {
                 elList.innerHTML = `<div class="text-gray">Log in to view your feed.</div>`;
@@ -2371,12 +2397,31 @@
                 return;
             }
 
-            elList.innerHTML = `<div class="text-gray">Loading…</div>`;
-            if (elMeta) elMeta.textContent = '';
+            if (!appendInCommon) {
+                elList.innerHTML = `<div class="text-gray">Loading…</div>`;
+                if (elMeta) elMeta.textContent = '';
+            }
 
-            // Both modes sort by most recent watch_date (from Watch Logs).
-            let rows = [];
-            {
+            const ratingCols = 'user_id, movie_id, overall_rating, tier, watch_date, updated_at, fav_quote, notes, sound_rating, pacing_rating, imagery_rating, acting_rating, plot_rating, dialogue_rating';
+
+            // 1) Watch logs. Normal feed = recent 60. "In common" loads 1000 at a
+            //    time (accumulated across "Load More"), so older overlaps aren't cut off.
+            let wrows = [];
+            if (feedInCommonOnly) {
+                if (!appendInCommon) { feedInCommonWatchRows = []; feedInCommonOffset = 0; feedInCommonHasMore = false; }
+                const { data, error: wErr } = await supabaseClient
+                    .from('Watch Logs')
+                    .select('user_id, movie_id, watch_date')
+                    .in('user_id', queryUserIds)
+                    .order('watch_date', { ascending: false })
+                    .range(feedInCommonOffset, feedInCommonOffset + FEED_IN_COMMON_PAGE - 1);
+                if (wErr) throw wErr;
+                const batch = Array.isArray(data) ? data : [];
+                feedInCommonWatchRows.push(...batch);
+                feedInCommonOffset += batch.length;
+                feedInCommonHasMore = batch.length === FEED_IN_COMMON_PAGE;
+                wrows = feedInCommonWatchRows;
+            } else {
                 const { data: watches, error: wErr } = await supabaseClient
                     .from('Watch Logs')
                     .select('user_id, movie_id, watch_date')
@@ -2384,40 +2429,69 @@
                     .order('watch_date', { ascending: false })
                     .limit(60);
                 if (wErr) throw wErr;
-                const wrows = Array.isArray(watches) ? watches : [];
+                wrows = Array.isArray(watches) ? watches : [];
+            }
 
-                if (wrows.length) {
-                    const movieIds2 = Array.from(new Set(wrows.map(r => r?.movie_id).filter(Boolean)));
-                    const userIds2 = Array.from(new Set(wrows.map(r => r?.user_id).filter(Boolean)));
-                    const { data: ratings2, error: rErr } = await supabaseClient
+            // 2) Dedup to one (user, movie) pair, keeping the most recent watch.
+            let pairs = [];
+            {
+                const seen = new Set();
+                for (const w of wrows) {
+                    const uid = String(w?.user_id || '').trim();
+                    const mid = String(w?.movie_id || '').trim();
+                    if (!uid || !mid) continue;
+                    const k = `${uid}|${mid}`;
+                    if (seen.has(k)) continue;
+                    seen.add(k);
+                    pairs.push({ user_id: uid, movie_id: mid, watch_date: w?.watch_date });
+                }
+            }
+
+            // 3) "Only movies in common": keep only movies watched by 2+ shown users.
+            if (feedInCommonOnly && pairs.length) {
+                const usersByMovie = new Map();
+                for (const p of pairs) {
+                    if (!usersByMovie.has(p.movie_id)) usersByMovie.set(p.movie_id, new Set());
+                    usersByMovie.get(p.movie_id).add(p.user_id);
+                }
+                pairs = pairs.filter(p => (usersByMovie.get(p.movie_id)?.size || 0) >= 2);
+            }
+
+            // 4) Fetch ratings for just these pairs (chunked movie ids to keep the URL
+            //    sane) and merge into the display rows.
+            let rows = [];
+            if (pairs.length) {
+                const movieIds2 = Array.from(new Set(pairs.map(p => p.movie_id)));
+                const userIds2 = Array.from(new Set(pairs.map(p => p.user_id)));
+                const ratingMap = new Map();
+                for (let i = 0; i < movieIds2.length; i += 300) {
+                    const chunk = movieIds2.slice(i, i + 300);
+                    const { data, error: rErr } = await supabaseClient
                         .from('Movie Ratings')
-                        .select('user_id, movie_id, overall_rating, tier, watch_date, updated_at, fav_quote, notes, sound_rating, pacing_rating, imagery_rating, acting_rating, plot_rating, dialogue_rating')
-                        .in('movie_id', movieIds2)
+                        .select(ratingCols)
+                        .in('movie_id', chunk)
                         .in('user_id', userIds2);
                     if (rErr) throw rErr;
-
-                    const ratingMap = new Map();
-                    for (const rr of (Array.isArray(ratings2) ? ratings2 : [])) {
-                        const k = `${String(rr?.user_id || '').trim()}|${String(rr?.movie_id || '').trim()}`;
-                        if (k !== '|') ratingMap.set(k, rr);
+                    for (const rr of (Array.isArray(data) ? data : [])) {
+                        const kk = `${String(rr?.user_id || '').trim()}|${String(rr?.movie_id || '').trim()}`;
+                        if (kk !== '|') ratingMap.set(kk, rr);
                     }
-
-                    // One card per (user, movie): keep the most recent watch (rows already desc).
-                    const seen = new Set();
-                    for (const w of wrows) {
-                        const uid = String(w?.user_id || '').trim();
-                        const mid = String(w?.movie_id || '').trim();
-                        if (!uid || !mid) continue;
-                        const k = `${uid}|${mid}`;
-                        if (seen.has(k)) continue;
-                        seen.add(k);
-                        const rr = ratingMap.get(k) || {};
-                        rows.push({ ...rr, user_id: w?.user_id, movie_id: w?.movie_id, watch_date: w?.watch_date });
-                    }
+                }
+                for (const p of pairs) {
+                    const rr = ratingMap.get(`${p.user_id}|${p.movie_id}`) || {};
+                    rows.push({ ...rr, user_id: p.user_id, movie_id: p.movie_id, watch_date: p.watch_date });
                 }
             }
 
             if (rows.length === 0) {
+                if (feedInCommonOnly) {
+                    const tip = feedCompareOwn ? '' : ' Tip: enable “Compare Own” to include your own movies.';
+                    const more = feedInCommonHasMore ? ' Use “Load More” to scan older watches.' : '';
+                    elList.innerHTML = `<div class="text-gray">No movies in common yet — the people shown haven't watched the same movie.${tip}${more}</div>`;
+                    if (elMeta) elMeta.textContent = '';
+                    renderFeedInCommonLoadMore(elList);
+                    return;
+                }
                 elList.innerHTML = `<div class="text-gray">No recent watch logs found (or privacy blocks access).</div>`;
                 if (elMeta) elMeta.textContent = '';
                 return;
@@ -2504,7 +2578,10 @@
                     { k: 'Dialogue', v: dashFormatScoreWhole(r?.dialogue_rating) },
                 ].filter(x => String(x.v || '').trim());
 
-                const isNew = feedHighlightSince && String(r?.updated_at || '') > feedHighlightSince;
+                // Highlight only OTHER people's new/updated entries — never your own.
+                const isNew = feedHighlightSince
+                    && actorId !== authedUserId
+                    && String(r?.updated_at || '') > feedHighlightSince;
 
                 return `
                     <div class="glass-panel feed-item-card${isNew ? ' is-new' : ''}" data-feed-card="1" style="padding: 0.9rem; border-radius: 1rem;">
@@ -2575,6 +2652,60 @@
                 if (entries.length <= 1) return renderFeedCard(entries[0]);
                 return `<div class="feed-group">${entries.map(renderFeedCard).join('')}</div>`;
             }).join('');
+
+            // In-common mode: offer "Load More" if there may be more watch logs to scan.
+            renderFeedInCommonLoadMore(elList);
+
+            // Surface the floating "Jump to New" pill when there are highlighted entries.
+            updateFeedJumpNewButton();
+        }
+
+        // Appends a "Load More" button (in-common mode only) when the last page came
+        // back full, so the next 1000 watch logs can be scanned for more overlaps.
+        function renderFeedInCommonLoadMore(elList) {
+            if (!feedInCommonOnly || !feedInCommonHasMore) return;
+            const el = elList || document.getElementById('feed-list');
+            if (!el) return;
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'grid-column: 1 / -1; display:flex; justify-content:center; margin-top: 0.6rem;';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-outline';
+            btn.style.cssText = 'padding: 0.55rem 1.1rem; border-radius: 0.85rem;';
+            btn.textContent = 'Load 1000 more';
+            btn.onclick = () => {
+                btn.disabled = true;
+                btn.textContent = 'Loading…';
+                loadFeedItems({ appendInCommon: true });
+            };
+            wrap.appendChild(btn);
+            el.appendChild(wrap);
+        }
+
+        // Show/hide + label the floating "Jump to New" button based on how many
+        // highlighted (new/updated, non-own) feed cards are currently rendered.
+        function updateFeedJumpNewButton() {
+            const btn = document.getElementById('feed-jump-new-btn');
+            if (!btn) return;
+            const list = document.getElementById('feed-list');
+            const newCount = list ? list.querySelectorAll('.feed-item-card.is-new').length : 0;
+            if (newCount > 0) {
+                const label = btn.querySelector('span');
+                if (label) label.textContent = `↓ Jump to New (${newCount})`;
+                btn.classList.add('show');
+            } else {
+                btn.classList.remove('show');
+            }
+        }
+
+        // Scroll the first new/updated feed card into view.
+        function jumpToNewFeed() {
+            const list = document.getElementById('feed-list');
+            if (!list) return;
+            const first = list.querySelector('.feed-item-card.is-new');
+            if (!first) return;
+            try { first.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+            catch (_) { first.scrollIntoView(); }
         }
 
 
