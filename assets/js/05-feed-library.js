@@ -1932,19 +1932,79 @@
                     }
                 } catch (_) {}
 
+                // Taste-match: compare overlapping overall ratings vs. the viewing user.
+                // Score = 100 − average absolute rating gap (intuitive "agreement %").
+                let compat = null;
+                try {
+                    const meId = String(getActiveUserId() || '').trim();
+                    if (meId && meId !== uid) {
+                        const { data: myRatingsData } = await supabaseClient
+                            .from('Movie Ratings').select('movie_id, overall_rating').eq('user_id', meId);
+                        const myByMovie = new Map();
+                        for (const r of (Array.isArray(myRatingsData) ? myRatingsData : [])) {
+                            const mid = String(r?.movie_id || '').trim();
+                            const v = Number(r?.overall_rating);
+                            if (mid && Number.isFinite(v)) myByMovie.set(mid, v);
+                        }
+                        const pairs = [];
+                        for (const [mid, rr] of ratingByMovieId) {
+                            const theirs = Number(rr?.overall_rating);
+                            if (!Number.isFinite(theirs) || !myByMovie.has(mid)) continue;
+                            pairs.push({ movie_id: mid, mine: myByMovie.get(mid), theirs });
+                        }
+                        if (pairs.length) {
+                            const avgAbs = pairs.reduce((a, p) => a + Math.abs(p.mine - p.theirs), 0) / pairs.length;
+                            const score = Math.max(0, Math.min(100, Math.round(100 - avgAbs)));
+                            const byGap = pairs.slice().sort((a, b) => Math.abs(b.mine - b.theirs) - Math.abs(a.mine - a.theirs));
+                            const decorate = (p) => ({ ...p, title: String(moviesById.get(p.movie_id)?.title || '').trim() || 'Untitled' });
+                            compat = { score, count: pairs.length, disagreements: byGap.slice(0, 3).map(decorate) };
+                        } else {
+                            compat = { score: null, count: 0, disagreements: [] };
+                        }
+                    }
+                } catch (_) { compat = null; }
+
                 if (titleEl) titleEl.textContent = displayName;
-                body.innerHTML = renderProfileBody({ iconId, displayName, username, uniqueCount, avgOverall, highestDirector, highestDirectorAvg });
+                body.innerHTML = renderProfileBody({ iconId, displayName, username, uniqueCount, avgOverall, highestDirector, highestDirectorAvg, compat });
                 renderProfileGrid();
             } catch (err) {
                 body.innerHTML = `<div class="text-gray" style="padding:1rem;">Could not load profile: ${escapeHtml(String(err?.message || err))}</div>`;
             }
         }
 
-        function renderProfileBody({ iconId, displayName, username, uniqueCount, avgOverall, highestDirector, highestDirectorAvg }) {
+        function renderProfileBody({ iconId, displayName, username, uniqueCount, avgOverall, highestDirector, highestDirectorAvg, compat }) {
             const avgText = (avgOverall === null) ? '—' : dashFormatScore(avgOverall);
             const dirText = highestDirector
                 ? `${escapeHtml(highestDirector)}${highestDirectorAvg !== null ? ` (${dashFormatScore(highestDirectorAvg)})` : ''}`
                 : '—';
+
+            const themShort = (() => {
+                const s = username ? `@${username}` : (String(displayName || '').trim() || 'Them');
+                return s.length > 14 ? `${s.slice(0, 13)}…` : s;
+            })();
+            const compatHtml = !compat ? '' : `
+                <div class="profile-compat">
+                    <div class="profile-compat-top">
+                        <span class="profile-compat-score tabular-nums">${compat.score === null ? '—' : `${compat.score}%`}</span>
+                        <span class="profile-compat-label">Taste Match${compat.count ? ` · ${compat.count} movie${compat.count === 1 ? '' : 's'} in common` : ''}</span>
+                    </div>
+                    ${compat.score !== null ? `<div class="profile-compat-bar"><div class="profile-compat-bar-fill" style="width:${compat.score}%;"></div></div>` : ''}
+                    ${compat.count === 0 ? `<div class="text-xs text-gray" style="margin-top:0.4rem;">No movies in common yet — rate some of the same films to see your match.</div>` : ''}
+                    ${compat.disagreements && compat.disagreements.length ? `
+                        <div class="profile-compat-sub">Biggest disagreements</div>
+                        ${compat.disagreements.map(d => `
+                            <div class="profile-compat-item">
+                                <div class="profile-compat-title">${escapeHtml(d.title)}</div>
+                                <div class="profile-compat-chips">
+                                    <span class="profile-compat-chip">You — <strong>${dashFormatScoreWhole(d.mine)}</strong> Overall</span>
+                                    <span class="profile-compat-chip">${escapeHtml(themShort)} — <strong>${dashFormatScoreWhole(d.theirs)}</strong> Overall</span>
+                                    <span class="profile-compat-gap">${Math.round(Math.abs(d.mine - d.theirs))}% apart</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    ` : ''}
+                </div>
+            `;
             return `
                 <div class="profile-head">
                     ${renderUserIconHtml(iconId, 64)}
@@ -1958,6 +2018,7 @@
                     <div class="profile-kpi"><div class="profile-kpi-value tabular-nums">${avgText}</div><div class="profile-kpi-label">Avg Overall</div></div>
                     <div class="profile-kpi"><div class="profile-kpi-value" style="font-size:0.95rem;">${dirText}</div><div class="profile-kpi-label">Highest-Rated Director</div></div>
                 </div>
+                ${compatHtml}
                 <div class="profile-toggle">
                     <button type="button" class="nav-link profile-toggle-btn" data-profile-mode="recent" onclick="setProfileMode('recent')">Recent</button>
                     <button type="button" class="nav-link profile-toggle-btn" data-profile-mode="top" onclick="setProfileMode('top')">Top Rated</button>
@@ -2500,6 +2561,24 @@
             const movieIds = Array.from(new Set(rows.map(r => r?.movie_id).filter(Boolean)));
             const userIds = Array.from(new Set(rows.map(r => r?.user_id).filter(Boolean)));
 
+            // Movies the active user recommended to the people shown — so a NEW entry
+            // for one of those gets a distinct "your rec paid off" highlight.
+            const myRecSentPairs = new Set(); // `${to_user_id}|${movie_id}`
+            if (authedUserId && movieIds.length && userIds.length) {
+                try {
+                    const { data: recsSent } = await supabaseClient
+                        .from('Recommendations')
+                        .select('to_user_id, movie_id')
+                        .eq('from_user_id', authedUserId)
+                        .in('movie_id', movieIds)
+                        .in('to_user_id', userIds);
+                    for (const rr of (Array.isArray(recsSent) ? recsSent : [])) {
+                        const k = `${String(rr?.to_user_id || '').trim()}|${String(rr?.movie_id || '').trim()}`;
+                        if (k !== '|') myRecSentPairs.add(k);
+                    }
+                } catch (_) { /* best-effort; falls back to normal highlight */ }
+            }
+
             const moviesById = new Map();
             if (movieIds.length) {
                 const { data: moviesData, error: moviesErr } = await supabaseClient
@@ -2582,9 +2661,12 @@
                 const isNew = feedHighlightSince
                     && actorId !== authedUserId
                     && String(r?.updated_at || '') > feedHighlightSince;
+                // A new entry for a movie YOU recommended to this person → distinct glow.
+                const isRecFulfilled = isNew && myRecSentPairs.has(`${actorId}|${String(r?.movie_id || '').trim()}`);
+                const highlightClass = isNew ? (isRecFulfilled ? ' is-new-rec' : ' is-new') : '';
 
                 return `
-                    <div class="glass-panel feed-item-card${isNew ? ' is-new' : ''}" data-feed-card="1" style="padding: 0.9rem; border-radius: 1rem;">
+                    <div class="glass-panel feed-item-card${highlightClass}" data-feed-card="1" style="padding: 0.9rem; border-radius: 1rem;">
                         <div class="feed-card-row">
                             <div class="feed-card-poster">
                                 ${posterUrl
@@ -2688,7 +2770,7 @@
             const btn = document.getElementById('feed-jump-new-btn');
             if (!btn) return;
             const list = document.getElementById('feed-list');
-            const newCount = list ? list.querySelectorAll('.feed-item-card.is-new').length : 0;
+            const newCount = list ? list.querySelectorAll('.feed-item-card.is-new, .feed-item-card.is-new-rec').length : 0;
             if (newCount > 0) {
                 const label = btn.querySelector('span');
                 if (label) label.textContent = `↓ Jump to New (${newCount})`;
@@ -2702,7 +2784,7 @@
         function jumpToNewFeed() {
             const list = document.getElementById('feed-list');
             if (!list) return;
-            const first = list.querySelector('.feed-item-card.is-new');
+            const first = list.querySelector('.feed-item-card.is-new, .feed-item-card.is-new-rec');
             if (!first) return;
             try { first.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
             catch (_) { first.scrollIntoView(); }

@@ -185,6 +185,16 @@
             } catch (_) {}
         });
 
+        // Register the (push-only) service worker so the app is installable and can
+        // receive push notifications. No-op on browsers without support / over http.
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('service-worker.js').catch((err) => {
+                    try { emitLog('warn', `Service worker registration failed: ${String(err?.message || err)}`); } catch (_) {}
+                });
+            });
+        }
+
         // Keep auth UI synced with session changes.
         if (supabaseClient?.auth?.onAuthStateChange) {
             supabaseClient.auth.onAuthStateChange(() => {

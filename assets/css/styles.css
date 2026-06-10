@@ -243,6 +243,11 @@
             box-shadow: 0 0 0 2px var(--brand, #14b8a6), 0 0 16px color-mix(in srgb, var(--brand) 40%, transparent);
             border-radius: 1rem;
         }
+        /* New feed entry for a movie YOU recommended to that person — violet glow. */
+        .feed-item-card.is-new-rec {
+            box-shadow: 0 0 0 2px #a855f7, 0 0 18px rgba(168, 85, 247, 0.5);
+            border-radius: 1rem;
+        }
         /* User profile overview modal */
         .profile-head {
             display: flex;
@@ -295,6 +300,80 @@
         .profile-toggle-btn { font-size: 0.85rem; padding: 0.4rem 0.9rem; }
         @media (max-width: 520px) {
             .profile-kpis { grid-template-columns: 1fr; }
+        }
+
+        /* Profile taste-match (compatibility) card */
+        .profile-compat {
+            margin-top: 0.85rem;
+            padding: 0.85rem 0.9rem;
+            border-radius: 0.85rem;
+            background: color-mix(in srgb, var(--brand) 8%, rgba(255,255,255,0.03));
+            border: 1px solid color-mix(in srgb, var(--brand) 28%, transparent);
+        }
+        .profile-compat-top { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+        .profile-compat-score { font-size: 1.5rem; font-weight: 850; color: var(--brand); line-height: 1; }
+        .profile-compat-label { color: var(--text-muted); font-size: 0.82rem; font-weight: 600; }
+        .profile-compat-bar {
+            margin-top: 0.5rem;
+            height: 8px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.08);
+            overflow: hidden;
+        }
+        .profile-compat-bar-fill { height: 100%; border-radius: 999px; background: var(--brand); transition: width 0.4s ease; }
+        .profile-compat-explain {
+            margin-top: 0.45rem;
+            color: var(--text-muted);
+            font-size: 0.76rem;
+            line-height: 1.35;
+        }
+        .profile-compat-explain strong { color: rgba(255,255,255,0.9); font-weight: 700; }
+        .profile-compat-sub {
+            margin-top: 0.8rem;
+            margin-bottom: 0.2rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+        .profile-compat-item {
+            padding: 0.45rem 0;
+            border-top: 1px solid rgba(255,255,255,0.06);
+        }
+        .profile-compat-item:first-of-type { border-top: none; }
+        .profile-compat-title {
+            color: #fff;
+            font-weight: 600;
+            font-size: 0.88rem;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .profile-compat-chips {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px;
+            margin-top: 0.35rem;
+        }
+        .profile-compat-chip {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: rgba(255,255,255,0.82);
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 999px;
+            padding: 0.2rem 0.6rem;
+            white-space: nowrap;
+        }
+        .profile-compat-chip strong { color: #fff; font-weight: 800; }
+        .profile-compat-gap {
+            font-size: 0.74rem;
+            font-weight: 600;
+            color: #a855f7;
+            white-space: nowrap;
         }
         .nav-link:hover {
             color: #fff;
@@ -1433,6 +1512,7 @@
             display: block;
         }
         .lists-poster {
+            position: relative;
             width: 100%;
             aspect-ratio: 2 / 3;
             border-radius: 0.95rem;
@@ -1445,6 +1525,10 @@
             height: 100%;
             object-fit: cover;
             display: block;
+        }
+        /* Hover-flip the Lists posters to show details, mirroring My Movies. */
+        .lists-poster:hover .library-poster-flip-inner {
+            transform: rotateY(180deg);
         }
         .lists-title {
             color: #fff;

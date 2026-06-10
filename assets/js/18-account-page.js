@@ -228,6 +228,38 @@
         }
 
         // Admin test: fire the real email-to-SMS pipeline to your own phone.
+        // Milestone-1 push test: request notification permission and fire a LOCAL
+        // notification via the service worker (no server yet). Proves the iOS gates
+        // work — installed-to-Home-Screen + permission + the SW can display.
+        async function enableNotificationsTest() {
+            const statusEl = document.getElementById('push-test-status');
+            const setStatus = (m, ok) => {
+                if (!statusEl) return;
+                statusEl.textContent = String(m || '');
+                statusEl.style.color = ok ? 'rgba(74,222,128,0.95)' : 'rgba(239,68,68,0.95)';
+            };
+            try {
+                if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+                    setStatus('Notifications aren’t available here. On iPhone, add the app to your Home Screen and open it from there first.', false);
+                    return;
+                }
+                const perm = await Notification.requestPermission();
+                if (perm !== 'granted') {
+                    setStatus('Permission was not granted, so notifications can’t be shown.', false);
+                    return;
+                }
+                const reg = await navigator.serviceWorker.ready;
+                await reg.showNotification('CinemaTracker', {
+                    body: 'Notifications are working! 🍿',
+                    icon: 'assets/icons/icon-192.png',
+                    badge: 'assets/icons/icon-192.png',
+                });
+                setStatus('Sent — you should see a test notification.', true);
+            } catch (err) {
+                setStatus(`Could not enable notifications: ${String(err?.message || err)}`, false);
+            }
+        }
+
         async function sendTestText() {
             const statusEl = document.getElementById('admin-test-sms-status');
             const setStatus = (s, color) => {

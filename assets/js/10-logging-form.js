@@ -722,9 +722,10 @@
                         });
                     }
 
-                    // Best-effort: if this movie was in Bucket List, remove it now that it's rated.
+                    // Best-effort: if this movie was on the Bucket List or Recs list,
+                    // remove it now that it's been logged/rated.
                     try {
-                        await removeMovieFromBucketList({ user_id: authedUser.id, movie_id });
+                        await removeMovieFromAutoLists({ user_id: authedUser.id, movie_id });
                     } catch (_) {}
 
                     checkAndAwardRatingMilestones().catch(() => null);
@@ -772,9 +773,10 @@
                     showToast(`Added ${historicalEntries.length} previous watch${historicalEntries.length === 1 ? '' : 'es'}!`);
                 }
 
-                // Best-effort: if this movie was in Bucket List, remove it now that it's rated.
+                // Best-effort: if this movie was on the Bucket List or Recs list,
+                // remove it now that it's been logged/rated.
                 try {
-                    await removeMovieFromBucketList({ user_id: authedUser.id, movie_id });
+                    await removeMovieFromAutoLists({ user_id: authedUser.id, movie_id });
                 } catch (_) {}
 
                 checkAndAwardRatingMilestones().catch(() => null);

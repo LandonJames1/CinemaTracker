@@ -1904,6 +1904,13 @@
                                     <button type="button" onclick="sendTestText()" class="btn btn-outline" style="margin-top:0.6rem; border-radius:0.8rem; padding:0.5rem 0.9rem;">Send Test Text</button>
                                     <div id="admin-test-sms-status" class="text-xs" style="margin-top:0.45rem; color:var(--text-muted);"></div>
                                 </div>
+
+                                <div style="margin-top: 0.75rem; padding:0.65rem 0.75rem; border-radius:0.75rem; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.04);">
+                                    <div class="text-sm text-white font-bold">Push Notifications (Test)</div>
+                                    <div class="text-xs text-gray" style="margin-top:0.2rem;">On iPhone: first add this app to your Home Screen and open it from there. Then tap below to allow notifications and fire a test.</div>
+                                    <button type="button" onclick="enableNotificationsTest()" class="btn btn-outline" style="margin-top:0.6rem; border-radius:0.8rem; padding:0.5rem 0.9rem;">Enable &amp; Test Notification</button>
+                                    <div id="push-test-status" class="text-xs" style="margin-top:0.45rem; color:var(--text-muted);"></div>
+                                </div>
                             </div>
                             </div>
                         </div>
