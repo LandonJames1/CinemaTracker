@@ -716,8 +716,8 @@
                             </div>
                         </div>
 
-                        <!-- Marquee (Full Width) -->
-                        <div style="background: var(--surface); padding: 1rem 0 2.15rem; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-top: 2.5rem; position: relative; z-index: 1;">
+                        <!-- Marquee (Full Width) — hidden on phones to keep the home screen focused -->
+                        <div class="home-trending" style="background: var(--surface); padding: 1rem 0 2.15rem; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-top: 2.5rem; position: relative; z-index: 1;">
                             <div class="container mb-6">
                                 <h2 class="text-white" style="font-size: 2rem; font-weight: 900; letter-spacing: 0.04em; line-height: 1.1; display: inline-flex; align-items: center; gap: 0.55rem; text-shadow: 0 10px 24px rgba(0,0,0,0.45);">
                                     <span style="display:inline-block; width: 0.45rem; height: 1.55rem; border-radius: 999px; background: linear-gradient(180deg, var(--brand), var(--accent-2));"></span>

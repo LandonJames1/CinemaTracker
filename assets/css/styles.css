@@ -139,6 +139,10 @@
             width: 100%;
             z-index: 50;
             border-bottom: 1px solid var(--border);
+            /* Keep nav content out from under the iPhone status bar / notch. */
+            padding-top: env(safe-area-inset-top);
+            padding-left: env(safe-area-inset-left);
+            padding-right: env(safe-area-inset-right);
         }
         .nav-inner {
             height: var(--header-height);
@@ -387,7 +391,24 @@
             border-color: var(--brand);
             box-shadow: 0 10px 26px rgba(0,0,0,0.35);
         }
-        .mobile-menu-btn { color: var(--text-muted); display: none; }
+        .mobile-menu-btn { display: none; }
+        .mobile-menu-btn #menu-icon-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 48px;
+            height: 48px;
+            padding: 0;
+            margin: 0;
+            background: transparent;
+            border: none;
+            color: #fff;
+            cursor: pointer;
+            border-radius: 0.6rem;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .mobile-menu-btn #menu-icon-btn:active { background: rgba(255,255,255,0.12); }
+        .mobile-menu-btn #menu-icon-btn svg { width: 30px; height: 30px; display: block; }
         @media (max-width: 768px) {
             .nav-links { display: none; }
             .mobile-menu-btn { display: block; }
@@ -1823,7 +1844,9 @@
         @media (max-width: 768px) {
             .text-5xl { font-size: 2.25rem; }
             .text-4xl { font-size: 1.75rem; }
-            .navbar { padding: 0; }
+            .navbar { padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+            /* Hide the "Trending Now" marquee on phones — too cramped to be useful. */
+            .home-trending { display: none; }
         }
 
         @media (max-width: 520px) {
