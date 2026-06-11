@@ -2780,6 +2780,18 @@
             }
         }
 
+        // Mobile: the "Follow People" panel becomes a full-screen overlay opened by
+        // the "Follows" button (it's hidden inline on phones). Same DOM node + ids, so
+        // search/following wiring keeps working.
+        function openFeedFollows() {
+            const p = document.getElementById('feed-follows-panel');
+            if (p) p.classList.add('open');
+        }
+        function closeFeedFollows() {
+            const p = document.getElementById('feed-follows-panel');
+            if (p) p.classList.remove('open');
+        }
+
         // Scroll the first new/updated feed card into view.
         function jumpToNewFeed() {
             const list = document.getElementById('feed-list');
