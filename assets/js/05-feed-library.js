@@ -603,6 +603,84 @@
             loadLibraryPage({ reset: true }).catch(() => null);
         }
 
+        function closeLibraryMovieModal() {
+            const overlay = document.getElementById('library-movie-overlay');
+            if (overlay) { overlay.classList.remove('open'); overlay.style.display = 'none'; }
+        }
+
+        // Tapping a poster in My Movies (esp. grid view on mobile) opens the full
+        // diary entry — ratings, sub-ratings, watch info, quote, notes + actions.
+        function openLibraryMovieModal(movieId) {
+            const mid = String(movieId || '').trim();
+            const overlay = document.getElementById('library-movie-overlay');
+            const body = document.getElementById('library-movie-body');
+            if (!mid || !overlay || !body) return;
+            const it = (Array.isArray(libraryItems) ? libraryItems : []).find(x => String(x?.movie_id || '').trim() === mid);
+            if (!it) return;
+
+            const esc = (s) => escapeHtml(String(s ?? ''));
+            const title = String(it?.title || '').trim() || 'Untitled';
+            const year = (it?.release_year === null || it?.release_year === undefined) ? '' : String(it.release_year);
+            const poster_path = String(it?.poster_path || '').trim();
+            const posterUrl = poster_path ? `https://image.tmdb.org/t/p/w342${poster_path.startsWith('/') ? poster_path : `/${poster_path}`}` : '';
+            const tierLabel = dashNormalizeTierLabel(it?.tier);
+            const overall = dashFormatScoreWhole(it?.overall_rating);
+            const quote = String(it?.fav_quote ?? '').trim();
+            const notes = String(it?.notes ?? '').trim();
+
+            const fmtDate = (iso) => {
+                const raw = String(iso || '').trim();
+                if (!raw) return '';
+                const d = new Date(raw.includes('T') ? raw : `${raw}T00:00:00`);
+                if (Number.isNaN(d.getTime())) return raw;
+                try { return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }); } catch (_) { return raw; }
+            };
+            const mostRecent = fmtDate(it?.latest_watch_date);
+
+            const runtimeVal = (() => { const v = normalizeMovieFieldValue(it?.runtime_minutes ?? it?.runtime); if (!v) return ''; const n = Number(v); return (Number.isFinite(n) && n > 0) ? `${Math.round(n)} min` : v; })();
+            const mpaVal = normalizeMovieFieldValue(it?.mpa_rating ?? it?.mpa);
+            const directorVal = normalizeMovieFieldValue(it?.director);
+            const genreVal = normalizeMovieFieldValue(it?.genre);
+            const imdbVal = (() => { const raw = (it?.imdb_rating_pct ?? it?.imdb_pct ?? it?.imdb_rating ?? it?.imdb); const n2 = parsePercentLike(raw, { imdb: true }); return (n2 !== null && n2 !== undefined) ? formatPctForDisplay(n2) : ''; })();
+            const watchCount = Number(it?.watch_count ?? 0);
+            const metaBits = [year, directorVal, mpaVal, runtimeVal, genreVal].filter(Boolean).map(esc).join(' · ');
+
+            const subRatings = [
+                ['Sound', dashFormatScoreWhole(it?.sound_rating)],
+                ['Pace', dashFormatScoreWhole(it?.pacing_rating)],
+                ['Imagery', dashFormatScoreWhole(it?.imagery_rating)],
+                ['Acting', dashFormatScoreWhole(it?.acting_rating)],
+                ['Plot', dashFormatScoreWhole(it?.plot_rating)],
+                ['Dialogue', dashFormatScoreWhole(it?.dialogue_rating)],
+            ].filter(x => String(x[1] || '').trim());
+
+            body.innerHTML = `
+                <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
+                    ${posterUrl ? `<img src="${posterUrl}" alt="${esc(title)}" style="width:150px; aspect-ratio:2/3; object-fit:cover; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">` : ''}
+                    <div style="text-align:center;">
+                        <div style="color:#fff; font-weight:800; font-size:1.15rem; line-height:1.2;">${esc(title)}</div>
+                        ${metaBits ? `<div style="color:rgba(255,255,255,0.6); font-size:0.82rem; margin-top:4px;">${metaBits}</div>` : ''}
+                    </div>
+                </div>
+                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:center; margin-top:12px;">
+                    ${overall ? `${dashRenderHelpScore(overall)} <span style="color:rgba(255,255,255,0.6); font-size:0.8rem;">Overall</span>` : ''}
+                    ${tierLabel ? dashRenderHelpTier(tierLabel) : ''}
+                    ${imdbVal ? `<span class="dash-quote-pill">IMDb ${esc(imdbVal)}</span>` : ''}
+                </div>
+                ${mostRecent ? `<div style="text-align:center; color:rgba(255,255,255,0.55); font-size:0.78rem; margin-top:8px;">Most recent watch: ${esc(mostRecent)}${watchCount > 0 ? ` · ${watchCount} time${watchCount === 1 ? '' : 's'}` : ''}</div>` : ''}
+                ${subRatings.length ? `<div style="display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin-top:12px;">${subRatings.map(([k, v]) => `<span class="dash-quote-pill">${esc(k)}: ${esc(v)}</span>`).join('')}</div>` : ''}
+                ${quote ? `<div style="margin-top:14px;"><div style="color:rgba(255,255,255,0.5); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Favorite Quote</div><div style="color:#fff; line-height:1.4;">${esc(quote)}</div></div>` : ''}
+                ${notes ? `<div style="margin-top:14px;"><div style="color:rgba(255,255,255,0.5); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Notes / Review</div><div style="color:rgba(255,255,255,0.9); line-height:1.45;">${esc(notes)}</div></div>` : ''}
+                <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:16px;">
+                    <button type="button" class="btn btn-outline" data-library-action="edit_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" data-tmdb-id="${esc(String(it?.tmdb_id ?? ''))}" data-poster-path="${esc(poster_path)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Edit</button>
+                    <button type="button" class="btn btn-outline" data-library-action="delete_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem; border-color:rgba(239,68,68,0.55); color:rgba(239,68,68,0.95);">Delete</button>
+                    <button type="button" class="btn btn-outline" data-library-action="recommend" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Recommend</button>
+                </div>
+            `;
+            overlay.style.display = 'flex';
+            overlay.classList.add('open');
+        }
+
         function renderLibraryList() {
             const elList = document.getElementById('library-list');
             const elMeta = document.getElementById('library-meta');
@@ -647,7 +725,7 @@
                     if (watchCount > 0) metaParts.push(`<span class="text-gray">${watchCount} Times</span>`);
                     return `
                         <div class="dash-kpi-movie-card">
-                            <div class="dash-kpi-movie-poster">
+                            <div class="dash-kpi-movie-poster" ${movie_id ? `onclick="openLibraryMovieModal('${escapeHtml(movie_id)}')" title="View diary entry"` : ''}>
                                 ${posterUrl
                                     ? `<img src="${posterUrl}" loading="lazy" decoding="async" alt="${escapeHtml(title)}" style="width: 100%; height: 100%; object-fit: cover; display:block;" onerror="this.closest('div')?.remove?.()">`
                                     : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size: 12px;">No poster</div>`

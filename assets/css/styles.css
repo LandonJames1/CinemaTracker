@@ -1494,13 +1494,14 @@
             gap: 1.3rem;
             justify-items: center;
         }
-        @media (max-width: 520px) {
+        @media (max-width: 640px) {
             .lists-grid {
                 display: grid;
-                grid-template-columns: minmax(0, 1fr);
-                gap: 1.2rem;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 0.9rem;
                 margin-bottom: 2rem;
             }
+            .lists-movie-card { width: 100%; max-width: none; }
         }
         .lists-movie-card {
             display: flex;
@@ -1912,6 +1913,34 @@
             /* Footer: span the full width on phones (kill the centered max-width). */
             footer { padding: 1.25rem 0; }
             footer .container { max-width: 100%; }
+
+            /* Lists page header: stack cleanly instead of scattering. Dropdown gets
+               its own full-width row; New List + Refresh share the next row. */
+            .lists-top-controls { width: 100%; justify-content: stretch !important; }
+            .lists-select-wrap { order: -1; flex: 1 1 100%; min-width: 0 !important; max-width: none !important; }
+            .lists-top-controls > button { flex: 1 1 0; }
+            .lists-action-controls { width: 100%; justify-content: stretch !important; }
+            .lists-action-controls > button { flex: 1 1 auto; }
+            .lists-add-search { flex: 1 1 100%; width: 100% !important; }
+
+            /* Filters & Sort modals (Lists + My Movies): condense so they fit better.
+               Shorter fields, tighter sections, and two fields per row. */
+            #lists-sortfilter-overlay .auth-modal,
+            #library-sortfilter-overlay .auth-modal { padding: 1rem; }
+            #lists-sortfilter-overlay .glass-panel,
+            #library-sortfilter-overlay .glass-panel { padding: 0.7rem !important; }
+            #lists-sortfilter-overlay .input-field,
+            #lists-sortfilter-overlay .select-field,
+            #library-sortfilter-overlay .input-field,
+            #library-sortfilter-overlay .select-field {
+                padding: 0.4rem 0.6rem !important;
+                border-radius: 0.7rem !important;
+            }
+            #lists-sortfilter-overlay [style*="minmax(180px"],
+            #library-sortfilter-overlay [style*="minmax(180px"] {
+                grid-template-columns: 1fr 1fr !important;
+                gap: 8px !important;
+            }
 
             /* Feed: hide the inline "Follow People" panel; the "Follows" button opens
                it as a full-screen overlay instead. */

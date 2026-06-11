@@ -744,9 +744,9 @@
                                     <h1 class="text-3xl font-bold text-white">Lists</h1>
                                     <p class="text-gray mt-2">Organize your movies into custom lists.</p>
                                 </div>
-                                <div class="flex" style="gap: 10px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
-                                    <button type="button" class="btn btn-primary" onclick="openListsCreateModal()" style="border-radius: 0.85rem; height: 42px; display:inline-flex; align-items:center;">New List</button>
-                                    <div class="glass-panel" style="padding: 0 0.5rem; border-radius: 0.8rem; display:flex; align-items:center; gap: 0.55rem; min-width: 220px; max-width: 260px; height: 42px;">
+                                <div class="flex lists-top-controls" style="gap: 10px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
+                                    <button type="button" class="btn btn-primary" onclick="openListsCreateModal()" style="border-radius: 0.85rem; height: 42px; display:inline-flex; align-items:center; justify-content:center;">New List</button>
+                                    <div class="glass-panel lists-select-wrap" style="padding: 0 0.5rem; border-radius: 0.8rem; display:flex; align-items:center; gap: 0.55rem; min-width: 220px; max-width: 260px; height: 42px;">
                                         <div class="text-xs" style="color: rgba(255,255,255,0.78); font-weight: 800; letter-spacing: 0.02em; white-space: nowrap;">Your Lists</div>
                                         <div id="lists-list" class="text-gray" style="flex: 1; min-width: 130px;">
                                             <select id="lists-select" class="input-field" style="width:100%; border-radius: 0.7rem; height: 34px; font-size: 0.84rem; padding: 0 0.65rem;">
@@ -765,7 +765,7 @@
                                             <div id="lists-active-subtitle" class="text-xs text-gray" style="margin-top: 0.25rem;"></div>
                                         </div>
 
-                                        <div class="flex items-center" style="gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
+                                        <div class="flex items-center lists-action-controls" style="gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
                                             <button
                                                 id="lists-filter-btn"
                                                 type="button"
@@ -792,7 +792,7 @@
                                             >Delete</button>
 
                                             <!-- Lists-only Search (adds directly to the active list) -->
-                                            <div style="position: relative; width: 260px; max-width: 100%;">
+                                            <div class="lists-add-search" style="position: relative; width: 260px; max-width: 100%;">
                                                 <div class="input-group" style="margin: 0;">
                                                     <div class="input-icon" style="height: 34px; display:flex; align-items:center;">${icons.search}</div>
                                                     <input

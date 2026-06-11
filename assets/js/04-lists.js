@@ -309,14 +309,15 @@
                 if (recSeenInfoByUserId.has(id)) {
                     recSelectedUserIds.delete(id);
                     return `
-                        <div style="${rowStyle} opacity:0.6;">
-                            <input type="checkbox" style="${cbStyle}" disabled title="Already seen this movie">
-                            ${renderUserIconHtml(iconId, 34)}
-                            <span style="${nameWrap}">
-                                <span style="${nameStyle}">${escapeHtml(name)}</span>
-                                <span style="${subStyle}">Already seen this${username ? ` · @${escapeHtml(username)}` : ''}</span>
+                        <div style="${rowStyle}">
+                            <span style="flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:10px; opacity:0.55;">
+                                ${renderUserIconHtml(iconId, 34)}
+                                <span style="${nameWrap}">
+                                    <span style="${nameStyle}">${escapeHtml(name)}</span>
+                                    <span style="${subStyle}">✓ Already seen this</span>
+                                </span>
                             </span>
-                            <button type="button" class="btn btn-outline" style="flex:0 0 auto; padding:0.35rem 0.6rem; border-radius:0.6rem; font-size:0.78rem; white-space:nowrap;" onclick="openRecReviewModal('${escapeHtml(id)}')">Review</button>
+                            <button type="button" style="flex:0 0 auto; width:auto; padding:0.4rem 0.7rem; border-radius:0.7rem; font-size:0.78rem; font-weight:700; white-space:nowrap; color:#fff; background:color-mix(in srgb, var(--brand) 22%, transparent); border:1px solid color-mix(in srgb, var(--brand) 50%, transparent); cursor:pointer;" onclick="openRecReviewModal('${escapeHtml(id)}')">View review</button>
                         </div>
                     `;
                 }

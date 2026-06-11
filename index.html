@@ -888,6 +888,17 @@
         </div>
     </div>
 
+    <!-- My Movies: tap a poster to see the full diary entry -->
+    <div id="library-movie-overlay" class="auth-overlay" onclick="if(event.target === this) closeLibraryMovieModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="library-movie-title" style="max-width: 520px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="library-movie-title">Diary Entry</div>
+                <button class="auth-modal-close" type="button" onclick="closeLibraryMovieModal()">Close</button>
+            </div>
+            <div id="library-movie-body" onclick="if(event.target.closest('[data-library-action]')) closeLibraryMovieModal();"></div>
+        </div>
+    </div>
+
     <div id="loading-overlay" class="auth-overlay" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="loading-title">
             <div class="auth-modal-header">
