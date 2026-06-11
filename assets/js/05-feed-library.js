@@ -2867,6 +2867,9 @@
         function updateFeedJumpNewButton() {
             const btn = document.getElementById('feed-jump-new-btn');
             if (!btn) return;
+            // Reparent to <body> so position:fixed anchors to the viewport, not the
+            // transformed .fade-in container (which would pin it to the page bottom).
+            if (btn.parentElement !== document.body) document.body.appendChild(btn);
             const list = document.getElementById('feed-list');
             const newCount = list ? list.querySelectorAll('.feed-item-card.is-new, .feed-item-card.is-new-rec').length : 0;
             if (newCount > 0) {

@@ -1856,6 +1856,7 @@
             padding-bottom: calc(1rem + env(safe-area-inset-bottom));
         }
         .mobile-link {
+            position: relative;
             display: block;
             width: 100%;
             box-sizing: border-box;
