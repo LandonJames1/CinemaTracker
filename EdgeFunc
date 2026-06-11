@@ -1015,10 +1015,10 @@ Deno.serve(async (req) => {
           try {
             let badgeCount;
             try {
-              const { count: rc } = await supabaseAdmin
-                .from("Recommendations")
-                .select("id", { count: "exact", head: true })
-                .eq("to_user_id", rid);
+              const { data: su } = await supabaseAdmin.from("Users").select("recs_seen_at").eq("id", rid).single();
+              let q = supabaseAdmin.from("Recommendations").select("id", { count: "exact", head: true }).eq("to_user_id", rid);
+              if (su?.recs_seen_at) q = q.gt("created_at", su.recs_seen_at);
+              const { count: rc } = await q;
               if (typeof rc === "number") badgeCount = rc;
             } catch (_) {}
             const pushed = await sendPushToUser(supabaseAdmin, rid, {

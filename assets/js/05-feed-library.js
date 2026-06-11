@@ -1869,14 +1869,23 @@
             setPwaAppBadge(feedCount + listsCount);
         }
 
+        // Persist last-seen server-side too, so push badge counts match "since I looked".
+        function persistSeen(col) {
+            try {
+                const uid = String(cachedAuthUser?.id || '').trim();
+                if (uid && supabaseClient) supabaseClient.from('Users').update({ [col]: new Date().toISOString() }).eq('id', uid).then(() => {}, () => {});
+            } catch (_) {}
+        }
         function markFeedSeen() {
             try { localStorage.setItem(FEED_LAST_SEEN_KEY, new Date().toISOString()); } catch (_) {}
             setNavBadge('nav-badge-feed', 0);
+            persistSeen('feed_seen_at');
         }
 
         function markRecsSeen() {
             try { localStorage.setItem(RECS_LAST_SEEN_KEY, new Date().toISOString()); } catch (_) {}
             setNavBadge('nav-badge-lists', 0);
+            persistSeen('recs_seen_at');
         }
 
         // ===== Public profile overview (opened by clicking a user in the Feed) =====
