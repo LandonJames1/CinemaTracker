@@ -1935,8 +1935,9 @@
             .ai-genre-btn { flex: 0 0 auto; width: auto !important; padding: 0.4rem 0.7rem !important; font-size: 0.82rem !important; }
 
             /* Flatten the two column wrappers so every card is a direct grid item,
-               then set the phone-specific order (and drop Tips). */
-            #ai-inputs-wrap > div { display: contents; }
+               then set the phone-specific order (and drop Tips). !important is needed
+               because the wrappers carry an inline display:flex. */
+            #ai-inputs-wrap > div { display: contents !important; }
             #ai-card-howitworks { order: 1; }
             #ai-card-describe   { order: 2; }
             #ai-similar-search-card { order: 3; }
