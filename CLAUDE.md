@@ -100,7 +100,7 @@ reproduces the originals exactly. No logic was changed.
 | `15-auth-account-modals.js` | Auth modal (login/signup/logout/forgot-password), account-section modal, username validation |
 | `16-ai-picks.js` | AI Picks page: filters modal, provider/genre selection, similar-movie search, loading images, `initAiPicksPage` |
 | `17-theme-creator.js` | Theme Creator UI (backdrop/AI search, selection, save/delete), `initThemeCreatorPage` (gated to `THEME_CREATOR_OWNER_EMAIL`) |
-| `18-account-page.js` | Account page: load/save profile (incl. `phone` + `carrier` for SMS notifications), change password, feature requests |
+| `18-account-page.js` | Account page: load/save profile (incl. `phone` + `carrier` for SMS notifications), change password, feature requests. **Web Push** opt-in (`savePushSetting`/`enablePushOnThisDevice`/`disablePushOnThisDevice`/`refreshPushToggleState`): the Profile modal has a "Push notifications" toggle → on Save it requests OS permission, subscribes via `PushManager` (`VAPID_PUBLIC_KEY` from `01-config.js`), and upserts the subscription to `push_subscriptions`. `enableNotificationsTest` still fires a LOCAL test notification. |
 | `19-logging-boot.js` | Message log + toast (`showToast`, `emitLog`), global error handlers, the **service-worker registration + "New version available" update prompt** (`showUpdatePrompt`, fired by the SW's `SW_ACTIVATED` message), and the **boot sequence** (`DOMContentLoaded`, auth-state listener). Must load last. |
 
 To regenerate this index after edits:
@@ -126,17 +126,25 @@ the front end calls:
   `callSwiftApi*` / `callColorThemeEdge` in `12-watch-modals.js` and
   `08-search-trending.js`). `EdgeFunc` dispatches by `body.action`; notable actions
   include `search`, AI picks, `send_recommendation` (adds a movie to each
-  recipient's "Recs" list + sends email-to-SMS), and `test_sms` (admin button in
-  Account → texts the caller's own phone to verify the pipeline). The diary save also sends an `mpa`
+  recipient's "Recs" list, then **notifies push-first**: `sendPushToUser` sends a
+  Web Push if the recipient has `push_subscriptions` rows, else falls back to
+  email-to-SMS), `test_sms` (admin button → texts the caller), and `test_push`
+  (sends a real Web Push to the caller's own subscribed devices). The diary save also sends an `mpa`
   override so user-entered MPA persists when TMDb lacks it.
   - Env vars for recommendations (Gmail SMTP via `denomailer`): `GMAIL_USER`,
     `GMAIL_APP_PASSWORD`, optional `SITE_URL`. Email-to-SMS gateways:
     Verizon→`vtext.com`, AT&T→`txt.att.net`. If creds are unset, the Recs add
     still works, the text is just skipped.
+  - **Web Push** (`npm:web-push@3.6.7`): edge secrets `VAPID_PUBLIC`,
+    `VAPID_PRIVATE`, optional `VAPID_SUBJECT` (mailto). PUBLIC key also lives in
+    `01-config.js` as `VAPID_PUBLIC_KEY`. Subscriptions in `push_subscriptions`
+    (RLS, see SQL). The service worker's `push` handler shows the notification.
 - SQL: `dashboard_rpc.sql`, `achievements_*.sql`, `lists_schema.sql`,
   `library_views.sql`, `user_tiers.sql`, `cascades.sql`, `recs_and_profile.sql`
   (auto "Recs" list per user + `Users.phone`/`Users.carrier`),
   `recommendations_tracking.sql` (`Recommendations` table + unique movie-per-list),
+  `push_subscriptions.sql` (Web Push subscription rows + RLS; one per opted-in
+  device, read by the edge fn with the service role to send pushes),
   `signup_system.sql` (**authoritative, idempotent signup provisioning — run this
   for new-user setup**: a `SECURITY DEFINER` trigger `handle_new_auth_user()` on
   `auth.users` fully provisions each new account server-side — creates the

@@ -380,6 +380,7 @@
             if (kind === 'profile') {
                 const input = document.getElementById('account-username');
                 if (input) input.focus();
+                try { refreshPushToggleState(); } catch (_) {}
             }
             if (kind === 'security') {
                 const input = document.getElementById('account-new-password');

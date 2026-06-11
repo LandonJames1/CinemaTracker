@@ -260,6 +260,107 @@
             }
         }
 
+        // ---- Real Web Push (push-or-text routing) ------------------------------
+        function urlBase64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+            const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+            const raw = atob(base64);
+            const arr = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+            return arr;
+        }
+
+        function isStandalonePwa() {
+            try {
+                return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+            } catch (_) { return false; }
+        }
+
+        // Ask for permission, subscribe via the Push API, and save the subscription
+        // so the server can push to this device (instead of texting).
+        async function enablePushOnThisDevice() {
+            if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+                throw new Error('This device/browser doesn’t support push notifications.');
+            }
+            const perm = await Notification.requestPermission();
+            if (perm !== 'granted') throw new Error('Notification permission was not granted.');
+
+            const reg = await navigator.serviceWorker.ready;
+            let sub = await reg.pushManager.getSubscription();
+            if (!sub) {
+                sub = await reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+                });
+            }
+            const json = sub.toJSON();
+            const uid = getActiveUserId();
+            if (!uid) throw new Error('Please log in first.');
+            const { error } = await supabaseClient.from('push_subscriptions').upsert({
+                user_id: uid,
+                endpoint: json.endpoint,
+                p256dh: json.keys?.p256dh,
+                auth: json.keys?.auth,
+            }, { onConflict: 'endpoint' });
+            if (error) throw error;
+        }
+
+        async function disablePushOnThisDevice() {
+            try {
+                const reg = await navigator.serviceWorker.ready;
+                const sub = await reg.pushManager.getSubscription();
+                if (sub) {
+                    const endpoint = sub.endpoint;
+                    try { await sub.unsubscribe(); } catch (_) {}
+                    try { await supabaseClient.from('push_subscriptions').delete().eq('endpoint', endpoint); } catch (_) {}
+                }
+            } catch (_) {}
+        }
+
+        // Called when the user taps "Save push setting". Toggling on triggers the
+        // OS (iOS) permission prompt; toggling off unsubscribes this device.
+        async function savePushSetting() {
+            const toggle = document.getElementById('push-enable-toggle');
+            const statusEl = document.getElementById('push-setting-status');
+            const setStatus = (m, ok) => {
+                if (!statusEl) return;
+                statusEl.textContent = String(m || '');
+                statusEl.style.color = ok ? 'rgba(74,222,128,0.95)' : 'rgba(239,68,68,0.95)';
+            };
+            if (!toggle) return;
+            try {
+                if (toggle.checked) {
+                    if (!isStandalonePwa() && /iphone|ipad|ipod/i.test(navigator.userAgent)) {
+                        toggle.checked = false;
+                        setStatus('On iPhone, first add the app to your Home Screen and open it from there — then enable push.', false);
+                        return;
+                    }
+                    await enablePushOnThisDevice();
+                    setStatus('Push enabled on this device. You’ll get push notifications here instead of texts.', true);
+                } else {
+                    await disablePushOnThisDevice();
+                    setStatus('Push turned off on this device. You’ll get texts instead.', true);
+                }
+            } catch (err) {
+                toggle.checked = false;
+                setStatus(String(err?.message || err), false);
+            }
+        }
+
+        // Sync the toggle to the real subscription state when the modal opens.
+        async function refreshPushToggleState() {
+            const toggle = document.getElementById('push-enable-toggle');
+            if (!toggle) return;
+            try {
+                if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+                    toggle.checked = false; toggle.disabled = true; return;
+                }
+                const reg = await navigator.serviceWorker.ready;
+                const sub = await reg.pushManager.getSubscription();
+                toggle.checked = !!sub && Notification.permission === 'granted';
+            } catch (_) { toggle.checked = false; }
+        }
+
         async function sendTestText() {
             const statusEl = document.getElementById('admin-test-sms-status');
             const setStatus = (s, color) => {

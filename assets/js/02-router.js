@@ -1910,12 +1910,6 @@
                                     <div id="admin-test-sms-status" class="text-xs" style="margin-top:0.45rem; color:var(--text-muted);"></div>
                                 </div>
 
-                                <div style="margin-top: 0.75rem; padding:0.65rem 0.75rem; border-radius:0.75rem; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.04);">
-                                    <div class="text-sm text-white font-bold">Push Notifications (Test)</div>
-                                    <div class="text-xs text-gray" style="margin-top:0.2rem;">On iPhone: first add this app to your Home Screen and open it from there. Then tap below to allow notifications and fire a test.</div>
-                                    <button type="button" onclick="enableNotificationsTest()" class="btn btn-outline" style="margin-top:0.6rem; border-radius:0.8rem; padding:0.5rem 0.9rem;">Enable &amp; Test Notification</button>
-                                    <div id="push-test-status" class="text-xs" style="margin-top:0.45rem; color:var(--text-muted);"></div>
-                                </div>
                             </div>
                             </div>
                         </div>
@@ -1954,6 +1948,21 @@
                                         <option value="AT&T">AT&T</option>
                                     </select>
                                 </div>
+                                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.85rem;">
+                                    <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Push notifications</label>
+                                    <div class="text-xs text-gray" style="margin-bottom: 0.5rem;">When enabled, you’ll get a push notification instead of a text. Works when the app is installed to your Home Screen. Saving will ask your device for permission.</div>
+                                    <label style="display:flex; align-items:center; gap:10px;">
+                                        <input type="checkbox" id="push-enable-toggle" style="width:20px; height:20px; flex:0 0 auto; accent-color:var(--brand);">
+                                        <span class="text-sm text-white">Enable push on this device</span>
+                                    </label>
+                                    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:0.6rem;">
+                                        <button type="button" onclick="savePushSetting()" class="btn btn-primary" style="border-radius:0.85rem;">Save push setting</button>
+                                        <button type="button" onclick="enableNotificationsTest()" class="btn btn-outline" style="border-radius:0.85rem;">Send test</button>
+                                    </div>
+                                    <div id="push-setting-status" class="text-xs" style="margin-top:0.45rem; color:var(--text-muted);"></div>
+                                    <div id="push-test-status" class="text-xs" style="margin-top:0.25rem; color:var(--text-muted);"></div>
+                                </div>
+
                                 <div style="display:flex; gap: 10px; flex-wrap: wrap;">
                                     <button id="account-save-profile" type="submit" class="btn btn-primary" style="border-radius: 0.85rem;">Save profile</button>
                                     <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" data-account-action="reload">Reload</button>

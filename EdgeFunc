@@ -1,5 +1,42 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+import webpush from "npm:web-push@3.6.7";
+
+// Send a Web Push to every device a user has opted into (push_subscriptions).
+// Returns the number actually delivered; deletes dead subscriptions (404/410).
+// Returns 0 if VAPID secrets aren't configured (caller then falls back to SMS).
+async function sendPushToUser(supabaseAdmin, userId, payload) {
+  const VAPID_PUBLIC = Deno.env.get("VAPID_PUBLIC");
+  const VAPID_PRIVATE = Deno.env.get("VAPID_PRIVATE");
+  if (!VAPID_PUBLIC || !VAPID_PRIVATE || !userId) return 0;
+  try {
+    webpush.setVapidDetails(
+      Deno.env.get("VAPID_SUBJECT") || "mailto:landon.talus@gmail.com",
+      VAPID_PUBLIC,
+      VAPID_PRIVATE,
+    );
+  } catch (_) { return 0; }
+
+  const { data: subs } = await supabaseAdmin
+    .from("push_subscriptions")
+    .select("endpoint, p256dh, auth")
+    .eq("user_id", userId);
+  const rows = Array.isArray(subs) ? subs : [];
+  let sent = 0;
+  for (const s of rows) {
+    const subscription = { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } };
+    try {
+      await webpush.sendNotification(subscription, JSON.stringify(payload));
+      sent++;
+    } catch (e) {
+      const code = e?.statusCode || e?.status;
+      if (code === 404 || code === 410) {
+        try { await supabaseAdmin.from("push_subscriptions").delete().eq("endpoint", s.endpoint); } catch (_) {}
+      }
+    }
+  }
+  return sent;
+}
 
 // Build the MPA + genre line for recommendation texts with correct grammar,
 // e.g. "An R rated Drama", "A PG-13 rated Action", "An NC-17 rated Comedy".
@@ -973,9 +1010,18 @@ Deno.serve(async (req) => {
               .upsert({ from_user_id: sender.id, to_user_id: rid, movie_id: movieId }, { onConflict: "from_user_id,to_user_id,movie_id" });
           } catch (_) {}
 
-          // d) Email-to-SMS notification (best-effort; never blocks the add).
+          // d) Notify: PREFER a web push if the recipient has push enabled on any
+          //    device; otherwise fall back to the email-to-SMS text. Best-effort.
           try {
-            if (smtp) {
+            const pushed = await sendPushToUser(supabaseAdmin, rid, {
+              title: isRepeat ? "Recommended Again 🎬" : "New Movie Rec! 🎬",
+              body: `${senderHandle} recommended "${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`,
+              url: "/#recs",
+            });
+            if (pushed > 0) {
+              r.notified = true;
+              r.via = "push";
+            } else if (smtp) {
               const { data: urow } = await supabaseAdmin.from("Users").select("phone, carrier").eq("id", rid).single();
               const gateway = carrierGateway(urow?.carrier);
               const digits = digitsOnly(urow?.phone);
@@ -989,6 +1035,7 @@ Deno.serve(async (req) => {
                 const text = padToSmsLimit(lines.join("\n"), subject);
                 await smtp.send({ from: GMAIL_USER, to, subject, content: text });
                 r.notified = true;
+                r.via = "sms";
               }
             }
           } catch (e) {
@@ -1109,6 +1156,22 @@ Deno.serve(async (req) => {
       } catch (e) {
         return jsonResponse({ ok: true, sent: false, reason: `SMTP error: ${String(e?.message ?? e)}` }, 200);
       }
+    }
+
+    // Admin/self test: send a real Web Push to the caller's own subscribed devices.
+    if (action === "test_push") {
+      const sent = await sendPushToUser(supabaseAdmin, me.id, {
+        title: "CinemaTracker 🍿",
+        body: "✅ Push notifications are working!",
+        url: "/",
+      });
+      return jsonResponse({
+        ok: true,
+        sent,
+        reason: sent > 0
+          ? undefined
+          : "No push sent — enable push on this device first (Account → Push notifications), or VAPID secrets aren't set.",
+      }, 200);
     }
 
     // Poster failsafe (Option B): on each invocation, opportunistically backfill missing Movies.poster_path.

@@ -15,6 +15,12 @@
         // Column name for the date-only watch date field in both "Movie Ratings" and "Watch Logs".
         // If you rename the column to a different identifier (e.g. "Watch_Date"), update this value.
         const COL_WATCH_DATE = 'watch_date';
+
+        // Web Push: the PUBLIC half of the VAPID keypair (safe to ship to clients).
+        // The PRIVATE half is set as a Supabase edge-function secret (VAPID_PRIVATE),
+        // never in the front end. See push_subscriptions.sql + the swift-api edge fn.
+        const VAPID_PUBLIC_KEY = 'BKOTbNf7OJTkr1h3t0f3MkEbtVu_3EXqFxvCGZOIT3OY0D7MHftadccjI_6jVUMQssj5wXTxsbybcURskc9Re6g';
+
         const icons = {
             film: `<svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg>`,
             menu: `<svg viewBox="0 0 24 24"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>`,
