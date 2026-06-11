@@ -1915,12 +1915,21 @@
             footer .container { max-width: 100%; }
 
             /* Feed cards: keep them inside the screen — the 220px main-column basis +
-               wide actor column was overflowing. Shrink the actor + let main flex. */
-            .feed-card-row { flex-wrap: nowrap; gap: 10px; }
-            .feed-card-main { flex: 1 1 auto; min-width: 0; }
-            .feed-card-actor { min-width: 0; max-width: 64px; }
-            .feed-card-actor .user-icon { width: 40px !important; height: 40px !important; }
-            .feed-card-actor-name { max-width: 64px; overflow: hidden; text-overflow: ellipsis; font-size: 0.72rem; }
+               wide actor column was overflowing. !important is required because the
+               base .feed-card-* rules are defined LATER in this file and would
+               otherwise win on mobile. */
+            .feed-item-card, .feed-group { max-width: 100%; overflow: hidden; }
+            .feed-card-row { flex-wrap: nowrap !important; gap: 10px !important; min-width: 0; }
+            .feed-card-poster { flex: 0 0 auto !important; }
+            .feed-card-main { flex: 1 1 auto !important; min-width: 0 !important; overflow: hidden; }
+            .feed-card-actor { flex: 0 0 auto !important; min-width: 0 !important; max-width: 58px !important; margin-left: 6px !important; }
+            .feed-card-actor .user-icon { width: 38px !important; height: 38px !important; }
+            .feed-card-actor-name { max-width: 58px; overflow: hidden; text-overflow: ellipsis; font-size: 0.7rem !important; }
+
+            /* AI Picks result cards: constrain to the screen + wrap long text. */
+            #ai-results > .glass-panel { max-width: 100%; overflow: hidden; }
+            #ai-results .glass-panel > div { min-width: 0; }
+            #ai-results .text-xs { overflow-wrap: anywhere; }
 
             /* My Movies: phones get grid view only (the toggle is hidden + grid forced). */
             #library-view-toggle { display: none !important; }
