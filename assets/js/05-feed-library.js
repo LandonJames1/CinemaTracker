@@ -1866,7 +1866,10 @@
                     }
                 } catch (_) {}
             } catch (_) {}
-            setPwaAppBadge(feedCount + listsCount);
+            const total = feedCount + listsCount;
+            setNavBadge('nav-badge-burger', total);
+            try { document.getElementById('menu-icon-btn')?.classList.toggle('has-unseen', total > 0); } catch (_) {}
+            setPwaAppBadge(total);
         }
 
         // Persist last-seen server-side too, so push badge counts match "since I looked".

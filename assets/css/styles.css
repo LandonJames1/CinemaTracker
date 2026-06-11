@@ -1855,6 +1855,8 @@
             padding: 1rem;
             padding-bottom: calc(1rem + env(safe-area-inset-bottom));
         }
+        #menu-icon-btn.has-unseen { color: var(--brand); }
+        #menu-icon-btn.has-unseen::before, #menu-icon-btn.has-unseen::after { background: var(--brand) !important; }
         .mobile-link {
             position: relative;
             display: block;

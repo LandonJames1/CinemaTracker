@@ -14,7 +14,7 @@
  * open page to reload onto the new version.
  */
 
-const CACHE_VERSION = 'v15';
+const CACHE_VERSION = 'v16';
 const CACHE = `cinematracker-${CACHE_VERSION}`;
 
 self.addEventListener('install', () => {
@@ -87,7 +87,11 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = (event.notification.data && event.notification.data.url) || './';
+  // Resolve relative to the app's scope (GitHub Pages serves under a subpath, so
+  // an absolute "/..." would 404). Keep any #hash from the payload.
+  const raw = String((event.notification.data && event.notification.data.url) || '');
+  const hash = raw.includes('#') ? raw.slice(raw.indexOf('#')) : '';
+  const targetUrl = self.registration.scope + hash;
   event.waitUntil((async () => {
     const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of allClients) {
