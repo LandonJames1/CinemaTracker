@@ -185,11 +185,43 @@
             } catch (_) {}
         });
 
-        // Register the (push-only) service worker so the app is installable and can
-        // receive push notifications. No-op on browsers without support / over http.
+        // Shows a persistent "New version available" prompt; tapping it reloads onto
+        // the freshly deployed files (the network-first SW serves the latest).
+        function showUpdatePrompt() {
+            if (document.getElementById('ct-update-banner')) return; // already showing
+            const bar = document.createElement('div');
+            bar.id = 'ct-update-banner';
+            bar.setAttribute('role', 'status');
+            bar.style.cssText = 'position:fixed; left:50%; bottom:calc(16px + env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:3000; display:flex; align-items:center; gap:12px; max-width:calc(100vw - 24px); padding:12px 16px; border-radius:999px; background:rgba(20,20,24,0.98); border:1px solid rgba(255,255,255,0.14); box-shadow:0 12px 40px rgba(0,0,0,0.5); color:#fff; font-weight:700;';
+            bar.innerHTML = '<span style="font-size:0.9rem;">✨ New version available</span>'
+                + '<button type="button" id="ct-update-btn" style="border:none; cursor:pointer; border-radius:999px; padding:8px 16px; font-weight:800; color:#fff; background:var(--brand, #14b8a6);">Update</button>';
+            document.body.appendChild(bar);
+            const btn = document.getElementById('ct-update-btn');
+            if (btn) btn.addEventListener('click', () => {
+                try { btn.textContent = 'Updating…'; btn.disabled = true; } catch (_) {}
+                window.location.reload();
+            });
+        }
+
+        // Register the service worker so the app is installable, receives push
+        // notifications, and auto-updates (network-first). When a newly deployed
+        // worker activates it messages us; we show the "New version" prompt (the
+        // sessionStorage guard stops the first install from prompting on a clean tab).
         if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('message', (e) => {
+                if (!e?.data || e.data.type !== 'SW_ACTIVATED') return;
+                try {
+                    const v = String(e.data.version || '');
+                    const last = sessionStorage.getItem('ct_sw_version');
+                    sessionStorage.setItem('ct_sw_version', v);
+                    if (last && last !== v) showUpdatePrompt();
+                } catch (_) {}
+            });
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('service-worker.js').catch((err) => {
+                navigator.serviceWorker.register('service-worker.js').then((reg) => {
+                    // Proactively check for a new deploy each launch.
+                    try { reg.update(); } catch (_) {}
+                }).catch((err) => {
                     try { emitLog('warn', `Service worker registration failed: ${String(err?.message || err)}`); } catch (_) {}
                 });
             });

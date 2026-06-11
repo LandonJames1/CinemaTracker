@@ -1934,6 +1934,17 @@
             #ai-similar-search-card [style*="max-width: 340px"] { max-width: none !important; }
             .ai-genre-btn { flex: 0 0 auto; width: auto !important; padding: 0.4rem 0.7rem !important; font-size: 0.82rem !important; }
 
+            /* Flatten the two column wrappers so every card is a direct grid item,
+               then set the phone-specific order (and drop Tips). */
+            #ai-inputs-wrap > div { display: contents; }
+            #ai-card-howitworks { order: 1; }
+            #ai-card-describe   { order: 2; }
+            #ai-similar-search-card { order: 3; }
+            #ai-card-filters    { order: 4; }
+            #ai-card-exclude    { order: 5; }
+            #ai-card-generate   { order: 6; }
+            #ai-card-tips       { display: none; }
+
             /* Lists page header: stack cleanly instead of scattering. Dropdown gets
                its own full-width row; New List + Refresh share the next row. */
             .lists-top-controls { width: 100%; justify-content: stretch !important; }

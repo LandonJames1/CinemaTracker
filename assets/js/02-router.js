@@ -1561,7 +1561,7 @@
 
                             <div id="ai-inputs-wrap" class="ai-grid-2 ai-grid-single" style="display:grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; align-items:start;">
                                 <div style="display:flex; flex-direction: column; gap: 12px;">
-                                    <div class="ai-card" style="padding: 1rem; border-radius: 1rem;">
+                                    <div id="ai-card-describe" class="ai-card" style="padding: 1rem; border-radius: 1rem;">
                                         <div class="text-white font-bold">Describe what you want</div>
                                         <div id="ai-prompt-panel" class="ai-section" style="margin-top: 0.5rem;">
                                             <div class="text-xs text-gray" style="margin-bottom: 0.35rem;">Example: “Light‑hearted, character‑driven, post‑2000, strong performances.”</div>
@@ -1590,7 +1590,7 @@
                                         <input id="ai-similar-tmdb-id" type="hidden" value="">
                                     </div>
 
-                                    <div class="ai-card" style="padding: 0.9rem 1rem; border-radius: 1rem; display:flex; gap: 10px; flex-wrap: wrap; align-items:center; justify-content: space-between;">
+                                    <div id="ai-card-generate" class="ai-card" style="padding: 0.9rem 1rem; border-radius: 1rem; display:flex; gap: 10px; flex-wrap: wrap; align-items:center; justify-content: space-between;">
                                         <div style="display:flex; gap: 8px; flex-wrap: wrap;">
                                             <button id="ai-generate-btn" type="button" class="btn btn-primary" style="border-radius: 0.85rem;">Generate Suggestions</button>
                                             <button id="ai-clear-btn" type="button" class="btn btn-outline" style="border-radius: 0.85rem;">Clear</button>
@@ -1603,13 +1603,13 @@
                                 </div>
 
                                 <div style="display:flex; flex-direction: column; gap: 12px;">
-                                    <div class="ai-card" style="padding: 1rem; border-radius: 1rem;">
+                                    <div id="ai-card-filters" class="ai-card" style="padding: 1rem; border-radius: 1rem;">
                                         <div class="text-white font-bold">Refine with Filters</div>
                                         <div class="text-xs text-gray" style="margin-top: 0.35rem; line-height: 1.5;">Filters are required unless you pick at least one similar movie.</div>
                                         <button type="button" class="btn btn-outline" style="border-radius: 0.85rem; margin-top: 0.6rem; width: 100%;" onclick="openAiFiltersModal()">Open Filters</button>
                                     </div>
 
-                                    <div class="ai-card" style="padding: 0.85rem 1rem; border-radius: 1rem; display:flex; align-items:center; justify-content: space-between; gap: 12px;">
+                                    <div id="ai-card-exclude" class="ai-card" style="padding: 0.85rem 1rem; border-radius: 1rem; display:flex; align-items:center; justify-content: space-between; gap: 12px;">
                                         <div>
                                             <div class="text-white font-bold" style="font-size: 0.95rem;">Exclude already watched</div>
                                             <div class="text-xs text-gray" style="margin-top: 0.2rem;">Hide movies you’ve already rated or logged.</div>
@@ -1620,7 +1620,7 @@
                                         </label>
                                     </div>
 
-                                    <div class="ai-card" style="padding: 1rem; border-radius: 1rem;">
+                                    <div id="ai-card-howitworks" class="ai-card" style="padding: 1rem; border-radius: 1rem;">
                                         <div class="text-white font-bold">How it works</div>
                                         <div class="text-xs text-gray" style="margin-top: 0.4rem; line-height: 1.5;">
                                             1) Describe the vibe you want. <br>
@@ -1629,7 +1629,7 @@
                                         </div>
                                     </div>
 
-                                    <div class="ai-card" style="padding: 1rem; border-radius: 1rem;">
+                                    <div id="ai-card-tips" class="ai-card" style="padding: 1rem; border-radius: 1rem;">
                                         <div class="text-white font-bold">Tips</div>
                                         <ul class="text-xs text-gray" style="margin-top: 0.4rem; padding-left: 1rem; line-height: 1.5;">
                                             <li>Use mood + era + pacing.</li>

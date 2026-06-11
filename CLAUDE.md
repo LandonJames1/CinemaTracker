@@ -59,8 +59,11 @@ assets/css/reset-password.css  Styles for reset-password page
 assets/js/01..19-*.js          App logic (see map below)
 assets/js/reset-password.js    Logic for reset-password page
 manifest.webmanifest           PWA manifest (installable web app; name/icons/colors)
-service-worker.js              PWA service worker — PUSH-ONLY (no fetch/caching, so no
-                               staleness); registered in 19-logging-boot.js
+service-worker.js              PWA service worker — push notifications + NETWORK-FIRST
+                               fetch (always loads latest deploy, cache only as offline
+                               fallback) + on-activate it messages clients to reload onto
+                               the new version (installed PWA auto-updates, no reinstall).
+                               Bump CACHE_VERSION to force. Registered in 19-logging-boot.js
 assets/icons/                  PWA icons (icon.svg source + generated PNGs:
                                icon-192/512, icon-maskable-512, apple-touch-icon 180)
 _original_backup/              Byte-identical pre-refactor originals (safety net)
@@ -98,7 +101,7 @@ reproduces the originals exactly. No logic was changed.
 | `16-ai-picks.js` | AI Picks page: filters modal, provider/genre selection, similar-movie search, loading images, `initAiPicksPage` |
 | `17-theme-creator.js` | Theme Creator UI (backdrop/AI search, selection, save/delete), `initThemeCreatorPage` (gated to `THEME_CREATOR_OWNER_EMAIL`) |
 | `18-account-page.js` | Account page: load/save profile (incl. `phone` + `carrier` for SMS notifications), change password, feature requests |
-| `19-logging-boot.js` | Message log + toast (`showToast`, `emitLog`), global error handlers, and the **boot sequence** (`DOMContentLoaded`, auth-state listener). Must load last. |
+| `19-logging-boot.js` | Message log + toast (`showToast`, `emitLog`), global error handlers, the **service-worker registration + "New version available" update prompt** (`showUpdatePrompt`, fired by the SW's `SW_ACTIVATED` message), and the **boot sequence** (`DOMContentLoaded`, auth-state listener). Must load last. |
 
 To regenerate this index after edits:
 `grep -rnE "^        (async function|function|class) " assets/js/`
