@@ -1895,6 +1895,23 @@
                 font-size: 0.85rem !important;
             }
 
+            /* Feed header buttons were too small to tap comfortably. */
+            .feed-follows-toggle, #feed-filter-btn, #feed-refresh {
+                padding: 0.6rem 1rem !important;
+                font-size: 0.95rem !important;
+            }
+
+            /* Recommend modal: condense hard on phones so it isn't a giant wall. */
+            #rec-modal-overlay .auth-modal { padding: 1rem; }
+            #rec-modal-list { max-height: 38vh; }
+            #rec-modal-overlay .feed-filter-user-row { padding: 0.4rem 0.5rem; min-height: 0; }
+            #rec-modal-overlay .feed-filter-user-name { font-size: 0.85rem; font-weight: 700; }
+            #rec-modal-overlay .user-icon { width: 30px !important; height: 30px !important; }
+
+            /* Footer: span the full width on phones (kill the centered max-width). */
+            footer { padding: 1.25rem 0; }
+            footer .container { max-width: 100%; }
+
             /* Feed: hide the inline "Follow People" panel; the "Follows" button opens
                it as a full-screen overlay instead. */
             .feed-follows-toggle, .feed-follows-close { display: inline-flex; }

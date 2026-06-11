@@ -2782,14 +2782,31 @@
 
         // Mobile: the "Follow People" panel becomes a full-screen overlay opened by
         // the "Follows" button (it's hidden inline on phones). Same DOM node + ids, so
-        // search/following wiring keeps working.
+        // search/following wiring keeps working. We move it to <body> while open so
+        // position:fixed covers the whole viewport (the .fade-in page wrapper has a
+        // lingering transform that would otherwise trap a fixed child to its box).
+        let feedFollowsHome = null;
         function openFeedFollows() {
             const p = document.getElementById('feed-follows-panel');
-            if (p) p.classList.add('open');
+            if (!p) return;
+            if (p.parentNode !== document.body) {
+                feedFollowsHome = { parent: p.parentNode, next: p.nextSibling };
+                document.body.appendChild(p);
+            }
+            p.classList.add('open');
         }
         function closeFeedFollows() {
             const p = document.getElementById('feed-follows-panel');
-            if (p) p.classList.remove('open');
+            if (!p) return;
+            p.classList.remove('open');
+            if (feedFollowsHome && feedFollowsHome.parent && feedFollowsHome.parent.isConnected) {
+                feedFollowsHome.parent.insertBefore(p, feedFollowsHome.next);
+            } else if (p.parentNode === document.body) {
+                // Original spot is gone (navigated away) — drop the orphan; the next
+                // feed render recreates the panel inside the grid.
+                p.remove();
+            }
+            feedFollowsHome = null;
         }
 
         // Scroll the first new/updated feed card into view.
