@@ -290,6 +290,15 @@
                 return;
             }
 
+            // Fully self-contained inline styles (no .feed-filter-* / global input
+            // classes) so inherited CSS can't push the avatar/name off-screen: a
+            // fixed-size checkbox + avatar on the left, name fills the rest.
+            const rowStyle = 'display:flex; align-items:center; gap:12px; width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08);';
+            const cbStyle = 'flex:0 0 auto; width:22px; height:22px; min-width:22px; margin:0; accent-color:var(--brand); cursor:pointer;';
+            const nameWrap = 'flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:2px; text-align:left;';
+            const nameStyle = 'color:#fff; font-weight:700; font-size:0.92rem; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;';
+            const subStyle = 'color:rgba(255,255,255,0.55); font-weight:600; font-size:0.78rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;';
+
             list.innerHTML = filtered.map((u) => {
                 const id = String(u?.id || '').trim();
                 const username = String(u?.username || '').trim();
@@ -300,27 +309,27 @@
                 if (recSeenInfoByUserId.has(id)) {
                     recSelectedUserIds.delete(id);
                     return `
-                        <div class="feed-filter-user-row" style="opacity: 0.6;">
-                            <input type="checkbox" class="feed-filter-cb" disabled title="Already seen this movie">
-                            ${renderUserIconHtml(iconId, 26)}
-                            <div style="min-width:0; flex:1;">
-                                <div class="feed-filter-user-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(name)}</div>
-                                <div class="text-xs" style="color: rgba(255,255,255,0.55);">Already seen this${username ? ` · @${escapeHtml(username)}` : ''}</div>
-                            </div>
-                            <button type="button" class="btn btn-outline" style="padding: 0.3rem 0.6rem; border-radius: 0.6rem; font-size: 0.78rem; white-space: nowrap;" onclick="openRecReviewModal('${escapeHtml(id)}')">View review</button>
+                        <div style="${rowStyle} opacity:0.6;">
+                            <input type="checkbox" style="${cbStyle}" disabled title="Already seen this movie">
+                            ${renderUserIconHtml(iconId, 34)}
+                            <span style="${nameWrap}">
+                                <span style="${nameStyle}">${escapeHtml(name)}</span>
+                                <span style="${subStyle}">Already seen this${username ? ` · @${escapeHtml(username)}` : ''}</span>
+                            </span>
+                            <button type="button" class="btn btn-outline" style="flex:0 0 auto; padding:0.35rem 0.6rem; border-radius:0.6rem; font-size:0.78rem; white-space:nowrap;" onclick="openRecReviewModal('${escapeHtml(id)}')">Review</button>
                         </div>
                     `;
                 }
 
                 const checked = recSelectedUserIds.has(id);
                 return `
-                    <label class="feed-filter-user-row">
-                        <input type="checkbox" class="feed-filter-cb rec-user-cb" data-rec-user-id="${escapeHtml(id)}" ${checked ? 'checked' : ''}>
-                        ${renderUserIconHtml(iconId, 26)}
-                        <div style="min-width:0; flex:1;">
-                            <div class="feed-filter-user-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(name)}</div>
-                            ${username ? `<div class="text-xs text-gray">@${escapeHtml(username)}</div>` : ''}
-                        </div>
+                    <label style="${rowStyle} cursor:pointer;">
+                        <input type="checkbox" class="rec-user-cb" data-rec-user-id="${escapeHtml(id)}" style="${cbStyle}" ${checked ? 'checked' : ''}>
+                        ${renderUserIconHtml(iconId, 34)}
+                        <span style="${nameWrap}">
+                            <span style="${nameStyle}">${escapeHtml(name)}</span>
+                            ${username ? `<span style="${subStyle}">@${escapeHtml(username)}</span>` : ''}
+                        </span>
                     </label>
                 `;
             }).join('');
