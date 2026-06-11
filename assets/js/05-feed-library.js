@@ -687,7 +687,10 @@
             const wrap = document.getElementById('library-load-more-wrap');
             if (!elList) return;
 
-            const isGrid = String(libraryViewMode || '').trim().toLowerCase() === 'grid';
+            // Phones only get grid view (the list view is too cramped); the toggle is
+            // hidden via CSS, and we force grid here regardless of libraryViewMode.
+            const forceGrid = !!(window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+            const isGrid = forceGrid || String(libraryViewMode || '').trim().toLowerCase() === 'grid';
             elList.style.display = isGrid ? 'block' : 'grid';
             elList.style.gap = '12px';
 

@@ -1914,6 +1914,26 @@
             footer { padding: 1.25rem 0; }
             footer .container { max-width: 100%; }
 
+            /* Feed cards: keep them inside the screen — the 220px main-column basis +
+               wide actor column was overflowing. Shrink the actor + let main flex. */
+            .feed-card-row { flex-wrap: nowrap; gap: 10px; }
+            .feed-card-main { flex: 1 1 auto; min-width: 0; }
+            .feed-card-actor { min-width: 0; max-width: 64px; }
+            .feed-card-actor .user-icon { width: 40px !important; height: 40px !important; }
+            .feed-card-actor-name { max-width: 64px; overflow: hidden; text-overflow: ellipsis; font-size: 0.72rem; }
+
+            /* My Movies: phones get grid view only (the toggle is hidden + grid forced). */
+            #library-view-toggle { display: none !important; }
+
+            /* AI Picks: the inline 2-column grid overrode the responsive class, so the
+               page never stacked and hung off-screen. Force a single column, give the
+               prompt box real height, widen the similar-movie search, and make the
+               filter-modal genres flow several per row instead of one. */
+            #ai-inputs-wrap { grid-template-columns: 1fr !important; }
+            #ai-prompt-input { min-height: 150px; }
+            #ai-similar-search-card [style*="max-width: 340px"] { max-width: none !important; }
+            .ai-genre-btn { flex: 0 0 auto; width: auto !important; padding: 0.4rem 0.7rem !important; font-size: 0.82rem !important; }
+
             /* Lists page header: stack cleanly instead of scattering. Dropdown gets
                its own full-width row; New List + Refresh share the next row. */
             .lists-top-controls { width: 100%; justify-content: stretch !important; }
@@ -2009,12 +2029,13 @@
 
             .auth-overlay {
                 align-items: flex-start;
-                padding: 1rem;
+                /* Clear the status bar / Dynamic Island so modal tops aren't cut off. */
+                padding: calc(1rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom));
                 font-size: 1rem;
                 letter-spacing: 0.005em;
             }
             .auth-modal {
-                max-height: calc(100vh - 2rem);
+                max-height: calc(100dvh - 2rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
                 overflow: auto;
                 padding: 1.25rem;
                 font-size: 0.95rem;
