@@ -848,9 +848,9 @@
             const wrapStyle = 'display:flex; flex-wrap: wrap; gap: 8px; align-items: center;';
             const xStyle = 'width: 18px; height: 18px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.22); background: rgba(0,0,0,0.18); color: rgba(255,255,255,0.80); font-weight: 900; line-height: 1; display:inline-flex; align-items:center; justify-content:center; cursor:pointer;';
 
-            const defaultChip = `<span class="dash-quote-pill" style="display:inline-flex; align-items:center; gap: 8px; opacity: 0.9;">Default</span>`;
+            // No "Default" pill — when nothing is filtered/sorted we show nothing.
             if (m.isDefault) {
-                return `<div style="${wrapStyle}">${defaultChip}</div>`;
+                return '';
             }
 
             const chipHtml = (c) => {
@@ -862,7 +862,7 @@
             };
 
             const chips = (Array.isArray(m.chips) ? m.chips : []).map(chipHtml).filter(Boolean).join('');
-            return `<div style="${wrapStyle}">${chips || defaultChip}</div>`;
+            return chips ? `<div style="${wrapStyle}">${chips}</div>` : '';
         }
 
         function getDefaultListsSortFilterState() {

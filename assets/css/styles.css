@@ -2003,7 +2003,11 @@
 
             /* Hero: drop the fixed 62vh height + bottom-anchoring on phones so the
                panels flow naturally from the top and never get pushed off-screen. */
-            .home-hero { height: auto !important; margin-bottom: 1rem !important; }
+            .home-hero { height: auto !important; margin-bottom: 1rem !important; padding-top: 1.5rem; }
+
+            /* Every page's title card spans the full width on phones (matches the
+               Feed page). Otherwise it shrinks to its text + shares the flex row. */
+            .page-title-card { width: 100%; flex: 1 1 100%; }
             .home-hero-inner {
                 height: auto !important;
                 justify-content: flex-start !important;

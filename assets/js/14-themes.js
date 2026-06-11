@@ -763,6 +763,16 @@
             cachedAuthUser = user;
             cachedIsAuthed = isAuthed;
 
+            // The message-log FAB (bottom-left) is an admin-only debug tool.
+            try {
+                const fab = document.getElementById('log-fab');
+                if (fab) {
+                    const email = String(cachedAuthUser?.email || '').trim().toLowerCase();
+                    const isAdmin = !!email && email === String(ADMIN_EMAIL || '').trim().toLowerCase();
+                    fab.style.display = isAdmin ? '' : 'none';
+                }
+            } catch (_) {}
+
             if (isAuthed) {
                 const uid = String(user.id);
                 // Best-effort; don't block UI.
