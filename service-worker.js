@@ -14,7 +14,7 @@
  * open page to reload onto the new version.
  */
 
-const CACHE_VERSION = 'v13';
+const CACHE_VERSION = 'v14';
 const CACHE = `cinematracker-${CACHE_VERSION}`;
 
 self.addEventListener('install', () => {
@@ -76,7 +76,13 @@ self.addEventListener('push', (event) => {
     data: { url: data.url || './' },
     tag: data.tag || undefined,
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil((async () => {
+    await self.registration.showNotification(title, options);
+    // Update the home-screen icon badge immediately (even while the app is closed).
+    if (typeof data.badge === 'number' && self.navigator.setAppBadge) {
+      try { data.badge > 0 ? await self.navigator.setAppBadge(data.badge) : await self.navigator.clearAppBadge?.(); } catch (_) {}
+    }
+  })());
 });
 
 self.addEventListener('notificationclick', (event) => {

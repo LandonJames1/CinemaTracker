@@ -1013,10 +1013,19 @@ Deno.serve(async (req) => {
           // d) Notify: PREFER a web push if the recipient has push enabled on any
           //    device; otherwise fall back to the email-to-SMS text. Best-effort.
           try {
+            let badgeCount;
+            try {
+              const { count: rc } = await supabaseAdmin
+                .from("Recommendations")
+                .select("id", { count: "exact", head: true })
+                .eq("to_user_id", rid);
+              if (typeof rc === "number") badgeCount = rc;
+            } catch (_) {}
             const pushed = await sendPushToUser(supabaseAdmin, rid, {
               title: isRepeat ? "Recommended Again 🎬" : "New Movie Rec! 🎬",
               body: `${senderHandle} recommended "${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`,
               url: "/#recs",
+              badge: badgeCount,
             });
             if (pushed > 0) {
               r.notified = true;
