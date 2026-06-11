@@ -67,6 +67,23 @@
         body::-webkit-scrollbar { display: none; }
         body { -ms-overflow-style: none; scrollbar-width: none; }
 
+        /* Native-app feel for the PWA: no double-tap zoom, no long-press callout,
+           no tap-highlight flash, no rubber-band overscroll, no accidental text
+           selection. Form fields stay selectable/typable. */
+        html { touch-action: manipulation; }
+        body {
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-user-select: none;
+            user-select: none;
+            overscroll-behavior: none;
+        }
+        input, textarea, select, [contenteditable="true"] {
+            -webkit-user-select: text;
+            user-select: text;
+            -webkit-touch-callout: default;
+        }
+
         .flex { display: flex; }
         .flex-col { flex-direction: column; }
         .items-center { align-items: center; }
@@ -1547,9 +1564,13 @@
             object-fit: cover;
             display: block;
         }
-        /* Hover-flip the Lists posters to show details, mirroring My Movies. */
-        .lists-poster:hover .library-poster-flip-inner {
-            transform: rotateY(180deg);
+        /* Hover-flip the Lists posters to show details, mirroring My Movies.
+           Only on devices that actually hover (desktop) — on touch, a tap would
+           leave the card stuck flipped, so we disable it there. */
+        @media (hover: hover) {
+            .lists-poster:hover .library-poster-flip-inner {
+                transform: rotateY(180deg);
+            }
         }
         .lists-title {
             color: #fff;
@@ -1824,17 +1845,29 @@
         
         /* Mobile Menu */
         #mobile-menu { display: none; }
-        #mobile-menu.open { display: block; border-top: 1px solid var(--border); padding: 1rem; }
+        #mobile-menu.open {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            border-top: 1px solid var(--border);
+            padding: 1rem;
+            padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+        }
         .mobile-link {
             display: block;
-            padding: 0.8rem 0.9rem;
+            width: 100%;
+            box-sizing: border-box;
+            text-align: left;
+            padding: 1rem 1.1rem;
+            font-size: 1.05rem;
             color: rgba(255,255,255,0.92);
-            font-weight: 800;
-            letter-spacing: 0.03em;
-            border-radius: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            border-radius: 0.85rem;
             border: 1px solid rgba(255,255,255,0.10);
-            background: rgba(255,255,255,0.03);
+            background: rgba(255,255,255,0.04);
         }
+        .mobile-link:active { background: rgba(255,255,255,0.10); }
         .mobile-link:hover {
             background: rgba(255,255,255,0.07);
             color: #fff;
@@ -1847,6 +1880,42 @@
             .navbar { padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
             /* Hide the "Trending Now" marquee on phones — too cramped to be useful. */
             .home-trending { display: none; }
+
+            /* Hero: drop the fixed 62vh height + bottom-anchoring on phones so the
+               panels flow naturally from the top and never get pushed off-screen. */
+            .home-hero { height: auto !important; margin-bottom: 1rem !important; }
+            .home-hero-inner {
+                height: auto !important;
+                justify-content: flex-start !important;
+                padding-top: 1rem;
+                padding-bottom: 1rem !important;
+            }
+
+            /* Search filters: stack into 2 columns so Year/MPA/Apply/Clear fit. */
+            #movie-search-filters { grid-template-columns: 1fr 1fr !important; }
+
+            /* Movie action buttons: stack full-width instead of squishing 3 across. */
+            #home-secondary-actions { flex-direction: column !important; }
+            #movie-actions > .flex.gap-3 { flex-direction: column !important; }
+
+            /* Feed: stack "Following Activity" and "Follow People" instead of cramming
+               them side-by-side in a tiny phone width. */
+            .feed-grid { grid-template-columns: 1fr !important; }
+
+            /* 16px inputs so iOS doesn't auto-zoom the page when a field is focused. */
+            input, textarea, select,
+            .input-field, .select-field, .textarea-field { font-size: 16px; }
+
+            /* Log form: smaller poster to cut the long scroll. */
+            .submit-poster-img { width: 130px !important; }
+
+            /* My Movies grid: the desktop 7-column grid is unusable on a phone. */
+            .library-movie-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+
+            /* Recommend / Filter people lists: cap height so the modal stays usable
+               and scrolls internally instead of growing taller than the screen. */
+            .feed-filter-list { max-height: 46vh; }
+            .feed-filter-user-row { min-height: 46px; }
         }
 
         @media (max-width: 520px) {
@@ -3304,8 +3373,10 @@
             transform-style: preserve-3d;
             transition: transform 560ms cubic-bezier(0.2, 0.8, 0.2, 1);
         }
-        .library-card-poster:hover .library-poster-flip-inner {
-            transform: rotateY(180deg);
+        @media (hover: hover) {
+            .library-card-poster:hover .library-poster-flip-inner {
+                transform: rotateY(180deg);
+            }
         }
         .library-poster-face {
             position: absolute;

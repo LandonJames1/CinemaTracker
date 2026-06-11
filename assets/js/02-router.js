@@ -619,9 +619,9 @@
                     <div>
                         <div class="fade-in">
                         <!-- Hero (Full Width) -->
-                        <div class="relative w-full" style="height: 62vh; margin-bottom: 1.5rem; z-index: 6000; overflow: visible;">
+                        <div class="relative w-full home-hero" style="height: 62vh; margin-bottom: 1.5rem; z-index: 6000; overflow: visible;">
                             <!-- Content (Containerized) -->
-                            <div class="container" style="height: 100%; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 2.25rem;">
+                            <div class="container home-hero-inner" style="height: 100%; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 2.25rem;">
                                 <div class="glass-panel" style="max-width: 600px; padding: 1rem 1.1rem; border-radius: 1rem; margin-bottom: 1rem;">
                                     <span class="text-xs font-semibold text-brand uppercase" style="background: var(--brand-light); padding: 0.25rem 0.75rem; border-radius: 99px; border: 1px solid color-mix(in srgb, var(--brand) 35%, transparent); width: fit-content; margin-bottom: 1rem; display: inline-flex;">Start Logging</span>
                                     <h1 class="text-5xl font-bold text-white mb-6" style="line-height: 1.1; color: var(--text-main);">Cinema <br/> <span style="background: linear-gradient(to right, var(--brand), var(--accent-2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Tracker</span></h1>
@@ -974,6 +974,7 @@
                                 ${posterUrl ? `
                                     <div style="display:flex; justify-content:center; margin-bottom: 1.25rem;">
                                         <img
+                                            class="submit-poster-img"
                                             src="${posterUrl}"
                                             alt="${escapeHtml(m.title || 'Movie poster')}"
                                             style="width: 180px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 0.9rem; border: 1px solid rgba(255,255,255,0.12); box-shadow: 0 16px 40px rgba(0,0,0,0.35);"
@@ -1495,7 +1496,7 @@
                                 </div>
                             </div>
 
-                            <div class="grid" style="grid-template-columns: 1.2fr 0.8fr; gap: 16px; align-items: start;">
+                            <div class="grid feed-grid" style="grid-template-columns: 1.2fr 0.8fr; gap: 16px; align-items: start;">
                                 <div class="glass-panel" style="padding: 1rem; border-radius: 1rem;">
                                     <div class="flex justify-between items-center" style="gap: 12px; flex-wrap: wrap;">
                                         <div>

@@ -317,7 +317,7 @@
                     <label class="feed-filter-user-row">
                         <input type="checkbox" class="feed-filter-cb rec-user-cb" data-rec-user-id="${escapeHtml(id)}" ${checked ? 'checked' : ''}>
                         ${renderUserIconHtml(iconId, 26)}
-                        <div style="min-width:0;">
+                        <div style="min-width:0; flex:1;">
                             <div class="feed-filter-user-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(name)}</div>
                             ${username ? `<div class="text-xs text-gray">@${escapeHtml(username)}</div>` : ''}
                         </div>
