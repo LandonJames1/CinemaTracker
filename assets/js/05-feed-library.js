@@ -1800,23 +1800,37 @@
         }
 
         function setNavBadge(elId, count) {
-            const el = document.getElementById(elId);
-            if (!el) return;
             const n = Number(count) || 0;
-            if (n > 0) {
-                el.textContent = n > 99 ? '99+' : String(n);
-                el.classList.add('show');
-            } else {
-                el.textContent = '';
-                el.classList.remove('show');
+            // Update both the desktop nav badge and its mobile-menu twin ("-m").
+            for (const id of [elId, `${elId}-m`]) {
+                const el = document.getElementById(id);
+                if (!el) continue;
+                if (n > 0) {
+                    el.textContent = n > 99 ? '99+' : String(n);
+                    el.classList.add('show');
+                } else {
+                    el.textContent = '';
+                    el.classList.remove('show');
+                }
             }
         }
 
+        // Mirror the total feed+lists unread count onto the PWA home-screen icon
+        // badge (the little red number). Clears to 0 when nothing is unread.
+        function setPwaAppBadge(total) {
+            try {
+                const n = Math.max(0, Math.floor(Number(total) || 0));
+                if (navigator.setAppBadge) { n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge?.(); }
+            } catch (_) {}
+        }
+
         async function refreshNavBadges() {
+            let feedCount = 0, listsCount = 0;
             try {
                 if (!supabaseClient || !cachedIsAuthed) {
                     setNavBadge('nav-badge-feed', 0);
                     setNavBadge('nav-badge-lists', 0);
+                    setPwaAppBadge(0);
                     return;
                 }
                 const meId = String(cachedAuthUser?.id || '').trim();
@@ -1830,7 +1844,8 @@
                         .select('id', { count: 'exact', head: true })
                         .eq('to_user_id', meId)
                         .gt('created_at', since);
-                    setNavBadge('nav-badge-lists', count || 0);
+                    listsCount = count || 0;
+                    setNavBadge('nav-badge-lists', listsCount);
                 } catch (_) { /* Recommendations table may not exist pre-migration */ }
 
                 // Feed badge: ratings from people I follow (excluding me) since last seen.
@@ -1844,12 +1859,14 @@
                             .select('id', { count: 'exact', head: true })
                             .in('user_id', followed)
                             .gt('updated_at', since);
-                        setNavBadge('nav-badge-feed', count || 0);
+                        feedCount = count || 0;
+                        setNavBadge('nav-badge-feed', feedCount);
                     } else {
                         setNavBadge('nav-badge-feed', 0);
                     }
                 } catch (_) {}
             } catch (_) {}
+            setPwaAppBadge(feedCount + listsCount);
         }
 
         function markFeedSeen() {

@@ -64,9 +64,9 @@
         <!-- Mobile Menu Dropdown -->
         <div id="mobile-menu" class="glass-panel">
             <button onclick="router.navigate('home')" class="mobile-link">Home</button>
-            <button onclick="router.navigate('feed')" class="mobile-link">Feed</button>
+            <button onclick="router.navigate('feed')" class="mobile-link">Feed <span id="nav-badge-feed-m" class="nav-badge"></span></button>
             <button onclick="router.navigate('library')" class="mobile-link">My Movies</button>
-            <button onclick="router.navigate('lists')" class="mobile-link">Lists</button>
+            <button onclick="router.navigate('lists')" class="mobile-link">Lists <span id="nav-badge-lists-m" class="nav-badge"></span></button>
             <button onclick="router.navigate('ai_picks')" class="mobile-link">AI Picks</button>
             <button onclick="router.navigate('dashboard')" class="mobile-link">Data Dash</button>
             <button id="mobile-auth-btn" onclick="handleNavAccountButtonClick(event); document.getElementById('mobile-menu').classList.remove('open');" class="mobile-link">Login</button>
