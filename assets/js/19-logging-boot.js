@@ -203,13 +203,35 @@
             });
         }
 
+        // Route the app to the page a push notification points at (…/#feed or
+        // …/#recs). Used both on cold start (from the URL hash) and while already
+        // running (from the SW's NOTIFICATION_NAV message). Navigating here is what
+        // triggers markFeedSeen()/markRecsSeen(), which clears the badges.
+        // Returns true if it recognized + handled a route.
+        function handleNotificationRoute(raw) {
+            try {
+                if (!cachedIsAuthed) return false;
+                const s = String(raw || '');
+                const hash = s.includes('#') ? s.slice(s.indexOf('#')) : s;
+                if (/^#?feed$/i.test(hash)) { router.navigate('feed'); return true; }
+                if (/^#?recs$/i.test(hash)) { listsPendingSelectName = 'Recs'; router.navigate('lists'); return true; }
+            } catch (_) {}
+            return false;
+        }
+
         // Register the service worker so the app is installable, receives push
         // notifications, and auto-updates (network-first). When a newly deployed
         // worker activates it messages us; we show the "New version" prompt (the
         // sessionStorage guard stops the first install from prompting on a clean tab).
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.addEventListener('message', (e) => {
-                if (!e?.data || e.data.type !== 'SW_ACTIVATED') return;
+                if (!e?.data) return;
+                // Tapped a push while the app was already running → go to its page.
+                if (e.data.type === 'NOTIFICATION_NAV') {
+                    try { handleNotificationRoute(e.data.url); } catch (_) {}
+                    return;
+                }
+                if (e.data.type !== 'SW_ACTIVATED') return;
                 try {
                     const v = String(e.data.version || '');
                     const last = sessionStorage.getItem('ct_sw_version');
@@ -298,12 +320,10 @@
             // Populate unread-notification badges (Feed / Lists) on load.
             try { refreshNavBadges(); } catch (_) {}
 
-            // Deep-link: a recommendation notification link (…/#recs) opens the Recs list.
+            // Deep-link from a push notification (…/#feed or …/#recs).
             try {
-                if (cachedIsAuthed && /^#recs$/i.test(String(window.location.hash || ''))) {
+                if (handleNotificationRoute(window.location.hash)) {
                     history.replaceState(null, '', window.location.pathname + window.location.search);
-                    listsPendingSelectName = 'Recs';
-                    router.navigate('lists');
                 }
             } catch (_) {}
         });

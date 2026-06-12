@@ -63,7 +63,11 @@ service-worker.js              PWA service worker — push notifications + NETWO
                                fetch (always loads latest deploy, cache only as offline
                                fallback) + on-activate it messages clients to reload onto
                                the new version (installed PWA auto-updates, no reinstall).
-                               Bump CACHE_VERSION to force. Registered in 19-logging-boot.js
+                               Bump CACHE_VERSION to force. Registered in 19-logging-boot.js.
+                               `push` handler sets the iOS app-icon badge from the payload's
+                               numeric `badge`; `notificationclick` focuses an open client +
+                               posts `NOTIFICATION_NAV` (or opens at the #hash) so the app
+                               routes to Feed/Recs and clears the badge.
 assets/icons/                  PWA icons (icon.svg source + generated PNGs:
                                icon-192/512, icon-maskable-512, apple-touch-icon 180)
 _original_backup/              Byte-identical pre-refactor originals (safety net)
@@ -101,7 +105,7 @@ reproduces the originals exactly. No logic was changed.
 | `16-ai-picks.js` | AI Picks page: filters modal, provider/genre selection, similar-movie search, loading images, `initAiPicksPage` |
 | `17-theme-creator.js` | Theme Creator UI (backdrop/AI search, selection, save/delete), `initThemeCreatorPage` (gated to `THEME_CREATOR_OWNER_EMAIL`) |
 | `18-account-page.js` | Account page: load/save profile (incl. `phone` + `carrier` for SMS notifications), change password, feature requests. **Web Push** opt-in (`savePushSetting`/`enablePushOnThisDevice`/`disablePushOnThisDevice`/`refreshPushToggleState`): the Profile modal has a "Push notifications" toggle → on Save it requests OS permission, subscribes via `PushManager` (`VAPID_PUBLIC_KEY` from `01-config.js`), and upserts the subscription to `push_subscriptions`. `enableNotificationsTest` still fires a LOCAL test notification. |
-| `19-logging-boot.js` | Message log + toast (`showToast`, `emitLog`), global error handlers, the **service-worker registration + "New version available" update prompt** (`showUpdatePrompt`, fired by the SW's `SW_ACTIVATED` message), and the **boot sequence** (`DOMContentLoaded`, auth-state listener). Must load last. |
+| `19-logging-boot.js` | Message log + toast (`showToast`, `emitLog`), global error handlers, the **service-worker registration + "New version available" update prompt** (`showUpdatePrompt`, fired by the SW's `SW_ACTIVATED` message), **push-notification deep-link routing** (`handleNotificationRoute`: sends the app to Feed on `#feed` / the Recs list on `#recs` — used both on cold start from the URL hash and while already running via the SW's `NOTIFICATION_NAV` postMessage; this is what makes the badge clear on tap), and the **boot sequence** (`DOMContentLoaded`, auth-state listener). Must load last. |
 
 To regenerate this index after edits:
 `grep -rnE "^        (async function|function|class) " assets/js/`

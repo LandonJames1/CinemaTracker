@@ -1786,6 +1786,11 @@
         // ===== Nav notification badges (Feed = new follow activity, Lists = new recs) =====
         const FEED_LAST_SEEN_KEY = 'ct_feed_last_seen';
         const RECS_LAST_SEEN_KEY = 'ct_recs_last_seen';
+        // Last computed unseen counts per category, so marking one category seen can
+        // update the PWA app-icon badge synchronously (to the OTHER category's
+        // remaining count) without waiting on refreshNavBadges' network queries.
+        let lastFeedUnseen = 0;
+        let lastRecsUnseen = 0;
 
         function getNotifLastSeen(key) {
             try {
@@ -1866,6 +1871,8 @@
                     }
                 } catch (_) {}
             } catch (_) {}
+            lastFeedUnseen = feedCount;
+            lastRecsUnseen = listsCount;
             const total = feedCount + listsCount;
             setNavBadge('nav-badge-burger', total);
             try { document.getElementById('menu-icon-btn')?.classList.toggle('has-unseen', total > 0); } catch (_) {}
@@ -1883,12 +1890,24 @@
             try { localStorage.setItem(FEED_LAST_SEEN_KEY, new Date().toISOString()); } catch (_) {}
             setNavBadge('nav-badge-feed', 0);
             persistSeen('feed_seen_at');
+            // Clear the PWA home-screen icon badge NOW so it goes away on this view,
+            // not on a later navigation. Synchronously drop the feed contribution
+            // (feed -> 0, only recs may remain), then refreshNavBadges reconciles.
+            lastFeedUnseen = 0;
+            setPwaAppBadge(lastFeedUnseen + lastRecsUnseen);
+            setNavBadge('nav-badge-burger', lastFeedUnseen + lastRecsUnseen);
+            try { refreshNavBadges(); } catch (_) {}
         }
 
         function markRecsSeen() {
             try { localStorage.setItem(RECS_LAST_SEEN_KEY, new Date().toISOString()); } catch (_) {}
             setNavBadge('nav-badge-lists', 0);
             persistSeen('recs_seen_at');
+            // Same as markFeedSeen: drop the recs contribution immediately.
+            lastRecsUnseen = 0;
+            setPwaAppBadge(lastFeedUnseen + lastRecsUnseen);
+            setNavBadge('nav-badge-burger', lastFeedUnseen + lastRecsUnseen);
+            try { refreshNavBadges(); } catch (_) {}
         }
 
         // ===== Public profile overview (opened by clicking a user in the Feed) =====

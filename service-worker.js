@@ -14,7 +14,7 @@
  * open page to reload onto the new version.
  */
 
-const CACHE_VERSION = 'v24';
+const CACHE_VERSION = 'v25';
 const CACHE = `cinematracker-${CACHE_VERSION}`;
 
 self.addEventListener('install', () => {
@@ -95,8 +95,16 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil((async () => {
     const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of allClients) {
-      if ('focus' in client) { try { await client.focus(); } catch (_) {} return; }
+      if ('focus' in client) {
+        try { await client.focus(); } catch (_) {}
+        // The app is already running (common on iOS): focusing won't re-run the
+        // boot deep-link, so tell the page where to navigate (Feed / Recs). This
+        // is what makes the in-app "mark seen" run and clear the badge.
+        try { client.postMessage({ type: 'NOTIFICATION_NAV', url: raw }); } catch (_) {}
+        return;
+      }
     }
+    // Cold start: open at the hash so the boot deep-link routes us there.
     if (self.clients.openWindow) await self.clients.openWindow(targetUrl);
   })());
 });
