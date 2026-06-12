@@ -2076,12 +2076,20 @@
             /* Data Dash charts: shrink to fit phones. */
             .dash-genre-bar-track { height: 100px !important; }
             .dash-genre-bar-value { font-size: 0.78rem !important; }
-            /* Avg Ratings: smaller fonts + auto-height tiles so values don't clip. */
-            .dash-ratings-avg-main .dash-ratings-avg-value { font-size: 2rem !important; }
+            /* Avg Ratings overhaul: Overall on top (full width), then the other 6 in
+               a 2-col grid (3 rows) — all in one container, all visible. The old
+               grid-row:1/span 2 on the subgrid was clipping Imagery + Dialogue. */
+            .dash-ratings-avg-layout { display: flex !important; flex-direction: column; grid-template-rows: none !important; gap: 10px !important; }
+            .dash-ratings-avg-main { grid-row: auto !important; }
             .dash-ratings-avg-main .dash-ratings-avg-tile,
             .dash-ratings-avg-subgrid .dash-ratings-avg-tile { height: auto !important; }
-            .dash-ratings-avg-subgrid { grid-auto-rows: auto !important; }
-            .dash-ratings-avg-value { font-size: 1.1rem !important; }
+            .dash-ratings-avg-main .dash-ratings-avg-value { font-size: 2rem !important; }
+            .dash-ratings-avg-subgrid {
+                grid-row: auto !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                grid-auto-rows: auto !important;
+            }
+            .dash-ratings-avg-value { font-size: 1.15rem !important; }
             .dash-ratings-avg-row { flex-wrap: wrap; }
             /* Dash tabs: center + compact instead of the odd right-aligned layout. */
             .dash-tabs-row { justify-content: center !important; gap: 8px !important; }

@@ -1387,7 +1387,12 @@
                                         <div class="dash-kpi-chart-title" id="dash-ratings-chart-title">Average Rating by Genre</div>
                                         <div class="text-xs text-gray" id="dash-ratings-genre-meta"></div>
                                     </div>
-                                    <div id="dash-ratings-chart-tab-wrap" class="flex" style="gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
+                                    <select class="select-field dash-ctl-select" style="margin-bottom:0.5rem;" onchange="document.getElementById(this.value)?.click()">
+                                        <option value="dash-ratings-tab-genre">Genre</option>
+                                        <option value="dash-ratings-tab-decade">Decade</option>
+                                        <option value="dash-ratings-tab-mpa">MPA</option>
+                                    </select>
+                                    <div id="dash-ratings-chart-tab-wrap" class="flex dash-ctl-pills" style="gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
                                         <button type="button" class="btn dash-pill-btn btn-glass" data-chart="genre" id="dash-ratings-tab-genre" style="padding: 0.45rem 0.7rem;">Genre</button>
                                         <button type="button" class="btn dash-pill-btn btn-outline" data-chart="decade" id="dash-ratings-tab-decade" style="padding: 0.45rem 0.7rem;">Decade</button>
                                         <button type="button" class="btn dash-pill-btn btn-outline" data-chart="mpa" id="dash-ratings-tab-mpa" style="padding: 0.45rem 0.7rem;">MPA</button>
