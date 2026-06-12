@@ -1225,7 +1225,7 @@
 
                             <!-- Tabs (moved up) -->
                             <div class="glass-panel" style="padding: 0.55rem; border-radius: 0.9rem;">
-                                <div class="flex" style="gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
+                                <div class="flex dash-tabs-row" style="gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
                                     <button type="button" class="btn dash-pill-btn btn-glass" id="dash-tab-general" data-tab="general" style="padding: 0.6rem 0.9rem;">General</button>
                                     <button type="button" class="btn dash-pill-btn btn-outline" id="dash-tab-ratings" data-tab="ratings" style="padding: 0.6rem 0.9rem;">Ratings</button>
                                     <button type="button" class="btn dash-pill-btn btn-outline" id="dash-tab-tiers" data-tab="tiers" style="padding: 0.6rem 0.9rem;">Tiers</button>

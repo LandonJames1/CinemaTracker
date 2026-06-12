@@ -364,25 +364,16 @@
                             const fill = tierColorSolid[t] || '#6b7280';
                             const bg = tierColorBg[t] || 'rgba(255,255,255,0.10)';
                             return `
-                                <div style="width: 100%; min-width: 120px; display:flex; flex-direction: column; gap: 10px; align-items: center;">
-                                    <div class="text-sm text-gray tabular-nums" style="height: 18px;">${pct.toFixed(1)}%</div>
-                                    <div style="height: 320px; width: 100%; background: rgba(255,255,255,0.06); border-radius: 14px; border: 1px solid rgba(255,255,255,0.08); overflow: hidden; display:flex; align-items: flex-end;">
-                                        <div style="height: ${h}%; width: 100%; background: ${bg}; display:flex; align-items: flex-end;">
-                                            <div style="height: 100%; width: 100%; background: ${fill}; opacity: 0.92;"></div>
-                                        </div>
-                                    </div>
-                                    <div class="text-sm text-white" style="font-weight: 800; line-height: 1.1; text-align: center;">${escapeHtml(label)}</div>
-                                    <div class="text-xs text-gray tabular-nums" style="margin-top: -6px;">${count} movie${count === 1 ? '' : 's'}</div>
+                                <div class="dash-hbar-row">
+                                    <div class="dash-hbar-label">${escapeHtml(label)}</div>
+                                    <div class="dash-hbar-track"><div class="dash-hbar-fill" style="width:${h}%; background:${fill};"></div></div>
+                                    <div class="dash-hbar-val tabular-nums">${pct.toFixed(1)}% · ${count}</div>
                                 </div>
                             `;
                         })
                         .join('');
 
-                    elBars.innerHTML = `
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 18px; align-items: flex-end; width: 100%;">
-                            ${barsHTML}
-                        </div>
-                    `;
+                    elBars.innerHTML = `<div class="dash-hbar-list">${barsHTML}</div>`;
                 }
 
                 // Group movies by tier
@@ -1039,27 +1030,19 @@
             const colors = dashBuildPalette(rows.length);
             const scale = 0.8;
             return `
-                <div class="dash-genre-bars">
+                <div class="dash-hbar-list">
                     ${rows.map((r, idx) => {
                         const label = String(r?.[labelKey] ?? '').trim();
                         const val = Number(r?.[valueKey]) || 0;
                         const pct = max > 0 ? ((val / max) * 100 * scale) : 0;
                         const count = (countKey && r?.[countKey] !== undefined) ? Number(r[countKey]) : null;
                         const valueText = `${Number(val).toFixed(1)}%`;
-                        const countText = Number.isFinite(count)
-                            ? `${count} movie${count === 1 ? '' : 's'}`
-                            : '';
+                        const countText = Number.isFinite(count) ? ` · ${count}` : '';
                         return `
-                            <div class="dash-genre-bar" title="${escapeHtml(label)}" role="button" tabindex="0" data-rating-bar="true" data-bar-type="${escapeHtml(String(barType || 'genre'))}" data-bar-label="${escapeHtml(label)}">
-                                <div class="dash-genre-bar-track">
-                                    <div class="dash-genre-bar-fill" style="height:${pct.toFixed(2)}%; background:${colors[idx]};">
-                                        <div class="dash-genre-bar-metrics tabular-nums">
-                                            <div>${escapeHtml(valueText)}</div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="dash-genre-bar-label">${escapeHtml(label || '—')}</div>
-                                ${countText ? `<div class="dash-genre-bar-value tabular-nums">${escapeHtml(countText)}</div>` : ''}
+                            <div class="dash-hbar-row" title="${escapeHtml(label)}" role="button" tabindex="0" data-rating-bar="true" data-bar-type="${escapeHtml(String(barType || 'genre'))}" data-bar-label="${escapeHtml(label)}">
+                                <div class="dash-hbar-label">${escapeHtml(label || '—')}</div>
+                                <div class="dash-hbar-track"><div class="dash-hbar-fill" style="width:${pct.toFixed(2)}%; background:${colors[idx]};"></div></div>
+                                <div class="dash-hbar-val tabular-nums">${escapeHtml(valueText + countText)}</div>
                             </div>
                         `;
                     }).join('')}

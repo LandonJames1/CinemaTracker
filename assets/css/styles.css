@@ -2060,6 +2060,14 @@
             .dash-ratings-avg-subgrid { grid-auto-rows: auto !important; }
             .dash-ratings-avg-value { font-size: 1.1rem !important; }
             .dash-ratings-avg-row { flex-wrap: wrap; }
+            /* Dash tabs: center + compact instead of the odd right-aligned layout. */
+            .dash-tabs-row { justify-content: center !important; gap: 8px !important; }
+            .dash-pill-btn { padding: 0.45rem 0.7rem !important; font-size: 0.85rem; }
+            /* Tighten the big gaps between tabs / Timeframe / Counts / Rank by. */
+            .dash-dashboard-head { margin-bottom: 0.6rem !important; }
+            .dash-dashboard-row { gap: 8px !important; margin-bottom: 0.6rem !important; }
+            .dash-dashboard-row > div { gap: 8px !important; }
+
             /* Activity: stack the 3 KPIs; make the chart scroll inside its box. */
             .dash-activity-stats { grid-template-columns: 1fr !important; }
             .dash-activity-canvas-wrap { min-width: 640px; }
@@ -2254,6 +2262,20 @@
             display: grid;
             gap: 2px;
         }
+        /* Horizontal stacked bars (Ratings-by-X + Tier Distribution). */
+        .dash-hbar-list { display: flex; flex-direction: column; gap: 8px; }
+        .dash-hbar-row { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+        .dash-hbar-label {
+            flex: 0 0 90px; width: 90px; font-size: 0.8rem; font-weight: 700; color: #fff;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .dash-hbar-track {
+            flex: 1 1 auto; height: 20px; min-width: 0;
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 999px; overflow: hidden;
+        }
+        .dash-hbar-fill { height: 100%; border-radius: 999px; min-width: 2px; }
+        .dash-hbar-val { flex: 0 0 auto; font-size: 0.76rem; font-weight: 700; color: rgba(255,255,255,0.85); text-align: right; white-space: nowrap; }
         .dash-genre-bars {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
