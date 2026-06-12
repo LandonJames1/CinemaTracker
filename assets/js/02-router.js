@@ -1175,7 +1175,7 @@
                                         <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Notes / Review</label>
                                         <textarea id="fld-notes" name="Notes" class="textarea-field" rows="4" placeholder="Review...">${u.notes}</textarea>
                                     </div>
-                                        ${isUpdate ? `<div class="grid grid-2 gap-6">
+                                        ${isUpdate ? `<div class="grid grid-2 gap-6 submit-watch-inline">
                                             <div class="flex items-center justify-start" style="gap: 25px;">
                                                 <span class="text-sm text-white font-bold label-gap capitalize">Times Watched</span>
                                                 <input id="fld-timeswatch" name="Times Watch" type="number" min="1" value="${u.watched}" class="input-field text-center ${timesWatchedLocked ? 'input-readonly' : ''}" style="width: 100px; height: 42px;" ${timesWatchedLocked ? 'readonly' : ''}>
