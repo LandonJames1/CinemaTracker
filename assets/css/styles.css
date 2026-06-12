@@ -689,8 +689,7 @@
             margin-right: -46px;
             align-self: stretch;
             pointer-events: none;
-            /* Solid-ish fade so the scrolling plot is masked behind the labels. */
-            background: linear-gradient(90deg, rgba(22,22,26,0.98) 72%, rgba(22,22,26,0));
+            background: none;
         }
         .dash-activity-yaxis .dash-yt {
             position: absolute;
@@ -2060,7 +2059,12 @@
             /* Diary form: stack the 3-column layout, and put each rating's slider
                above a full-width number box instead of cramped side-by-side. */
             .grid-3 { grid-template-columns: 1fr !important; }
+            form.grid-3 { grid-template-columns: 1fr !important; }
             .col-span-2 { grid-column: auto !important; }
+            /* Diary/Update form: keep panels within the screen + compact tier row. */
+            form.grid-3 > .glass-panel { max-width: 100% !important; min-width: 0 !important; padding: 1rem !important; overflow: hidden; }
+            .tier-btn-group { grid-template-columns: repeat(6, 1fr) !important; gap: 0.3rem !important; }
+            .tier-btn { padding: 0.55rem 0 !important; min-width: 0 !important; }
             .slider-container { flex-direction: column; align-items: stretch; gap: 0.5rem; }
             .slider-container .relative { width: 100% !important; }
             .slider-container input[type="number"] { width: 100% !important; }
@@ -2306,7 +2310,7 @@
             border-radius: 999px; overflow: hidden;
         }
         .dash-hbar-fill { height: 100%; border-radius: 999px; min-width: 2px; }
-        .dash-hbar-val { flex: 0 0 auto; font-size: 0.76rem; font-weight: 700; color: rgba(255,255,255,0.85); text-align: right; white-space: nowrap; }
+        .dash-hbar-val { flex: 0 0 82px; width: 82px; font-size: 0.74rem; font-weight: 700; color: rgba(255,255,255,0.85); text-align: right; white-space: nowrap; }
         .dash-genre-bars {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
