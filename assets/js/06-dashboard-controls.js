@@ -1212,14 +1212,24 @@
                                 drawBorder: false,
                             },
                             ticks: {
-                                color: 'rgba(255,255,255,0.86)',
-                                padding: 8,
-                                font: { family: 'Inter, sans-serif', size: 12, weight: '400' },
-                                callback: (value) => dashFormatCompactNumber(value),
+                                // Hidden on the canvas — drawn in the sticky overlay below
+                                // so the values stay visible while the chart scrolls.
+                                display: false,
                             },
                         },
                     },
                 },
+                plugins: [{
+                    id: 'dashActivityStickyYAxis',
+                    afterDraw(chart) {
+                        const el = document.getElementById('dash-activity-yaxis');
+                        const y = chart?.scales?.y;
+                        if (!el || !y) return;
+                        el.innerHTML = (y.ticks || [])
+                            .map((t) => `<span class="dash-yt" style="top:${y.getPixelForValue(t.value)}px;">${dashFormatCompactNumber(t.value)}</span>`)
+                            .join('');
+                    },
+                }],
             });
         }
 
@@ -1277,6 +1287,7 @@
                             </div>
                         </div>
                         <div class="dash-activity-scroll">
+                            <div id="dash-activity-yaxis" class="dash-activity-yaxis"></div>
                             <div class="dash-activity-canvas-wrap" style="min-width:${chartMinWidth}px;">
                                 <canvas id="dash-activity-linechart" class="dash-activity-canvas" aria-label="Watch activity line chart"></canvas>
                             </div>
