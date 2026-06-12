@@ -2050,6 +2050,28 @@
             .dash-dashboard-row, .dash-dashboard-row > div { flex-wrap: wrap !important; width: 100%; }
             .dash-dashboard-row .glass-panel { flex: 1 1 auto !important; width: 100%; }
 
+            /* Data Dash charts: shrink to fit phones. */
+            .dash-genre-bar-track { height: 100px !important; }
+            .dash-genre-bar-value { font-size: 0.78rem !important; }
+            /* Avg Ratings: smaller fonts + auto-height tiles so values don't clip. */
+            .dash-ratings-avg-main .dash-ratings-avg-value { font-size: 2rem !important; }
+            .dash-ratings-avg-main .dash-ratings-avg-tile,
+            .dash-ratings-avg-subgrid .dash-ratings-avg-tile { height: auto !important; }
+            .dash-ratings-avg-subgrid { grid-auto-rows: auto !important; }
+            .dash-ratings-avg-value { font-size: 1.1rem !important; }
+            .dash-ratings-avg-row { flex-wrap: wrap; }
+            /* Activity: stack the 3 KPIs; make the chart scroll inside its box. */
+            .dash-activity-stats { grid-template-columns: 1fr !important; }
+            .dash-activity-canvas-wrap { min-width: 640px; }
+            /* Dash controls: swap pill rows for compact dropdowns. */
+            .dash-ctl-pills { display: none !important; }
+            .dash-ctl-select { display: block !important; width: 100%; }
+
+            /* Tier Distribution bars: 3-up, much shorter. */
+            #dash-tiers-bars > div { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 8px !important; }
+            #dash-tiers-bars [style*="height: 320px"] { height: 110px !important; }
+            #dash-tiers-bars [style*="min-width: 120px"] { min-width: 0 !important; }
+
             /* Recommend / Filter people lists: cap height so the modal stays usable
                and scrolls internally instead of growing taller than the screen. */
             .feed-filter-list { max-height: 46vh; }
@@ -3935,6 +3957,7 @@
         #btn-save-diary[aria-disabled="true"] { cursor: not-allowed; }
 
         /* Dashboard tabs + timeframe buttons */
+        .dash-ctl-select { display: none; }
         .dash-pill-btn {
             padding: 0.6rem 0.95rem !important;
             border-radius: 999px !important;

@@ -1241,7 +1241,12 @@
                             <div style="display:flex; gap: 12px; align-items: flex-start; flex-wrap: nowrap;">
                                 <div class="glass-panel" style="padding: 0.55rem 0.75rem; border-radius: 0.9rem; flex: 0 0 auto;">
                                     <div class="text-xs text-gray" style="margin-bottom: 0.4rem;">Timeframe</div>
-                                    <div class="flex" style="gap: 10px; flex-wrap: wrap;">
+                                    <select class="select-field dash-ctl-select" onchange="document.getElementById(this.value)?.click()">
+                                        <option value="dash-range-all-time">All Time</option>
+                                        <option value="dash-range-this-year">This Year</option>
+                                        <option value="dash-range-this-month">This Month</option>
+                                    </select>
+                                    <div class="flex dash-ctl-pills" style="gap: 10px; flex-wrap: wrap;">
                                         <button type="button" class="btn dash-pill-btn btn-glass" id="dash-range-all-time" data-range="all_time" style="padding: 0.55rem 0.85rem;">All Time</button>
                                         <button type="button" class="btn dash-pill-btn btn-outline" id="dash-range-this-year" data-range="this_year" style="padding: 0.55rem 0.85rem;">This Year</button>
                                         <button type="button" class="btn dash-pill-btn btn-outline" id="dash-range-this-month" data-range="this_month" style="padding: 0.55rem 0.85rem;">This Month</button>
@@ -1250,7 +1255,11 @@
 
                                 <div id="dash-general-mode-panel" class="glass-panel hidden" style="padding: 0.55rem 0.75rem; border-radius: 0.9rem; flex: 0 0 auto;">
                                     <div class="text-xs text-gray" style="margin-bottom: 0.4rem;">Counts</div>
-                                    <div id="dash-general-mode-wrap" class="flex" style="gap: 10px; flex-wrap: wrap;">
+                                    <select class="select-field dash-ctl-select" onchange="document.getElementById(this.value)?.click()">
+                                        <option value="dash-general-mode-total">Total Watches</option>
+                                        <option value="dash-general-mode-unique">Unique Movies</option>
+                                    </select>
+                                    <div id="dash-general-mode-wrap" class="flex dash-ctl-pills" style="gap: 10px; flex-wrap: wrap;">
                                         <button type="button" class="btn dash-pill-btn btn-glass" data-mode="total" id="dash-general-mode-total" style="padding: 0.55rem 0.85rem;">Total Watches</button>
                                         <button type="button" class="btn dash-pill-btn btn-outline" data-mode="unique" id="dash-general-mode-unique" style="padding: 0.55rem 0.85rem;">Unique Movies</button>
                                     </div>
@@ -1262,7 +1271,16 @@
                                 <!-- Favorites-only: Rank By controls (shown only when Favorites tab active) -->
                                 <div id="dash-fav-metric-panel" class="glass-panel hidden" style="padding: 0.55rem 0.75rem; border-radius: 0.9rem; flex: 0 0 auto;">
                                     <div class="text-xs text-gray" style="margin-bottom: 0.4rem;">Rank by</div>
-                                    <div id="dash-fav-metric-wrap" class="flex" style="gap: 10px; flex-wrap: wrap;">
+                                    <select class="select-field dash-ctl-select" onchange="document.getElementById(this.value)?.click()">
+                                        <option value="dash-fav-metric-overall">Overall</option>
+                                        <option value="dash-fav-metric-sound">Sound</option>
+                                        <option value="dash-fav-metric-plot">Plot</option>
+                                        <option value="dash-fav-metric-pace">Pace</option>
+                                        <option value="dash-fav-metric-acting">Acting</option>
+                                        <option value="dash-fav-metric-imagery">Imagery</option>
+                                        <option value="dash-fav-metric-dialogue">Dialogue</option>
+                                    </select>
+                                    <div id="dash-fav-metric-wrap" class="flex dash-ctl-pills" style="gap: 10px; flex-wrap: wrap;">
                                         <button type="button" class="btn dash-pill-btn btn-glass" data-metric="overall" id="dash-fav-metric-overall" style="padding: 0.55rem 0.85rem;">Overall</button>
                                         <button type="button" class="btn dash-pill-btn btn-outline" data-metric="sound" id="dash-fav-metric-sound" style="padding: 0.55rem 0.85rem;">Sound</button>
                                         <button type="button" class="btn dash-pill-btn btn-outline" data-metric="plot" id="dash-fav-metric-plot" style="padding: 0.55rem 0.85rem;">Plot</button>
