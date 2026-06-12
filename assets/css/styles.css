@@ -1998,9 +1998,7 @@
                 margin: 0;
                 border-radius: 0;
                 overflow-y: auto;
-                padding: 1rem;
-                padding-top: calc(1rem + env(safe-area-inset-top));
-                padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+                padding: calc(1rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom)) 1rem !important;
                 background: rgba(15, 15, 18, 0.98);
             }
 
@@ -2036,8 +2034,21 @@
             /* Log form: smaller poster to cut the long scroll. */
             .submit-poster-img { width: 130px !important; }
 
+            /* Diary form: stack the 3-column layout, and put each rating's slider
+               above a full-width number box instead of cramped side-by-side. */
+            .grid-3 { grid-template-columns: 1fr !important; }
+            .col-span-2 { grid-column: auto !important; }
+            .slider-container { flex-direction: column; align-items: stretch; gap: 0.5rem; }
+            .slider-container .relative { width: 100% !important; }
+            .slider-container input[type="number"] { width: 100% !important; }
+
             /* My Movies grid: the desktop 7-column grid is unusable on a phone. */
             .library-movie-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+
+            /* Data Dash: stack the controls row + its panels full-width so the
+               timeframe/rank-by pills wrap instead of running off-screen. */
+            .dash-dashboard-row, .dash-dashboard-row > div { flex-wrap: wrap !important; width: 100%; }
+            .dash-dashboard-row .glass-panel { flex: 1 1 auto !important; width: 100%; }
 
             /* Recommend / Filter people lists: cap height so the modal stays usable
                and scrolls internally instead of growing taller than the screen. */
@@ -3432,7 +3443,7 @@
         }
         .feed-filter-toggle:hover { border-color: color-mix(in srgb, var(--brand) 45%, transparent); }
         .feed-filter-toggle .feed-filter-cb { margin-top: 1px; }
-        .feed-filter-toggle-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .feed-filter-toggle-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
         .feed-filter-toggle-title { color: #fff; font-weight: 600; font-size: 0.9rem; }
         .feed-filter-toggle-sub {
             color: var(--text-muted, rgba(255,255,255,0.55));
