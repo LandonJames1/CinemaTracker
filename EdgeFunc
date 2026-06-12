@@ -38,6 +38,41 @@ async function sendPushToUser(supabaseAdmin, userId, payload) {
   return sent;
 }
 
+// Total "unseen" notification count for a user's home-screen app badge (the
+// little red number on the iOS PWA icon). Combines new feed activity (ratings
+// from people they follow since feed_seen_at) + recommendations received since
+// recs_seen_at, so the badge matches the in-app nav badges in refreshNavBadges()
+// (05-feed-library.js) and stays accurate no matter which push last fired.
+async function computeUnseenBadge(supabaseAdmin, userId) {
+  let feed = 0, recs = 0;
+  try {
+    const { data: u } = await supabaseAdmin
+      .from("Users").select("feed_seen_at, recs_seen_at").eq("id", userId).single();
+
+    // Recs received since last seen.
+    {
+      let q = supabaseAdmin.from("Recommendations").select("id", { count: "exact", head: true }).eq("to_user_id", userId);
+      if (u?.recs_seen_at) q = q.gt("created_at", u.recs_seen_at);
+      const { count } = await q;
+      if (typeof count === "number") recs = count;
+    }
+
+    // Feed: ratings from people this user follows, since last seen.
+    {
+      const { data: fr } = await supabaseAdmin
+        .from("Follows").select("followed_id").eq("follower_id", userId);
+      const followed = (Array.isArray(fr) ? fr : []).map((x) => x.followed_id).filter(Boolean);
+      if (followed.length) {
+        let q = supabaseAdmin.from("Movie Ratings").select("id", { count: "exact", head: true }).in("user_id", followed);
+        if (u?.feed_seen_at) q = q.gt("updated_at", u.feed_seen_at);
+        const { count } = await q;
+        if (typeof count === "number") feed = count;
+      }
+    }
+  } catch (_) {}
+  return feed + recs;
+}
+
 // Build the MPA + genre line for recommendation texts with correct grammar,
 // e.g. "An R rated Drama", "A PG-13 rated Action", "An NC-17 rated Comedy".
 // The article depends on how the rating is *pronounced* (R = "arr" → "An").
@@ -1013,14 +1048,7 @@ Deno.serve(async (req) => {
           // d) Notify: PREFER a web push if the recipient has push enabled on any
           //    device; otherwise fall back to the email-to-SMS text. Best-effort.
           try {
-            let badgeCount;
-            try {
-              const { data: su } = await supabaseAdmin.from("Users").select("recs_seen_at").eq("id", rid).single();
-              let q = supabaseAdmin.from("Recommendations").select("id", { count: "exact", head: true }).eq("to_user_id", rid);
-              if (su?.recs_seen_at) q = q.gt("created_at", su.recs_seen_at);
-              const { count: rc } = await q;
-              if (typeof rc === "number") badgeCount = rc;
-            } catch (_) {}
+            const badgeCount = await computeUnseenBadge(supabaseAdmin, rid);
             const pushed = await sendPushToUser(supabaseAdmin, rid, {
               title: isRepeat ? "Recommended Again 🎬" : "New Movie Rec! 🎬",
               body: `${senderHandle} recommended "${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`,
@@ -1067,6 +1095,81 @@ Deno.serve(async (req) => {
         seen: results.filter((x) => x.seen).length,
         results,
       }, 200);
+    }
+
+    // ---- Notify followers that the caller posted a NEW review ----------------
+    // Fired by the diary form ONLY for brand-new entries (never updates), so a
+    // push is sent the first time a movie hits a follower's feed. Web push only
+    // (no SMS fallback — feeds are higher-volume than recs). Best-effort: each
+    // follower's home-screen app badge is set to their accurate unseen count.
+    if (action === "notify_new_review") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) {
+        return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      }
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const author = userData?.user || null;
+      if (userErr || !author?.id) {
+        return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+      }
+
+      const isUuid = (v) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || "").trim());
+      const movieId = String(body?.movie_id ?? "").trim();
+      if (!isUuid(movieId)) {
+        return jsonResponse({ code: 400, message: "Valid movie_id is required." }, 400);
+      }
+
+      // Movie title (+ year) for the message.
+      let movieTitle = "", movieYear = "";
+      try {
+        const { data: mrow } = await supabaseAdmin
+          .from("Movies").select("title, release_year").eq("id", movieId).single();
+        movieTitle = String(mrow?.title ?? "").trim();
+        movieYear = (mrow?.release_year ?? "") === "" ? "" : String(mrow.release_year);
+      } catch (_) {}
+
+      // Author handle ("@username", falling back to display name).
+      let authorHandle = "";
+      try {
+        const { data: arow } = await supabaseAdmin
+          .from("Users").select("username, display_name").eq("id", author.id).single();
+        const uname = String(arow?.username ?? "").trim();
+        authorHandle = uname ? `@${uname}` : String(arow?.display_name ?? "").trim();
+      } catch (_) {}
+      if (!authorHandle) authorHandle = "Someone you follow";
+
+      // Followers = rows in Follows whose followed_id is the author.
+      let followerIds = [];
+      try {
+        const { data: fr } = await supabaseAdmin
+          .from("Follows").select("follower_id").eq("followed_id", author.id);
+        followerIds = Array.from(new Set(
+          (Array.isArray(fr) ? fr : []).map((x) => String(x.follower_id || "").trim())
+            .filter((x) => isUuid(x) && x !== author.id),
+        ));
+      } catch (_) {}
+
+      const titlePart = `"${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`;
+      let notified = 0;
+      for (const fid of followerIds) {
+        try {
+          const badge = await computeUnseenBadge(supabaseAdmin, fid);
+          const pushed = await sendPushToUser(supabaseAdmin, fid, {
+            title: "New Review 🎬",
+            body: `Check out ${authorHandle}'s new review of ${titlePart}`,
+            url: "/#feed",
+            badge,
+            tag: `review-${author.id}-${movieId}`,
+          });
+          if (pushed > 0) notified++;
+        } catch (_) {}
+      }
+
+      return jsonResponse({ ok: true, movie_id: movieId, followers: followerIds.length, notified }, 200);
     }
 
     // ---- Admin test: send a sample text to the caller's own phone ----

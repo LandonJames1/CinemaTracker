@@ -258,10 +258,14 @@
             border: 1px solid color-mix(in srgb, var(--brand) 50%, transparent);
             border-radius: 999px;
         }
-        /* "New since last view" highlight for feed items + recommended movies */
-        .feed-item-card.is-new,
+        /* "New since last view" highlight for recommended movies (Recs list). */
         .lists-movie-card.is-new {
             box-shadow: 0 0 0 2px var(--brand, #14b8a6), 0 0 16px color-mix(in srgb, var(--brand) 40%, transparent);
+            border-radius: 1rem;
+        }
+        /* New feed posts from people you follow glow PINK (distinct from Recs). */
+        .feed-item-card.is-new {
+            box-shadow: 0 0 0 2px #ec4899, 0 0 16px rgba(236, 72, 153, 0.45);
             border-radius: 1rem;
         }
         /* New feed entry for a movie YOU recommended to that person — violet glow. */

@@ -779,6 +779,15 @@
                     await removeMovieFromAutoLists({ user_id: authedUser.id, movie_id });
                 } catch (_) {}
 
+                // Best-effort, fire-and-forget: push-notify everyone who follows me
+                // that I posted a NEW review (never on updates — that path returns
+                // above). Don't await — the success modal shouldn't wait on it.
+                try {
+                    if (entryType === 'new') {
+                        callSwiftApi({ action: 'notify_new_review', movie_id }, accessToken).catch(() => null);
+                    }
+                } catch (_) {}
+
                 checkAndAwardRatingMilestones().catch(() => null);
 
                 openRatingsSuccessModal('saved');

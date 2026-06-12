@@ -128,8 +128,15 @@ the front end calls:
   include `search`, AI picks, `send_recommendation` (adds a movie to each
   recipient's "Recs" list, then **notifies push-first**: `sendPushToUser` sends a
   Web Push if the recipient has `push_subscriptions` rows, else falls back to
-  email-to-SMS), `test_sms` (admin button → texts the caller), and `test_push`
-  (sends a real Web Push to the caller's own subscribed devices). The diary save also sends an `mpa`
+  email-to-SMS), `notify_new_review` (web-push every FOLLOWER when the caller
+  posts a **brand-new** review — fired fire-and-forget by `handleFormSubmit` in
+  `10-logging-form.js` only on the new-entry insert path, never on updates;
+  body = `Check out @user's new review of "Title"`, `url:"/#feed"`),
+  `test_sms` (admin button → texts the caller), and `test_push`
+  (sends a real Web Push to the caller's own subscribed devices). All push
+  payloads carry a numeric `badge` from `computeUnseenBadge()` (= unseen feed
+  ratings since `Users.feed_seen_at` + unseen recs since `Users.recs_seen_at`),
+  which the service worker mirrors onto the iOS home-screen app-icon badge. The diary save also sends an `mpa`
   override so user-entered MPA persists when TMDb lacks it.
   - Env vars for recommendations (Gmail SMTP via `denomailer`): `GMAIL_USER`,
     `GMAIL_APP_PASSWORD`, optional `SITE_URL`. Email-to-SMS gateways:
@@ -157,6 +164,8 @@ the front end calls:
   blocked when `Settings.allow_signups` is false; admin/dashboard-created users
   bypass the gate. Supersedes the list triggers in `bucket_list_auto.sql` /
   `recs_and_profile.sql`, which remain harmless),
+  `notification_seen_columns.sql` (`Users.feed_seen_at` / `Users.recs_seen_at` —
+  the "last viewed Feed/Recs" timestamps that drive every unseen-count badge),
   etc.; more in `Supabase Setup/`.
 - Gating constants in JS: `ADMIN_EMAIL` (admin panel), `THEME_CREATOR_OWNER_EMAIL`
   (theme creator), `DEMO_USER_ID` (guest mode).
@@ -187,7 +196,7 @@ non-existent column makes the whole PostgREST query fail and return nothing.
 | `Movie External Ratings` | `movie_id, source, rating, fetched_at` (IMDb etc.; no user_id) |
 | `Movie Ratings` | `id, watch_date, updated_at, user_id, movie_id, tier, overall_rating, acting_rating, pacing_rating, sound_rating, imagery_rating, plot_rating, dialogue_rating, notes, fav_quote` (one per user+movie; **no movie metadata here**) |
 | `Watch Logs` | `id, watch_date, user_id, movie_id, watch_method` |
-| `Users` | `id, created_at, display_name, privacy_level, username, icon, theme_id, tier_id, achievement_points, phone, carrier` |
+| `Users` | `id, created_at, display_name, privacy_level, username, icon, theme_id, tier_id, achievement_points, phone, carrier, feed_seen_at, recs_seen_at` (the last two added by `notification_seen_columns.sql`; not in the CSV export — they drive unseen-count badges) |
 | `Follows` | `follower_id, followed_id, created_at` (follower → followed) |
 | `Lists` | `id, created_at, list_name, user_id` (unique `(user_id, list_name)`; auto special lists: **"Bucket List"**, **"Recs"**) |
 | `Movie Lists` | `list_id, movie_id, created_at, user_id` (unique `(list_id, movie_id)` — no duplicate movie per list) |
