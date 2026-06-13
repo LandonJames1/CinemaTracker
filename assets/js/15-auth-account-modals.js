@@ -14,9 +14,14 @@
             const subtitleEl = document.getElementById('auth-modal-subtitle');
             const statusEl = document.getElementById('auth-modal-status');
             const pwdEl = document.getElementById('auth-password');
+            const forgotBtn = document.getElementById('auth-forgot-btn');
 
             // Only show tab bar when sign-ups are enabled and user is not logged in
             if (tabBar) tabBar.style.display = (siteSignupEnabled && !cachedIsAuthed) ? 'flex' : 'none';
+
+            // "Forgot password?" only makes sense when logging in (a new signup has
+            // no account/email to reset yet).
+            if (forgotBtn) forgotBtn.style.display = (authMode === 'signup') ? 'none' : 'block';
 
             if (authMode === 'signup') {
                 if (tabLogin) { tabLogin.style.background = 'transparent'; tabLogin.style.color = 'var(--text-muted)'; }
@@ -379,10 +384,6 @@
             const overlay = getAccountSectionOverlay(kind);
             if (!overlay) return;
             overlay.classList.add('open');
-            if (kind === 'profile') {
-                const input = document.getElementById('account-username');
-                if (input) input.focus();
-            }
             if (kind === 'notifications') {
                 try { refreshPushToggleState(); } catch (_) {}
             }

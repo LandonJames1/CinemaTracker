@@ -1,3 +1,4 @@
+        const LIST_ITEMS_VIEW = 'user_list_items_v1'; // pre-joined list rows (see lists_views.sql)
         let listsBound = false;
         let listsLoading = false;
         let listsActiveListId = null;
@@ -2409,22 +2410,21 @@
                     return;
                 }
 
-                const { data: joins, error: joinErr } = await supabaseClient
-                    .from('Movie Lists')
-                    .select('movie_id, created_at')
+                // ONE query: user_list_items_v1 returns every movie in the active list
+                // with all metadata pre-joined (genre / IMDb / director / runtime / MPA /
+                // actors / the user's own rating / watch info). This replaces the old
+                // Movies fetch + a live per-movie TMDB call for each movie, which is what
+                // made this page slow / "never load". See lists_views.sql.
+                const { data: viewRows, error: viewErr } = await supabaseClient
+                    .from(LIST_ITEMS_VIEW)
+                    .select('*')
                     .eq('user_id', user.id)
                     .eq('list_id', listsActiveListId)
-                    .order('created_at', { ascending: false });
-                if (joinErr) throw joinErr;
+                    .order('added_at', { ascending: false });
+                if (viewErr) throw viewErr;
 
-                const joinRows = Array.isArray(joins) ? joins : [];
-                const movieIds = joinRows.map(r => r?.movie_id).filter(Boolean);
-                // When each movie was added to this list (drives the "Recommended (newest)" sort).
-                const addedAtByMovieId = new Map();
-                for (const j of joinRows) {
-                    const mid = String(j?.movie_id || '').trim();
-                    if (mid && !addedAtByMovieId.has(mid)) addedAtByMovieId.set(mid, j?.created_at || null);
-                }
+                const rows = Array.isArray(viewRows) ? viewRows : [];
+                const movieIds = rows.map(r => r?.movie_id).filter(Boolean).map(String);
                 if (movieIds.length === 0) {
                     elItems.innerHTML = `<div class="text-gray">No movies in this list yet.</div>`;
                     try { setListsQuickAddEnabledState(); } catch (_) {}
@@ -2432,15 +2432,22 @@
                     return;
                 }
 
-                const { data: movies, error: moviesErr } = await supabaseClient
-                    .from('Movies')
-                    .select('*')
-                    .in('id', movieIds);
-                if (moviesErr) throw moviesErr;
-
+                // Build the lookup maps the renderer expects. Each view row already
+                // carries movie meta + the user's rating + watch info, so all four maps
+                // point at the same row.
                 const moviesById = new Map();
-                for (const m of (Array.isArray(movies) ? movies : [])) {
-                    if (m?.id) moviesById.set(m.id, m);
+                const addedAtByMovieId = new Map();   // drives the "Recommended (newest)" sort
+                const ratingsByMovieId = new Map();   // the user's own rating (null if unwatched)
+                const latestWatchByMovieId = new Map();
+                const libraryByMovieId = new Map();   // watch_count / watch_method / actors
+                for (const row of rows) {
+                    const mid = String(row?.movie_id || '').trim();
+                    if (!mid) continue;
+                    moviesById.set(mid, row);
+                    if (!addedAtByMovieId.has(mid)) addedAtByMovieId.set(mid, row?.added_at || null);
+                    ratingsByMovieId.set(mid, row);
+                    if (row?.latest_watch_date) latestWatchByMovieId.set(mid, row.latest_watch_date);
+                    libraryByMovieId.set(mid, row);
                 }
 
                 // For the "Recs" list: who recommended each movie (avatars + "+" modal),
@@ -2457,8 +2464,8 @@
                             .select('from_user_id, movie_id, created_at')
                             .eq('to_user_id', user.id)
                             .in('movie_id', movieIds);
-                        const rows = Array.isArray(recRows) ? recRows : [];
-                        const senderIds = Array.from(new Set(rows.map(r => String(r?.from_user_id || '').trim()).filter(Boolean)));
+                        const recDataRows = Array.isArray(recRows) ? recRows : [];
+                        const senderIds = Array.from(new Set(recDataRows.map(r => String(r?.from_user_id || '').trim()).filter(Boolean)));
                         const userById = new Map();
                         if (senderIds.length) {
                             let us = null;
@@ -2480,7 +2487,7 @@
                                 });
                             }
                         }
-                        for (const r of rows) {
+                        for (const r of recDataRows) {
                             const mid = String(r?.movie_id || '').trim();
                             const fid = String(r?.from_user_id || '').trim();
                             if (!mid || !fid) continue;
@@ -2495,78 +2502,6 @@
                         }
                     } catch (_) { /* table may not exist pre-migration */ }
                     try { markRecsSeen(); } catch (_) {}
-                }
-
-                // Fetch genres and IMDb rating from external API for each movie (like rating/log flow)
-                await Promise.allSettled(Array.from(moviesById.values()).map(async (movie) => {
-                    const tmdb_id = Number(movie?.tmdb_id);
-                    if (!Number.isFinite(tmdb_id) || tmdb_id <= 0) return;
-                    try {
-                        const details = await callSwiftApiGetMovieDetails({ tmdb_id });
-                        if (details) {
-                            if (Array.isArray(details.genres)) movie.genres = details.genres;
-                            if (typeof details.genre === 'string') movie.genre = details.genre;
-                            if (details.imdb_rating_pct !== undefined && details.imdb_rating_pct !== null) movie.imdb_rating_pct = details.imdb_rating_pct;
-                        }
-                    } catch (_) {}
-                }));
-
-                // Fetch user ratings for these movies (best-effort).
-                const ratingsByMovieId = new Map();
-                try {
-                    const { data: ratings, error: ratingsErr } = await supabaseClient
-                        .from('Movie Ratings')
-                        .select('movie_id, overall_rating, sound_rating, pacing_rating, imagery_rating, acting_rating, plot_rating, dialogue_rating, tier')
-                        .eq('user_id', user.id)
-                        .in('movie_id', movieIds);
-                    if (!ratingsErr) {
-                        for (const r of (Array.isArray(ratings) ? ratings : [])) {
-                            const mid = String(r?.movie_id || '').trim();
-                            if (!mid) continue;
-                            ratingsByMovieId.set(mid, r);
-                        }
-                    }
-                } catch (_) {
-                    // Ignore ratings fetch errors.
-                }
-
-                // Fetch latest watch date per movie (best-effort).
-                const latestWatchByMovieId = new Map();
-                try {
-                    const { data: lw, error: lwErr } = await supabaseClient
-                        .from('user_movie_latest_watch')
-                        .select('movie_id, latest_watch_date')
-                        .eq('user_id', user.id)
-                        .in('movie_id', movieIds);
-                    if (!lwErr) {
-                        for (const r of (Array.isArray(lw) ? lw : [])) {
-                            const mid = String(r?.movie_id || '').trim();
-                            if (!mid) continue;
-                            latestWatchByMovieId.set(mid, r?.latest_watch_date || null);
-                        }
-                    }
-                } catch (_) {
-                    // Ignore latest watch fetch errors.
-                }
-
-                // Fetch watch_count, watch_method and actors from library view for these movies (best-effort).
-                const libraryByMovieId = new Map();
-                try {
-                    const { data: lRows, error: lErr } = await supabaseClient
-                        .from(LIBRARY_ITEMS_VIEW)
-                        .select('movie_id, latest_watch_date, watch_count, watch_method, actors')
-                        .eq('user_id', user.id)
-                        .in('movie_id', movieIds);
-                    if (!lErr) {
-                        for (const r of (Array.isArray(lRows) ? lRows : [])) {
-                            const mid = String(r?.movie_id || '').trim();
-                            if (!mid) continue;
-                            libraryByMovieId.set(mid, r);
-                            if (r?.latest_watch_date) latestWatchByMovieId.set(mid, r.latest_watch_date);
-                        }
-                    }
-                } catch (_) {
-                    // Ignore library view fetch errors.
                 }
 
                 // Fetch watch platforms for these movies (best-effort; do not fail page).

@@ -152,7 +152,6 @@
             const passwordStatus = document.getElementById('account-password-status');
             const emailEl = document.getElementById('account-email');
             const usernameEl = document.getElementById('account-username');
-            const dnEl = document.getElementById('account-display-name');
             updateFeatureRequestCounter();
 
             if (profileStatus) profileStatus.textContent = '';
@@ -222,10 +221,8 @@
 
                 const row = Array.isArray(data) && data.length ? data[0] : null;
                 const username = String(row?.username || '').trim();
-                const displayName = String(row?.display_name || '').trim();
                 const themeId = String(row?.theme_id || '').trim();
                 if (usernameEl) usernameEl.value = username;
-                if (dnEl) dnEl.value = displayName;
                 setAccountIconPreview(String(row?.icon || '').trim());
                 const themeSelect = document.getElementById('account-theme-select');
                 if (themeSelect) {
@@ -569,7 +566,6 @@
             const profileStatus = document.getElementById('account-profile-status');
             const saveBtn = document.getElementById('account-save-profile');
             const usernameEl = document.getElementById('account-username');
-            const dnEl = document.getElementById('account-display-name');
 
             if (!supabaseClient || !cachedIsAuthed) {
                 showToast('Please log in first.', { level: 'warn' });
@@ -585,18 +581,10 @@
 
             const desiredUsernameRaw = String(usernameEl?.value || '');
             const desiredUsername = normalizeUsername(desiredUsernameRaw);
-            const desiredDisplayName = String(dnEl?.value || '').trim();
             const userErr = validateUsername(desiredUsername);
             if (userErr) {
                 if (profileStatus) profileStatus.textContent = userErr;
                 showToast(userErr, { level: 'warn' });
-                return;
-            }
-
-            if (desiredDisplayName.length > 50) {
-                const msg = 'Display name must be 50 characters or less.';
-                if (profileStatus) profileStatus.textContent = msg;
-                showToast(msg, { level: 'warn' });
                 return;
             }
 
@@ -608,10 +596,11 @@
             if (profileStatus) profileStatus.textContent = 'Saving…';
 
             try {
+                // Display name is no longer editable in the UI; leave the existing
+                // column value untouched (don't send it, so a blank field can't wipe it).
                 const payload = {
                     id: uid,
                     username: desiredUsername,
-                    display_name: desiredDisplayName || null,
                 };
 
                 let data = null;
@@ -626,7 +615,7 @@
                 } catch (err1) {
                     const msg1 = String(err1?.message || err1);
                     if (/column\s+"?icon"?\s+does\s+not\s+exist/i.test(msg1)) {
-                        const payload2 = { id: uid, username: desiredUsername, display_name: desiredDisplayName || null };
+                        const payload2 = { id: uid, username: desiredUsername };
                         const r2 = await supabaseClient
                             .from('Users')
                             .upsert(payload2, { onConflict: 'id' })

@@ -1892,7 +1892,7 @@
                             <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; align-items: stretch;">
                                 <button type="button" class="glass-panel" data-account-action="open_profile" style="padding: 1rem; border-radius: 1rem; text-align: left;">
                                     <div class="text-white font-bold">Profile</div>
-                                    <div class="text-xs text-gray" style="margin-top: 0.35rem;">Username, display name, and icon.</div>
+                                    <div class="text-xs text-gray" style="margin-top: 0.35rem;">Username and profile photo.</div>
                                 </button>
                                 <button type="button" class="glass-panel" data-account-action="open_notifications" style="padding: 1rem; border-radius: 1rem; text-align: left;">
                                     <div class="text-white font-bold">Notifications</div>
@@ -1980,11 +1980,6 @@
                                     <input id="account-username" type="text" class="input-field" placeholder="e.g. landon" autocomplete="username" spellcheck="false">
                                     <div class="text-xs text-gray" style="margin-top: 0.35rem;">3–20 chars • letters/numbers/underscore • stored without “@”.</div>
                                 </div>
-                                <div>
-                                    <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Display name</label>
-                                    <input id="account-display-name" type="text" class="input-field" placeholder="e.g. Landon James" autocomplete="name">
-                                </div>
-
                                 <div style="display:flex; gap: 10px; flex-wrap: wrap;">
                                     <button id="account-save-profile" type="submit" class="btn btn-primary" style="border-radius: 0.85rem;">Save profile</button>
                                     <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" data-account-action="reload">Reload</button>
