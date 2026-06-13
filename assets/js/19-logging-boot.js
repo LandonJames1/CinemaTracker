@@ -320,6 +320,9 @@
             // Populate unread-notification badges (Feed / Lists) on load.
             try { refreshNavBadges(); } catch (_) {}
 
+            // New users: prompt to enable push notifications right away (one-shot).
+            try { maybePromptPushAfterSignup(); } catch (_) {}
+
             // Deep-link from a push notification (…/#feed or …/#recs).
             try {
                 if (handleNotificationRoute(window.location.hash)) {

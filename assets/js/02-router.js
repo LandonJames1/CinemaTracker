@@ -48,7 +48,7 @@
 
             navigate(page, mode = 'new', navMode = 'push') {
                 // If the user is not logged in, open the auth modal with demo option.
-                const authGatedPages = ['dashboard','dashboard_kpi','dashboard_pie_filter','feed','library','lists','account','theme_creator'];
+                const authGatedPages = ['dashboard','dashboard_kpi','dashboard_pie_filter','feed','library','lists','account','achievements','theme_creator'];
                 if (authGatedPages.includes(page) && !cachedIsAuthed) {
                     _pendingGuestPage = page;
                     openAuthModal();
@@ -150,6 +150,11 @@
                     refreshAuthStateAndUI();
                     initAccountPage();
                     loadAccountPage();
+                } else if (page === 'achievements') {
+                    root.innerHTML = this.renderAchievements();
+                    refreshAuthStateAndUI();
+                    initAccountPage();        // binds the shared sort/filter + card-click handlers (idempotent)
+                    loadAchievementsPage();
                 } else if (page === 'theme_creator') {
                     root.innerHTML = this.renderThemeCreator();
                     refreshAuthStateAndUI();
@@ -1802,6 +1807,77 @@
                 `;
             },
 
+            renderAchievements() {
+                return `
+                    <div class="fade-in">
+                        <div class="container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
+                            <div class="flex justify-between items-center mb-6" style="gap: 14px; flex-wrap: wrap;">
+                                <div class="glass-panel page-title-card">
+                                    <h1 class="text-3xl font-bold text-white">Achievements</h1>
+                                    <p class="text-gray mt-2">Your tier, points, and badges.</p>
+                                </div>
+                                <div style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap; justify-content:flex-end;">
+                                    <div class="achievement-filter-wrap">
+                                        <button id="account-achievement-filters-btn" type="button" class="btn btn-outline" style="padding: 0.45rem 0.7rem; border-radius: 0.85rem;">Sort/Filter</button>
+                                        <div id="account-achievement-filters-pop" class="achievement-filters-pop" aria-hidden="true">
+                                            <div class="achievement-filters-row">
+                                                <div class="achievement-filters-label">Sort</div>
+                                                <select id="account-achievement-sort" class="input-field">
+                                                    <option value="points_asc" selected>Points: Low to High</option>
+                                                    <option value="points_desc">Points: High to Low</option>
+                                                </select>
+                                            </div>
+                                            <div class="achievement-filters-row">
+                                                <div class="achievement-filters-label">Type</div>
+                                                <select id="account-achievement-filter" class="input-field">
+                                                    <option value="all">All types</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-outline" onclick="router.navigate('account')" style="padding: 0.45rem 0.8rem; border-radius: 0.85rem;">Back</button>
+                                </div>
+                            </div>
+
+                            <div class="account-achievements-layout">
+                                <div id="account-tier-summary" class="tier-summary-card" aria-live="polite" data-tier="Extra">
+                                    <div class="tier-summary-header">
+                                        <div class="tier-summary-title">Current Tier</div>
+                                        <div class="tier-summary-name" id="account-tier-name">—</div>
+                                    </div>
+                                    <div class="tier-summary-body">
+                                        <div class="tier-summary-icon" id="account-tier-icon">?</div>
+                                        <div class="tier-summary-stats">
+                                            <div class="tier-summary-points" id="account-tier-points">0 pts</div>
+                                            <div class="tier-summary-next" id="account-tier-next">Earn more points to level up.</div>
+                                        </div>
+                                    </div>
+                                    <div class="tier-summary-bar">
+                                        <div class="tier-summary-progress" id="account-tier-progress"></div>
+                                    </div>
+                                </div>
+                                <div id="account-achievements-list" class="achievement-grid">
+                                    <div class="text-xs text-gray">Loading achievements…</div>
+                                </div>
+                            </div>
+
+                            <div class="glass-panel" id="account-achievement-test-panel" style="margin-top: 1rem; padding: 1rem; border-radius: 1rem; display:none;">
+                                <div style="display:flex; align-items:center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap;">
+                                    <div>
+                                        <div class="text-white font-bold">Achievement Testing</div>
+                                        <div class="text-xs text-gray" style="margin-top: 0.35rem;">Trigger a test popup on demand.</div>
+                                    </div>
+                                    <div style="display:flex; gap: 0.4rem; align-items:center; flex-wrap: wrap;">
+                                        <select id="account-test-achievement-select" class="input-field" style="min-width: 180px;"></select>
+                                        <button id="account-test-achievement-btn" type="button" class="btn btn-outline" style="padding: 0.35rem 0.6rem; border-radius: 0.75rem;" onclick="triggerTestAchievementPopup()">Test Achievement</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            },
+
             renderAccount() {
                 return `
                     <div class="fade-in">
@@ -1818,6 +1894,10 @@
                                     <div class="text-white font-bold">Profile</div>
                                     <div class="text-xs text-gray" style="margin-top: 0.35rem;">Username, display name, and icon.</div>
                                 </button>
+                                <button type="button" class="glass-panel" data-account-action="open_notifications" style="padding: 1rem; border-radius: 1rem; text-align: left;">
+                                    <div class="text-white font-bold">Notifications</div>
+                                    <div class="text-xs text-gray" style="margin-top: 0.35rem;">Enable or turn off push notifications.</div>
+                                </button>
                                 <button type="button" class="glass-panel hidden" id="theme-creator-card" data-account-action="theme_creator" style="padding: 1rem; border-radius: 1rem; text-align: left;">
                                     <div class="text-white font-bold">Theme Creator</div>
                                     <div class="text-xs text-gray" style="margin-top: 0.35rem;">Build themed backdrops from TMDb.</div>
@@ -1826,13 +1906,13 @@
                                     <div class="text-white font-bold">Security</div>
                                     <div class="text-xs text-gray" style="margin-top: 0.35rem;">Update your password and view email.</div>
                                 </button>
+                                <button type="button" class="glass-panel" data-account-action="open_achievements" style="padding: 1rem; border-radius: 1rem; text-align: left;">
+                                    <div class="text-white font-bold">Achievements</div>
+                                    <div class="text-xs text-gray" style="margin-top: 0.35rem;">Your tier, points, and badges.</div>
+                                </button>
                                 <button type="button" class="glass-panel" data-account-action="open_feature" style="padding: 1rem; border-radius: 1rem; text-align: left;">
                                     <div class="text-white font-bold">Feature Requests</div>
                                     <div class="text-xs text-gray" style="margin-top: 0.35rem;">Send ideas and suggestions.</div>
-                                </button>
-                                <button type="button" class="glass-panel" data-account-action="logout" style="padding: 1rem; border-radius: 1rem; text-align: left;">
-                                    <div class="text-white font-bold">Log out</div>
-                                    <div class="text-xs text-gray" style="margin-top: 0.35rem;">Sign out of your account.</div>
                                 </button>
                                 <div class="glass-panel" id="account-theme-panel" style="padding: 1rem; border-radius: 1rem; display:flex; align-items:center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
                                     <div>
@@ -1843,64 +1923,10 @@
                                         ${buildThemeCreatorOptions(themeOptions, getStoredTheme())}
                                     </select>
                                 </div>
-                            </div>
-                            <div class="glass-panel" id="account-achievements-panel" style="margin-top: 1rem; padding: 1rem; border-radius: 1rem;">
-                                <div style="display:flex; align-items:center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap;">
-                                    <div class="text-white font-bold">Achievements</div>
-                                    <div style="display:flex; gap: 0.4rem; align-items:center; flex-wrap: wrap;">
-                                        <div class="achievement-filter-wrap">
-                                            <button id="account-achievement-filters-btn" type="button" class="btn btn-outline" style="padding: 0.35rem 0.6rem; border-radius: 0.75rem;">Sort/Filter</button>
-                                            <div id="account-achievement-filters-pop" class="achievement-filters-pop" aria-hidden="true">
-                                                <div class="achievement-filters-row">
-                                                    <div class="achievement-filters-label">Sort</div>
-                                                    <select id="account-achievement-sort" class="input-field">
-                                                        <option value="points_asc" selected>Points: Low to High</option>
-                                                        <option value="points_desc">Points: High to Low</option>
-                                                    </select>
-                                                </div>
-                                                <div class="achievement-filters-row">
-                                                    <div class="achievement-filters-label">Type</div>
-                                                    <select id="account-achievement-filter" class="input-field">
-                                                        <option value="all">All types</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="account-achievements-layout">
-                                    <div id="account-tier-summary" class="tier-summary-card" aria-live="polite" data-tier="Extra">
-                                        <div class="tier-summary-header">
-                                            <div class="tier-summary-title">Current Tier</div>
-                                            <div class="tier-summary-name" id="account-tier-name">—</div>
-                                        </div>
-                                        <div class="tier-summary-body">
-                                            <div class="tier-summary-icon" id="account-tier-icon">?</div>
-                                            <div class="tier-summary-stats">
-                                                <div class="tier-summary-points" id="account-tier-points">0 pts</div>
-                                                <div class="tier-summary-next" id="account-tier-next">Earn more points to level up.</div>
-                                            </div>
-                                        </div>
-                                        <div class="tier-summary-bar">
-                                            <div class="tier-summary-progress" id="account-tier-progress"></div>
-                                        </div>
-                                    </div>
-                                    <div id="account-achievements-list" class="achievement-grid">
-                                        <div class="text-xs text-gray">Loading achievements…</div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="glass-panel" id="account-achievement-test-panel" style="margin-top: 1rem; padding: 1rem; border-radius: 1rem; display:none;">
-                                <div style="display:flex; align-items:center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap;">
-                                    <div>
-                                        <div class="text-white font-bold">Achievement Testing</div>
-                                        <div class="text-xs text-gray" style="margin-top: 0.35rem;">Trigger a test popup on demand.</div>
-                                    </div>
-                                    <div style="display:flex; gap: 0.4rem; align-items:center; flex-wrap: wrap;">
-                                        <select id="account-test-achievement-select" class="input-field" style="min-width: 180px;"></select>
-                                        <button id="account-test-achievement-btn" type="button" class="btn btn-outline" style="padding: 0.35rem 0.6rem; border-radius: 0.75rem;" onclick="triggerTestAchievementPopup()">Test Achievement</button>
-                                    </div>
-                                </div>
+                                <button type="button" class="glass-panel account-logout-card" data-account-action="logout" style="padding: 1rem; border-radius: 1rem; text-align: left; border: 1px solid rgba(239,68,68,0.55); background: rgba(239,68,68,0.12);">
+                                    <div class="font-bold" style="color: #f87171;">⎋ Log out</div>
+                                    <div class="text-xs" style="margin-top: 0.35rem; color: rgba(248,113,113,0.8);">Sign out of your account.</div>
+                                </button>
                             </div>
                             <div class="glass-panel" id="account-admin-panel" style="margin-top: 1rem; padding: 1rem; border-radius: 1rem; display:none;">
                                 <div style="display:flex; align-items:center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap;">
@@ -1921,14 +1947,6 @@
                                     </label>
                                 </div>
                                 <div id="admin-signup-status" class="text-xs" style="margin-top:0.4rem; color:var(--text-muted);"></div>
-
-                                <div style="margin-top: 0.75rem; padding:0.65rem 0.75rem; border-radius:0.75rem; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.04);">
-                                    <div class="text-sm text-white font-bold">Test SMS Notification</div>
-                                    <div class="text-xs text-gray" style="margin-top:0.2rem;">Sends a sample text to your saved phone + carrier to verify the email-to-SMS pipeline.</div>
-                                    <button type="button" onclick="sendTestText()" class="btn btn-outline" style="margin-top:0.6rem; border-radius:0.8rem; padding:0.5rem 0.9rem;">Send Test Text</button>
-                                    <div id="admin-test-sms-status" class="text-xs" style="margin-top:0.45rem; color:var(--text-muted);"></div>
-                                </div>
-
                             </div>
                             </div>
                         </div>
@@ -1966,39 +1984,37 @@
                                     <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Display name</label>
                                     <input id="account-display-name" type="text" class="input-field" placeholder="e.g. Landon James" autocomplete="name">
                                 </div>
-                                <div>
-                                    <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Phone number</label>
-                                    <input id="account-phone" type="tel" class="input-field" placeholder="e.g. 5551234567" autocomplete="tel">
-                                    <div class="text-xs text-gray" style="margin-top: 0.35rem;">Used to text you when someone recommends you a movie.</div>
-                                </div>
-                                <div>
-                                    <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Service provider</label>
-                                    <select id="account-carrier" class="select-field">
-                                        <option value="">Select…</option>
-                                        <option value="Verizon">Verizon</option>
-                                        <option value="AT&T">AT&T</option>
-                                    </select>
-                                </div>
-                                <div style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.85rem;">
-                                    <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Push notifications</label>
-                                    <div class="text-xs text-gray" style="margin-bottom: 0.5rem;">When enabled, you’ll get a push notification instead of a text. Works when the app is installed to your Home Screen. Saving will ask your device for permission.</div>
-                                    <label style="display:flex; align-items:center; gap:10px;">
-                                        <input type="checkbox" id="push-enable-toggle" style="width:20px; height:20px; flex:0 0 auto; accent-color:var(--brand);">
-                                        <span class="text-sm text-white">Enable push on this device</span>
-                                    </label>
-                                    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:0.6rem;">
-                                        <button type="button" onclick="savePushSetting()" class="btn btn-primary" style="border-radius:0.85rem;">Save push setting</button>
-                                        <button type="button" onclick="enableNotificationsTest()" class="btn btn-outline" style="border-radius:0.85rem;">Send test</button>
-                                    </div>
-                                    <div id="push-setting-status" class="text-xs" style="margin-top:0.45rem; color:var(--text-muted);"></div>
-                                    <div id="push-test-status" class="text-xs" style="margin-top:0.25rem; color:var(--text-muted);"></div>
-                                </div>
 
                                 <div style="display:flex; gap: 10px; flex-wrap: wrap;">
                                     <button id="account-save-profile" type="submit" class="btn btn-primary" style="border-radius: 0.85rem;">Save profile</button>
                                     <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" data-account-action="reload">Reload</button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+
+                    <div id="account-notifications-overlay" class="auth-overlay" onclick="if(event.target === this) closeAccountSectionModal('notifications');">
+                        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="account-notifications-title" style="max-width: 560px;">
+                            <div class="auth-modal-header">
+                                <div class="auth-modal-title" id="account-notifications-title">Notifications</div>
+                                <button class="auth-modal-close" type="button" data-account-action="close_modal" data-modal="notifications">Close</button>
+                            </div>
+                            <div class="text-xs text-gray" style="margin-top: 0.25rem;">Manage push notifications for recommendations and feed activity.</div>
+
+                            <div style="margin-top: 0.85rem;">
+                                <div class="text-sm text-white font-bold mb-2 label-gap submit-label block">Push notifications</div>
+                                <div class="text-xs text-gray" style="margin-bottom: 0.5rem;">When enabled, you’ll get push notifications for new recommendations and feed activity. Works when the app is installed to your Home Screen. Saving will ask your device for permission.</div>
+                                <label style="display:flex; align-items:center; gap:10px;">
+                                    <input type="checkbox" id="push-enable-toggle" style="width:20px; height:20px; flex:0 0 auto; accent-color:var(--brand);">
+                                    <span class="text-sm text-white">Enable push on this device</span>
+                                </label>
+                                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:0.6rem;">
+                                    <button type="button" onclick="savePushSetting()" class="btn btn-primary" style="border-radius:0.85rem;">Save push setting</button>
+                                    <button type="button" onclick="enableNotificationsTest()" class="btn btn-outline" style="border-radius:0.85rem;">Send test</button>
+                                </div>
+                                <div id="push-setting-status" class="text-xs" style="margin-top:0.45rem; color:var(--text-muted);"></div>
+                                <div id="push-test-status" class="text-xs" style="margin-top:0.25rem; color:var(--text-muted);"></div>
+                            </div>
                         </div>
                     </div>
 

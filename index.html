@@ -112,6 +112,24 @@
         </div>
     </div>
 
+    <!-- New-user push-notification opt-in prompt (shown on first authenticated boot after signup) -->
+    <div id="push-prompt-overlay" class="auth-overlay" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="push-prompt-title" style="max-width: 460px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="push-prompt-title">Enable Notifications?</div>
+            </div>
+            <div class="text-sm" style="margin-top: 0.5rem; color: rgba(255,255,255,0.85); line-height: 1.5;">
+                Get notified the moment someone recommends you a movie or a person you follow posts a new review.
+            </div>
+            <div class="text-xs text-gray" style="margin-top: 0.5rem;">You can change this anytime in Account → Notifications.</div>
+            <div id="push-prompt-status" class="text-xs" style="margin-top: 0.6rem; color: var(--text-muted); min-height: 1.1em;"></div>
+            <div class="auth-modal-actions" style="margin-top: 0.85rem;">
+                <button type="button" class="btn btn-primary" onclick="confirmPushPromptEnable()" style="border-radius: 0.85rem;">Enable Notifications</button>
+                <button type="button" class="btn btn-outline" onclick="closePushPromptModal()" style="border-radius: 0.85rem;">Not now</button>
+            </div>
+        </div>
+    </div>
+
     <div id="achievement-earned-overlay" class="auth-overlay" onclick="if(event.target === this) closeAchievementPopup();" style="display:none;">
         <div id="achievement-splash" aria-hidden="true"></div>
         <svg id="achievement-swipe" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true">
@@ -209,10 +227,6 @@
                         <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Username</label>
                         <input id="auth-signup-username" type="text" class="input-field" placeholder="e.g. landon" autocomplete="username" spellcheck="false">
                         <div class="text-xs text-gray" style="margin-top:0.25rem;">3–20 chars · letters, numbers, underscore</div>
-                    </div>
-                    <div>
-                        <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Display Name <span style="font-weight:500; color:var(--text-muted);">(optional)</span></label>
-                        <input id="auth-signup-display-name" type="text" class="input-field" placeholder="e.g. Landon James" autocomplete="name">
                     </div>
                 </div>
             </div>

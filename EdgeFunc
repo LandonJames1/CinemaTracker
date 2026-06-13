@@ -1,5 +1,4 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 import webpush from "npm:web-push@3.6.7";
 
 // Send a Web Push to every device a user has opted into (push_subscriptions).
@@ -71,39 +70,6 @@ async function computeUnseenBadge(supabaseAdmin, userId) {
     }
   } catch (_) {}
   return feed + recs;
-}
-
-// Build the MPA + genre line for recommendation texts with correct grammar,
-// e.g. "An R rated Drama", "A PG-13 rated Action", "An NC-17 rated Comedy".
-// The article depends on how the rating is *pronounced* (R = "arr" → "An").
-function buildRecDescLine(mpa, genre) {
-  const m = String(mpa || "").trim();
-  const g = String(genre || "").trim();
-  const vowelSound = new Set(["A", "E", "F", "H", "I", "L", "M", "N", "O", "R", "S", "X"]);
-  const article = (w) => (vowelSound.has(String(w || "").trim().charAt(0).toUpperCase()) ? "An" : "A");
-  if (m && g) return `${article(m)} ${m}-rated ${g} film`;
-  if (m) return `${article(m)} ${m}-rated film`;
-  if (g) return `${article(g)} ${g} film`;
-  return "";
-}
-
-// Email-to-SMS notification subject + length cap.
-const REC_SUBJECT = "New Movie Rec!";
-// Verizon vtext.com delivers ~153 chars (one concatenated GSM-7 segment) then
-// drops the rest. The carrier prepends "(<subject>) ", which counts toward this.
-const SMS_LIMIT = 153;
-
-// Pad the body up to the limit so any gateway-appended "[Attachment(s) removed]"
-// footer overflows past 153 and gets truncated away. We use a visible filler
-// (dashes) because trailing spaces get stripped by mail encoding and never count.
-function padToSmsLimit(text, subject) {
-  const prefixLen = String(subject || "").length + 3; // carrier adds "(" + subject + ") "
-  const target = SMS_LIMIT - prefixLen;
-  const t = String(text || "");
-  if (t.length >= target) return t;
-  const need = target - t.length;
-  // newline + dashes (newline counts as 1 char) so the filler is on its own line.
-  return need <= 1 ? t + "-".repeat(need) : t + "\n" + "-".repeat(need - 1);
 }
 
 const corsHeaders = {
@@ -928,23 +894,12 @@ Deno.serve(async (req) => {
       }
 
       // Movie details + sender username for the notification text.
-      let movieTitle = "", movieYear = "", movieMpa = "", movieGenre = "";
+      let movieTitle = "", movieYear = "";
       try {
         const { data: mrow } = await supabaseAdmin
-          .from("Movies").select("title, release_year, mpa_rating").eq("id", movieId).single();
+          .from("Movies").select("title, release_year").eq("id", movieId).single();
         movieTitle = String(mrow?.title ?? "").trim();
         movieYear = (mrow?.release_year ?? "") === "" ? "" : String(mrow.release_year);
-        movieMpa = String(mrow?.mpa_rating ?? "").trim();
-      } catch (_) {}
-      // Genre lives in "Movie Genres" -> "Genres" (Movies has no genre column).
-      try {
-        const { data: mg } = await supabaseAdmin
-          .from("Movie Genres").select("genre_id").eq("movie_id", movieId).limit(1);
-        const gid = Array.isArray(mg) && mg.length ? mg[0]?.genre_id : null;
-        if (gid !== null && gid !== undefined) {
-          const { data: g } = await supabaseAdmin.from("Genres").select("name").eq("id", gid).single();
-          movieGenre = String(g?.name ?? "").trim();
-        }
       } catch (_) {}
       let senderHandle = "";
       try {
@@ -955,34 +910,6 @@ Deno.serve(async (req) => {
       } catch (_) {}
       if (!senderHandle) senderHandle = "Someone";
 
-      const GMAIL_USER = Deno.env.get("GMAIL_USER");
-      const GMAIL_APP_PASSWORD = Deno.env.get("GMAIL_APP_PASSWORD");
-      const SITE_URL = Deno.env.get("SITE_URL") || "https://landonjames1.github.io/CinemaTracker/";
-
-      const carrierGateway = (carrier) => {
-        const c = String(carrier || "").trim().toLowerCase();
-        if (c === "verizon") return "vtext.com";
-        if (c === "at&t" || c === "att") return "txt.att.net";
-        return "";
-      };
-      const digitsOnly = (p) => String(p || "").replace(/\D/g, "");
-
-      // One Gmail SMTP connection reused for all recipients this request.
-      let smtp = null;
-      if (GMAIL_USER && GMAIL_APP_PASSWORD) {
-        try {
-          smtp = new SMTPClient({
-            connection: {
-              hostname: "smtp.gmail.com",
-              port: 465,
-              tls: true,
-              auth: { username: GMAIL_USER, password: GMAIL_APP_PASSWORD },
-            },
-          });
-        } catch (_) { smtp = null; }
-      }
-
-      const AGAIN_SUBJECT = "Recommended Again!";
       const results = [];
       for (const rid of recipientIds) {
         const r = { recipient: rid, added: false, notified: false, already: false, seen: false, error: null };
@@ -1045,8 +972,8 @@ Deno.serve(async (req) => {
               .upsert({ from_user_id: sender.id, to_user_id: rid, movie_id: movieId }, { onConflict: "from_user_id,to_user_id,movie_id" });
           } catch (_) {}
 
-          // d) Notify: PREFER a web push if the recipient has push enabled on any
-          //    device; otherwise fall back to the email-to-SMS text. Best-effort.
+          // d) Notify via web push (if the recipient has push enabled on any
+          //    device). Best-effort — never fail the add on a notify error.
           try {
             const badgeCount = await computeUnseenBadge(supabaseAdmin, rid);
             const pushed = await sendPushToUser(supabaseAdmin, rid, {
@@ -1058,22 +985,6 @@ Deno.serve(async (req) => {
             if (pushed > 0) {
               r.notified = true;
               r.via = "push";
-            } else if (smtp) {
-              const { data: urow } = await supabaseAdmin.from("Users").select("phone, carrier").eq("id", rid).single();
-              const gateway = carrierGateway(urow?.carrier);
-              const digits = digitsOnly(urow?.phone);
-              if (gateway && digits.length >= 10) {
-                const to = `${digits}@${gateway}`;
-                const subject = isRepeat ? AGAIN_SUBJECT : REC_SUBJECT;
-                const titleLine = `${senderHandle} just recommended "${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`;
-                const descLine = buildRecDescLine(movieMpa, movieGenre);
-                const lines = [titleLine];
-                if (descLine) lines.push(descLine);
-                const text = padToSmsLimit(lines.join("\n"), subject);
-                await smtp.send({ from: GMAIL_USER, to, subject, content: text });
-                r.notified = true;
-                r.via = "sms";
-              }
             }
           } catch (e) {
             r.error = `notify error: ${String(e?.message ?? e)}`;
@@ -1083,8 +994,6 @@ Deno.serve(async (req) => {
         }
         results.push(r);
       }
-
-      try { if (smtp) await smtp.close(); } catch (_) {}
 
       return jsonResponse({
         ok: true,
@@ -1172,9 +1081,8 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: true, movie_id: movieId, followers: followerIds.length, notified }, 200);
     }
 
-    // ---- Admin test: send a sample text to the caller's own phone ----
-    // Verifies the whole email-to-SMS pipeline without needing a 2nd account.
-    if (action === "test_sms") {
+    // Admin/self test: send a real Web Push to the caller's own subscribed devices.
+    if (action === "test_push") {
       const authHeader = req.headers.get("Authorization") ?? "";
       if (!authHeader) {
         return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
@@ -1187,91 +1095,6 @@ Deno.serve(async (req) => {
       if (userErr || !me?.id) {
         return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
       }
-
-      const GMAIL_USER = Deno.env.get("GMAIL_USER");
-      const GMAIL_APP_PASSWORD = Deno.env.get("GMAIL_APP_PASSWORD");
-      if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
-        return jsonResponse({ ok: true, sent: false, reason: "Gmail secrets not set (GMAIL_USER / GMAIL_APP_PASSWORD)." }, 200);
-      }
-
-      const { data: urow } = await supabaseAdmin.from("Users").select("phone, carrier").eq("id", me.id).single();
-      const carrierGateway = (carrier) => {
-        const c = String(carrier || "").trim().toLowerCase();
-        if (c === "verizon") return "vtext.com";
-        if (c === "at&t" || c === "att") return "txt.att.net";
-        return "";
-      };
-      const digits = String(urow?.phone || "").replace(/\D/g, "");
-      const gateway = carrierGateway(urow?.carrier);
-      if (digits.length < 10) {
-        return jsonResponse({ ok: true, sent: false, reason: "No valid phone on your profile (need 10 digits). Save it in Account → Profile." }, 200);
-      }
-      if (!gateway) {
-        return jsonResponse({ ok: true, sent: false, reason: `Unsupported/missing carrier ("${String(urow?.carrier || "")}"). Pick Verizon or AT&T.` }, 200);
-      }
-
-      const to = `${digits}@${gateway}`;
-
-      // Caller's @handle for the "from" line.
-      let myHandle = "@you";
-      try {
-        const { data: srow } = await supabaseAdmin.from("Users").select("username, display_name").eq("id", me.id).single();
-        const uname = String(srow?.username ?? "").trim();
-        myHandle = uname ? `@${uname}` : (String(srow?.display_name ?? "").trim() || "@you");
-      } catch (_) {}
-
-      // Pull a RANDOM real movie and format with its actual data — this exercises
-      // the exact title/year/mpa/genre fetch path that real recommendations use.
-      let tTitle = "", tYear = "", tMpa = "", tGenre = "";
-      try {
-        const { count } = await supabaseAdmin.from("Movies").select("id", { count: "exact", head: true });
-        const total = Number(count || 0);
-        if (total > 0) {
-          const offset = Math.floor(Math.random() * total);
-          const { data: mrows } = await supabaseAdmin
-            .from("Movies").select("id, title, release_year, mpa_rating").range(offset, offset);
-          const mv = Array.isArray(mrows) && mrows.length ? mrows[0] : null;
-          if (mv) {
-            tTitle = String(mv.title ?? "").trim();
-            tYear = (mv.release_year ?? "") === "" ? "" : String(mv.release_year);
-            tMpa = String(mv.mpa_rating ?? "").trim();
-            try {
-              const { data: mg } = await supabaseAdmin.from("Movie Genres").select("genre_id").eq("movie_id", mv.id).limit(1);
-              const gid = Array.isArray(mg) && mg.length ? mg[0]?.genre_id : null;
-              if (gid !== null && gid !== undefined) {
-                const { data: g } = await supabaseAdmin.from("Genres").select("name").eq("id", gid).single();
-                tGenre = String(g?.name ?? "").trim();
-              }
-            } catch (_) {}
-          }
-        }
-      } catch (_) {}
-
-      const titleLine = `${myHandle} just recommended "${tTitle || "a movie"}${tYear ? ` (${tYear})` : ""}"`;
-      const descLine = buildRecDescLine(tMpa, tGenre);
-      const sampleLines = [titleLine];
-      if (descLine) sampleLines.push(descLine);
-      const sampleText = padToSmsLimit(sampleLines.join("\n"), REC_SUBJECT);
-
-      try {
-        const smtp = new SMTPClient({
-          connection: {
-            hostname: "smtp.gmail.com",
-            port: 465,
-            tls: true,
-            auth: { username: GMAIL_USER, password: GMAIL_APP_PASSWORD },
-          },
-        });
-        await smtp.send({ from: GMAIL_USER, to, subject: REC_SUBJECT, content: sampleText });
-        await smtp.close();
-        return jsonResponse({ ok: true, sent: true, to, movie: tTitle, sample: sampleText }, 200);
-      } catch (e) {
-        return jsonResponse({ ok: true, sent: false, reason: `SMTP error: ${String(e?.message ?? e)}` }, 200);
-      }
-    }
-
-    // Admin/self test: send a real Web Push to the caller's own subscribed devices.
-    if (action === "test_push") {
       const sent = await sendPushToUser(supabaseAdmin, me.id, {
         title: "CinemaTracker 🍿",
         body: "✅ Push notifications are working!",

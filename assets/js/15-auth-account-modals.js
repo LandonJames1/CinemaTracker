@@ -54,7 +54,6 @@
                 const password = String(document.getElementById('auth-password')?.value || '').trim();
                 const passwordConfirm = String(document.getElementById('auth-password-confirm')?.value || '').trim();
                 const usernameRaw = String(document.getElementById('auth-signup-username')?.value || '').trim();
-                const displayName = String(document.getElementById('auth-signup-display-name')?.value || '').trim();
 
                 if (!email) throw new Error('Email is required.');
                 if (!password) throw new Error('Password is required.');
@@ -64,8 +63,6 @@
                 const username = normalizeUsername(usernameRaw);
                 const usernameErr = validateUsername(username);
                 if (usernameErr) throw new Error(usernameErr);
-
-                if (displayName.length > 50) throw new Error('Display name must be 50 characters or less.');
 
                 if (signupBtn) { signupBtn.disabled = true; signupBtn.textContent = 'Creating…'; }
                 if (statusEl) { statusEl.textContent = 'Creating account…'; statusEl.style.color = 'var(--text-muted)'; }
@@ -98,12 +95,17 @@
                 const { data: signUpData, error: signUpError } = await supabaseClient.auth.signUp({
                     email,
                     password,
-                    options: { data: { username, display_name: displayName || null, self_signup: 'true' } },
+                    options: { data: { username, display_name: null, self_signup: 'true' } },
                 });
                 if (signUpError) throw signUpError;
 
                 const newUser = signUpData?.user;
                 if (!newUser?.id) throw new Error('Sign-up succeeded but no user ID returned.');
+
+                // Flag this brand-new account so the app prompts to enable push
+                // notifications on the first authenticated boot (survives the hard
+                // reload below + the email-confirmation → login round-trip).
+                try { localStorage.setItem('ct_prompt_push_signup', '1'); } catch (_) {}
 
                 // Clear password fields.
                 const pwdEl = document.getElementById('auth-password');
@@ -380,6 +382,8 @@
             if (kind === 'profile') {
                 const input = document.getElementById('account-username');
                 if (input) input.focus();
+            }
+            if (kind === 'notifications') {
                 try { refreshPushToggleState(); } catch (_) {}
             }
             if (kind === 'security') {

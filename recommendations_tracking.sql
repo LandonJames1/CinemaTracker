@@ -49,4 +49,20 @@ begin
 end
 $$;
 
+-- Allow a recipient to delete recommendations they received. Removing a movie
+-- from your "Recs" list clears its recommendation log (clearReceivedRecommendations
+-- in 04-lists.js) so a sender can recommend it to you again later.
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'Recommendations' and policyname = 'recommendations_delete_recipient'
+  ) then
+    create policy recommendations_delete_recipient on public."Recommendations"
+      for delete to authenticated
+      using (to_user_id = auth.uid());
+  end if;
+end
+$$;
+
 commit;

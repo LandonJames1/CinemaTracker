@@ -17,6 +17,11 @@
                     return;
                 }
 
+                if (action === 'open_notifications') {
+                    openAccountSectionModal('notifications');
+                    return;
+                }
+
                 if (action === 'open_security') {
                     openAccountSectionModal('security');
                     return;
@@ -29,6 +34,11 @@
 
                 if (action === 'theme_creator') {
                     router.navigate('theme_creator');
+                    return;
+                }
+
+                if (action === 'open_achievements') {
+                    router.navigate('achievements');
                     return;
                 }
 
@@ -226,22 +236,28 @@
                     }
                 }
 
-                // Phone + carrier (best-effort; columns may not exist pre-migration).
-                try {
-                    const rp = await supabaseClient.from('Users').select('phone, carrier').eq('id', uid).limit(1);
-                    if (!rp.error) {
-                        const prow = Array.isArray(rp.data) && rp.data.length ? rp.data[0] : null;
-                        const phoneEl = document.getElementById('account-phone');
-                        const carrierEl = document.getElementById('account-carrier');
-                        if (phoneEl) phoneEl.value = String(prow?.phone || '').trim();
-                        if (carrierEl) carrierEl.value = String(prow?.carrier || '').trim();
-                    }
-                } catch (_) {}
-
                 if (profileStatus) profileStatus.textContent = 'Profile loaded.';
             } catch (err) {
                 if (profileStatus) profileStatus.textContent = `Could not load profile: ${String(err?.message || err)}`;
             }
+        }
+
+        // Loader for the dedicated Achievements page (its own route, reached from the
+        // Account page's "Achievements" card). Uses the same DOM ids + shared handlers
+        // as the old inline panel, so renderAccountAchievements/refreshAchievementsUI
+        // target it unchanged.
+        async function loadAchievementsPage() {
+            if (!supabaseClient || !cachedIsAuthed) {
+                refreshAchievementsUI().catch(() => null);
+                return;
+            }
+            let email = '';
+            try {
+                const { data: udata } = await supabaseClient.auth.getUser();
+                email = String(udata?.user?.email || '').trim();
+            } catch (_) {}
+            updateTestAchievementVisibility(email); // admin-only "Achievement Testing" panel
+            await refreshAchievementsUI();
         }
 
         // ===== Profile photo (camera roll → square avatar) =====
@@ -346,10 +362,9 @@
             }
         }
 
-        // Admin test: fire the real email-to-SMS pipeline to your own phone.
-        // Milestone-1 push test: request notification permission and fire a LOCAL
-        // notification via the service worker (no server yet). Proves the iOS gates
-        // work — installed-to-Home-Screen + permission + the SW can display.
+        // Push test: request notification permission and fire a LOCAL notification
+        // via the service worker. Proves the iOS gates work — installed-to-Home-Screen
+        // + permission + the SW can display.
         async function enableNotificationsTest() {
             const statusEl = document.getElementById('push-test-status');
             const setStatus = (m, ok) => {
@@ -480,43 +495,72 @@
             } catch (_) { toggle.checked = false; }
         }
 
-        async function sendTestText() {
-            const statusEl = document.getElementById('admin-test-sms-status');
-            const setStatus = (s, color) => {
-                if (!statusEl) return;
-                statusEl.textContent = String(s || '');
-                if (color) statusEl.style.color = color;
-            };
+        // ---- New-user push opt-in prompt -------------------------------------
+        // Shown on the first authenticated boot after signup (flag set in the
+        // signup handler). One-shot, and skipped if push is unsupported or already on.
+        async function maybePromptPushAfterSignup() {
+            let flagged = false;
+            try { flagged = localStorage.getItem('ct_prompt_push_signup') === '1'; } catch (_) {}
+            if (!flagged || !cachedIsAuthed) return;
+            // Clear immediately so it only ever prompts once (even if dismissed).
+            try { localStorage.removeItem('ct_prompt_push_signup'); } catch (_) {}
 
-            if (!supabaseClient || !cachedIsAuthed) {
-                showToast('Log in first.', { level: 'warn' });
-                return;
-            }
-            let accessToken = null;
-            try {
-                const res = await requireAuthOrThrow();
-                accessToken = res.accessToken;
-            } catch (_) {
-                openAuthModal();
-                return;
-            }
+            if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
 
-            setStatus('Sending test text…', 'var(--text-muted)');
+            // Skip if already enabled — but never block the prompt on a slow/absent
+            // service worker (race `.ready` against a short timeout).
+            let alreadyOn = false;
             try {
-                const res = await callSwiftApi({ action: 'test_sms' }, accessToken);
-                if (res?.sent) {
-                    const used = String(res?.movie || '').trim();
-                    setStatus(`✅ Sent${used ? ` (used "${used}")` : ''}! Check your phone — carrier texts can take a minute.`, 'rgba(74,222,128,0.95)');
-                    showToast('Test text sent.', { level: 'success' });
-                } else {
-                    const reason = String(res?.reason || res?.error || 'Unknown reason');
-                    setStatus(`⚠️ Not sent: ${reason}`, 'rgba(239,68,68,0.95)');
-                    showToast(`Test text not sent: ${reason}`, { level: 'warn' });
+                const reg = await Promise.race([
+                    navigator.serviceWorker.ready,
+                    new Promise((res) => setTimeout(() => res(null), 1500)),
+                ]);
+                if (reg) {
+                    const sub = await reg.pushManager.getSubscription();
+                    alreadyOn = !!sub && Notification.permission === 'granted';
                 }
+            } catch (_) {}
+            if (alreadyOn) return;
+
+            openPushPromptModal();
+        }
+
+        function openPushPromptModal() {
+            const overlay = document.getElementById('push-prompt-overlay');
+            if (!overlay) return;
+            const status = document.getElementById('push-prompt-status');
+            if (status) status.textContent = '';
+            overlay.style.display = 'flex';
+            overlay.classList.add('open');
+        }
+
+        function closePushPromptModal() {
+            const overlay = document.getElementById('push-prompt-overlay');
+            if (!overlay) return;
+            overlay.classList.remove('open');
+            overlay.style.display = 'none';
+        }
+
+        // "Enable Notifications" in the welcome prompt → trigger the OS permission
+        // prompt + subscribe this device (same flow as the settings toggle).
+        async function confirmPushPromptEnable() {
+            const status = document.getElementById('push-prompt-status');
+            const setStatus = (m, ok) => {
+                if (!status) return;
+                status.textContent = String(m || '');
+                status.style.color = ok ? 'rgba(74,222,128,0.95)' : 'rgba(239,68,68,0.95)';
+            };
+            try {
+                if (!isStandalonePwa() && /iphone|ipad|ipod/i.test(navigator.userAgent)) {
+                    setStatus('On iPhone, add the app to your Home Screen and open it from there, then enable push in Account → Notifications.', false);
+                    return;
+                }
+                setStatus('Requesting permission…', true);
+                await enablePushOnThisDevice();
+                setStatus('Notifications enabled! 🎉', true);
+                setTimeout(closePushPromptModal, 900);
             } catch (err) {
-                const msg = String(err?.message || err);
-                setStatus(`Failed: ${msg}`, 'rgba(239,68,68,0.95)');
-                showToast(`Test failed: ${msg}`, { level: 'warn' });
+                setStatus(String(err?.message || err), false);
             }
         }
 
@@ -594,14 +638,6 @@
                         throw err1;
                     }
                 }
-
-                // Phone + carrier (best-effort, separate update so a missing column
-                // pre-migration can't fail the whole profile save).
-                try {
-                    const phoneVal = String(document.getElementById('account-phone')?.value || '').replace(/\D/g, '').slice(0, 15);
-                    const carrierVal = String(document.getElementById('account-carrier')?.value || '').trim();
-                    await supabaseClient.from('Users').update({ phone: phoneVal || null, carrier: carrierVal || null }).eq('id', uid);
-                } catch (_) {}
 
                 const row = Array.isArray(data) && data.length ? data[0] : null;
                 const savedDisplayName = String(row?.display_name || '').trim();

@@ -42,11 +42,12 @@
         // ===== Movie Recommendations =====
         // Recommend a movie to people you follow. "Send Rec" adds the movie to each
         // recipient's auto-managed "Recs" list (server-side, via the swift-api Edge
-        // Function) and fires an email-to-SMS notification.
+        // Function) and sends them a web-push notification.
         let recPendingMovie = null;      // { db_movie_id, title, year, tmdb_id, accessToken, user_id }
         let recSelectedUserIds = new Set();
         let recRecipientsCache = [];     // [{ id, username, display_name, icon }] of people you follow
         let recSeenInfoByUserId = new Map(); // user_id -> their Movie Ratings row for the pending movie (already seen it)
+        let recAlreadyRecByUserId = new Set(); // user_ids I've already recommended this movie to (still pending in their Recs)
         let recBound = false;
         let recSending = false;
 
@@ -218,6 +219,7 @@
             const uid = String(recPendingMovie?.user_id || '').trim();
             recRecipientsCache = [];
             recSeenInfoByUserId = new Map();
+            recAlreadyRecByUserId = new Set();
             if (!uid) return;
 
             const { data: f, error: fErr } = await supabaseClient
@@ -262,9 +264,26 @@
                             if (ruid) recSeenInfoByUserId.set(ruid, row);
                         }
                     }
+
+                    // Recipients I've ALREADY recommended this movie to. The
+                    // Recommendations row is cleared when they remove the movie from
+                    // their Recs list (without watching), so a still-present row means
+                    // the rec is pending → grey them out + block re-recommending.
+                    const { data: myRecs, error: recErr } = await supabaseClient
+                        .from('Recommendations')
+                        .select('to_user_id')
+                        .eq('from_user_id', uid)
+                        .eq('movie_id', movieId)
+                        .in('to_user_id', ids);
+                    if (!recErr && Array.isArray(myRecs)) {
+                        for (const row of myRecs) {
+                            const ruid = String(row?.to_user_id || '').trim();
+                            if (ruid) recAlreadyRecByUserId.add(ruid);
+                        }
+                    }
                 }
             } catch (_) {
-                // If the seen-lookup fails, fall back to no grey-out (send-time still blocks).
+                // If the lookups fail, fall back to no grey-out (send-time still blocks).
             }
         }
 
@@ -318,6 +337,23 @@
                                 </span>
                             </span>
                             <button type="button" style="flex:0 0 auto; width:auto; padding:0.4rem 0.7rem; border-radius:0.7rem; font-size:0.78rem; font-weight:700; white-space:nowrap; color:#fff; background:color-mix(in srgb, var(--brand) 22%, transparent); border:1px solid color-mix(in srgb, var(--brand) 50%, transparent); cursor:pointer;" onclick="openRecReviewModal('${escapeHtml(id)}')">View review</button>
+                        </div>
+                    `;
+                }
+
+                // Already recommended by me (still pending in their Recs) → greyed out
+                // + not selectable, just like the "already seen" state.
+                if (recAlreadyRecByUserId.has(id)) {
+                    recSelectedUserIds.delete(id);
+                    return `
+                        <div style="${rowStyle}">
+                            <span style="flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:10px; opacity:0.55;">
+                                ${renderUserIconHtml(iconId, 34)}
+                                <span style="${nameWrap}">
+                                    <span style="${nameStyle}">${escapeHtml(name)}</span>
+                                    <span style="${subStyle}">✓ Already recommended</span>
+                                </span>
+                            </span>
                         </div>
                     `;
                 }
@@ -1639,6 +1675,22 @@
             }
         }
 
+        // When a user removes a movie from their Recs list WITHOUT watching it,
+        // clear the recommendation log for that movie so any sender can recommend it
+        // again. (Watched movies stay blocked by the separate "already seen" check.)
+        // Needs the Recommendations DELETE-by-recipient RLS policy (recommendations_tracking.sql).
+        async function clearReceivedRecommendations({ user_id, movie_id }) {
+            if (!supabaseClient) return;
+            const uid = String(user_id || '').trim();
+            const mid = String(movie_id || '').trim();
+            if (!uid || !mid) return;
+            await supabaseClient
+                .from('Recommendations')
+                .delete()
+                .eq('to_user_id', uid)
+                .eq('movie_id', mid);
+        }
+
         async function openAddToListModal() {
             if (guardGuestWrite()) return;
             if (!supabaseClient) {
@@ -2004,6 +2056,11 @@
 
                         try {
                             await removeMovieFromList({ user_id: authedUser.id, list_id: lid, movie_id: mid });
+                            // Removing from the Recs list clears the recommendation log
+                            // so it can be recommended to you again later (#re-recommend).
+                            if (String(listsActiveListName || '').trim().toLowerCase() === 'recs') {
+                                try { await clearReceivedRecommendations({ user_id: authedUser.id, movie_id: mid }); } catch (_) {}
+                            }
                             showToast('Removed.', { level: 'success' });
                             await loadListsPage({ reset: false });
                         } catch (err) {

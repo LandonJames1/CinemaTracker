@@ -2612,14 +2612,18 @@
                 feedInCommonHasMore = batch.length === FEED_IN_COMMON_PAGE;
                 wrows = feedInCommonWatchRows;
             } else {
-                const { data: watches, error: wErr } = await supabaseClient
-                    .from('Watch Logs')
-                    .select('user_id, movie_id, watch_date')
+                // Normal feed: drive selection + order by the most recently
+                // ADDED/UPDATED reviews (Movie Ratings.updated_at), not watch date,
+                // so editing a review re-surfaces it. Shaped like watch rows so the
+                // dedup + rating-merge below is unchanged.
+                const { data: recent, error: wErr } = await supabaseClient
+                    .from('Movie Ratings')
+                    .select('user_id, movie_id, watch_date, updated_at')
                     .in('user_id', queryUserIds)
-                    .order('watch_date', { ascending: false })
+                    .order('updated_at', { ascending: false, nullsFirst: false })
                     .limit(60);
                 if (wErr) throw wErr;
-                wrows = Array.isArray(watches) ? watches : [];
+                wrows = Array.isArray(recent) ? recent : [];
             }
 
             // 2) Dedup to one (user, movie) pair, keeping the most recent watch.
@@ -2751,7 +2755,8 @@
 
             if (elMeta) {
                 const modeLabel = feedCompareOwn ? 'You + selected follows' : 'Selected follows';
-                elMeta.textContent = `${rows.length} item${rows.length === 1 ? '' : 's'} • ${modeLabel} • Most recent watches first`;
+                const orderLabel = feedInCommonOnly ? 'Most recent watches first' : 'Most recently updated first';
+                elMeta.textContent = `${rows.length} item${rows.length === 1 ? '' : 's'} • ${modeLabel} • ${orderLabel}`;
             }
 
             const renderFeedCard = (r) => {
@@ -2846,7 +2851,8 @@
             };
 
             // Group entries by movie: same movie → one container with member cards stacked
-            // flush together. Group order follows most-recent watch (rows already sorted desc).
+            // flush together. Group order follows the rows' order (most recently updated
+            // review first for the normal feed; most-recent watch for in-common mode).
             const groupOrder = [];
             const groupsByMovie = new Map();
             for (const r of rows) {
