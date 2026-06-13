@@ -1811,10 +1811,6 @@
                                     <h1 class="text-3xl font-bold text-white">Account</h1>
                                     <p class="text-gray mt-2">Update your profile and password.</p>
                                 </div>
-                                <div style="display:flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
-                                    <button type="button" class="btn btn-outline" data-account-action="logout" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Log out</button>
-                                    <button type="button" class="btn btn-outline" onclick="router.navigate('home')" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Back</button>
-                                </div>
                             </div>
 
                             <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; align-items: stretch;">
@@ -1949,6 +1945,18 @@
                             <div id="account-profile-status" class="text-xs" style="margin-top: 0.6rem; color: rgba(255,255,255,0.60);"></div>
 
                             <form id="account-profile-form" style="margin-top: 0.85rem; display:grid; gap: 0.75rem;">
+                                <div style="display:flex; align-items:center; gap: 14px; flex-wrap: wrap;">
+                                    <div id="account-icon-preview" class="user-icon" style="width:64px; height:64px; flex:0 0 auto;"></div>
+                                    <div style="min-width: 0;">
+                                        <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Profile photo</label>
+                                        <div style="display:flex; gap: 8px; flex-wrap: wrap;">
+                                            <button type="button" class="btn btn-outline" data-account-action="pick_icon" style="border-radius: 0.85rem;">Change photo</button>
+                                            <button type="button" class="btn btn-outline" data-account-action="remove_icon" style="border-radius: 0.85rem;">Remove</button>
+                                        </div>
+                                        <div class="text-xs text-gray" style="margin-top: 0.35rem;">Use a photo from your camera roll.</div>
+                                        <input id="account-icon-file" type="file" accept="image/*" style="display:none;">
+                                    </div>
+                                </div>
                                 <div>
                                     <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Username</label>
                                     <input id="account-username" type="text" class="input-field" placeholder="e.g. landon" autocomplete="username" spellcheck="false">

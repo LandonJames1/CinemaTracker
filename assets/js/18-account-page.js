@@ -32,6 +32,16 @@
                     return;
                 }
 
+                if (action === 'pick_icon') {
+                    document.getElementById('account-icon-file')?.click();
+                    return;
+                }
+
+                if (action === 'remove_icon') {
+                    await handleAccountIconRemove();
+                    return;
+                }
+
                 if (action === 'close_modal') {
                     const kind = String(btn.dataset.modal || '').trim();
                     if (kind) closeAccountSectionModal(kind);
@@ -100,6 +110,12 @@
             document.addEventListener('change', (e) => {
                 const el = e?.target;
                 if (!el || !(el instanceof HTMLElement)) return;
+                if (el.id === 'account-icon-file' && el instanceof HTMLInputElement) {
+                    const file = el.files && el.files[0];
+                    if (file) handleAccountIconPick(file);
+                    el.value = ''; // allow re-picking the same file
+                    return;
+                }
                 if (el.id === 'account-achievement-sort' && el instanceof HTMLSelectElement) {
                     achievementSortMode = String(el.value || 'points_desc').trim();
                     renderAccountAchievements();
@@ -200,6 +216,7 @@
                 const themeId = String(row?.theme_id || '').trim();
                 if (usernameEl) usernameEl.value = username;
                 if (dnEl) dnEl.value = displayName;
+                setAccountIconPreview(String(row?.icon || '').trim());
                 const themeSelect = document.getElementById('account-theme-select');
                 if (themeSelect) {
                     const value = resolveThemeId(themeId || getStoredTheme());
@@ -224,6 +241,108 @@
                 if (profileStatus) profileStatus.textContent = 'Profile loaded.';
             } catch (err) {
                 if (profileStatus) profileStatus.textContent = `Could not load profile: ${String(err?.message || err)}`;
+            }
+        }
+
+        // ===== Profile photo (camera roll → square avatar) =====
+        // The avatar lives directly in Users.icon as a small JPEG data URL, which
+        // renderUserIconHtml()/isUserIconUrl() (15-auth-account-modals.js) already
+        // understand — so no Storage bucket/RLS is needed and it works the same on
+        // mobile and desktop.
+
+        function setAccountIconPreview(iconVal) {
+            const el = document.getElementById('account-icon-preview');
+            if (!el) return;
+            const raw = String(iconVal || '').trim();
+            // The preview box already carries the `.user-icon` class, so inject just
+            // its inner content (matching renderUserIconHtml's structure).
+            el.innerHTML = isUserIconUrl(raw)
+                ? `<img src="${escapeHtml(raw)}" alt="User icon" loading="lazy" decoding="async" />`
+                : icons.user;
+        }
+
+        // Downscale + center-crop ("cover") a chosen image to a square JPEG data URL
+        // small enough to store inline (≈256px). Resolves to the data URL string.
+        function processAccountIconFile(file, size = 256) {
+            return new Promise((resolve, reject) => {
+                if (!file || !/^image\//i.test(String(file.type || ''))) {
+                    reject(new Error('Please choose an image file.'));
+                    return;
+                }
+                const url = URL.createObjectURL(file);
+                const img = new Image();
+                img.onload = () => {
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = size;
+                        canvas.height = size;
+                        const ctx = canvas.getContext('2d');
+                        ctx.fillStyle = '#000';
+                        ctx.fillRect(0, 0, size, size);
+                        const scale = Math.max(size / img.width, size / img.height);
+                        const dw = img.width * scale;
+                        const dh = img.height * scale;
+                        ctx.drawImage(img, (size - dw) / 2, (size - dh) / 2, dw, dh);
+                        resolve(canvas.toDataURL('image/jpeg', 0.85));
+                    } catch (e) {
+                        reject(e);
+                    } finally {
+                        URL.revokeObjectURL(url);
+                    }
+                };
+                img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image.')); };
+                img.src = url;
+            });
+        }
+
+        async function handleAccountIconPick(file) {
+            if (guardGuestWrite()) return;
+            const profileStatus = document.getElementById('account-profile-status');
+            const uid = String(cachedAuthUser?.id || '').trim();
+            if (!supabaseClient || !cachedIsAuthed || !uid) {
+                showToast('Please log in first.', { level: 'warn' });
+                return;
+            }
+            try {
+                if (profileStatus) profileStatus.textContent = 'Updating photo…';
+                const dataUrl = await processAccountIconFile(file);
+                const { error } = await supabaseClient.from('Users').update({ icon: dataUrl }).eq('id', uid);
+                if (error) throw error;
+                setAccountIconPreview(dataUrl);
+                // Sync the nav avatar + any cached renders immediately.
+                cachedUserIconId = uid;
+                cachedUserIcon = dataUrl;
+                cachedUserIconLoaded = true;
+                await refreshAuthStateAndUI();
+                if (profileStatus) profileStatus.textContent = 'Photo updated.';
+                showToast('Profile photo updated.');
+            } catch (err) {
+                const msg = String(err?.message || err);
+                if (profileStatus) profileStatus.textContent = `Photo update failed: ${msg}`;
+                showToast(`Photo update failed: ${msg}`, { level: 'warn' });
+            }
+        }
+
+        async function handleAccountIconRemove() {
+            if (guardGuestWrite()) return;
+            const profileStatus = document.getElementById('account-profile-status');
+            const uid = String(cachedAuthUser?.id || '').trim();
+            if (!supabaseClient || !cachedIsAuthed || !uid) {
+                showToast('Please log in first.', { level: 'warn' });
+                return;
+            }
+            try {
+                const { error } = await supabaseClient.from('Users').update({ icon: null }).eq('id', uid);
+                if (error) throw error;
+                setAccountIconPreview('');
+                cachedUserIconId = uid;
+                cachedUserIcon = '';
+                cachedUserIconLoaded = true;
+                await refreshAuthStateAndUI();
+                if (profileStatus) profileStatus.textContent = 'Photo removed.';
+                showToast('Profile photo removed.');
+            } catch (err) {
+                showToast(`Could not remove photo: ${String(err?.message || err)}`, { level: 'warn' });
             }
         }
 
