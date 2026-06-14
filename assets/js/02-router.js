@@ -1180,7 +1180,7 @@
 
                                 <div class="flex flex-col gap-6" style="margin-bottom: 0px;">
                                     <div>
-                                        <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Favorite Quote</label>
+                                        <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Favorite Quote <span style="font-weight:500; text-transform:none; color:var(--text-muted);">(optional)</span></label>
                                         <div class="relative">
                                             <div class="input-icon">${icons.quote}</div>
                                             <input id="fld-quote" name="Fav Quote" type="text" class="input-field" style="padding-left: 2.5rem;" value="${escapeHtml(u.quote)}" placeholder="One liner...">
