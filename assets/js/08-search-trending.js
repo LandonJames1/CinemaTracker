@@ -156,6 +156,11 @@
         function setListsQuickAddEnabledState() {
             const input = document.getElementById('lists-movie-search-input');
             if (!input) return;
+            // The "Recs" list is auto-managed by recommendations — hide its manual
+            // add-movies search entirely.
+            const isRecs = String(listsActiveListName || '').trim().toLowerCase() === 'recs';
+            const wrap = input.closest ? input.closest('.lists-add-search') : null;
+            if (wrap) wrap.style.display = isRecs ? 'none' : '';
             const hasList = Boolean(String(listsActiveListId || '').trim());
             input.disabled = !hasList || listsQuickAddBusy;
             input.placeholder = hasList

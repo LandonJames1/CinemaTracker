@@ -561,6 +561,11 @@
             opacity: 0.95;
         }
         input[type="date"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+        /* iOS sizes date inputs by their inner value element, which can render wider
+           than the box and bleed out of a modal (e.g. the Watch Method popup). Keep
+           the value inside: clip + left-align it and stop it forcing a min width. */
+        .auth-modal input[type="date"] { width: 100%; max-width: 100%; min-width: 0; overflow: hidden; box-sizing: border-box; }
+        .auth-modal input[type="date"]::-webkit-date-and-time-value { text-align: left; margin: 0; min-width: 0; }
 
         /* Genre chips (tap/click selection, max 2) */
         .genre-chip-wrap {
@@ -1890,6 +1895,53 @@
         /* Handle grid blocks (e.g., External Ratings) and read-only inputs */
         .submit-label + .grid { margin-top: 0.5rem !important; }
 
+        /* ===== Collapsible "Movie Details" panel (mobile overhaul) ===== */
+        .submit-details-toggle {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            background: none;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+            text-align: left;
+            color: inherit;
+        }
+        .submit-details-missing-badge {
+            font-size: 0.62rem;
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: #fecaca;
+            background: rgba(239,68,68,0.16);
+            border: 1px solid rgba(239,68,68,0.5);
+            padding: 0.15rem 0.45rem;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+        .submit-details-caret {
+            margin-left: auto;
+            display: inline-flex;
+            color: var(--text-muted);
+            transition: transform 0.2s ease;
+            transform: rotate(-90deg); /* points right when collapsed */
+        }
+        .submit-details-panel.open .submit-details-caret { transform: rotate(0deg); }
+        /* Collapsed by default; the JS adds .open (always on desktop, on mobile only
+           when a detail is missing). The poster sits OUTSIDE this body so it stays
+           visible when collapsed. */
+        .submit-details-body { display: none; }
+        .submit-details-panel.open .submit-details-body { display: block; }
+        /* Red highlight around any auto-filled detail that's missing. */
+        .submit-field-missing {
+            position: relative;
+            border: 1px solid rgba(239,68,68,0.65);
+            background: rgba(239,68,68,0.07);
+            border-radius: 0.6rem;
+            padding: 0.55rem 0.6rem;
+        }
+
         /* Form validation helpers */
         .field-error-msg {
             color: rgba(254, 202, 202, 0.95);
@@ -2025,6 +2077,12 @@
             .lists-action-controls { width: 100%; justify-content: stretch !important; }
             .lists-action-controls > button { flex: 1 1 auto; }
             .lists-add-search { flex: 1 1 100%; width: 100% !important; }
+            /* Bigger remove "×" so it's easy to tap on a phone. */
+            .lists-remove-x { width: 34px; height: 34px; font-size: 1.4rem; top: 0.45rem; right: 0.45rem; opacity: 0.95; }
+            /* Tighten the dead space between the Lists header rows + the list panel. */
+            .lists-header-row { margin-bottom: 0.7rem !important; gap: 0.6rem !important; }
+            .lists-top-controls { gap: 0.55rem !important; }
+            .lists-action-controls { gap: 0.55rem !important; }
 
             /* Filters & Sort modals (Lists + My Movies): condense so they fit better.
                Shorter fields, tighter sections, and two fields per row. */

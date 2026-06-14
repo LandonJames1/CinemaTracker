@@ -162,6 +162,7 @@
                 } else if (page === 'submit') {
                     root.innerHTML = this.renderSubmit();
                     initializeWatchMethodToggle();
+                    try { initSubmitDetailsCollapse(); } catch (_) {}
                     refreshAuthStateAndUI();
                 } else if (page === 'dashboard') {
                     root.innerHTML = this.renderDashboard();
@@ -744,7 +745,7 @@
                 return `
                     <div class="fade-in">
                         <div class="container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
-                            <div class="flex justify-between items-center mb-6" style="gap: 14px; flex-wrap: wrap;">
+                            <div class="flex justify-between items-center mb-6 lists-header-row" style="gap: 12px; flex-wrap: wrap;">
                                 <div class="glass-panel page-title-card">
                                     <h1 class="text-3xl font-bold text-white">Lists</h1>
                                     <p class="text-gray mt-2">Organize your movies into custom lists.</p>
@@ -896,14 +897,6 @@
                 const seriesLocked = detailsReadonly && hasText(m.isSeriesValue);
                 const directorLocked = detailsReadonly && hasText(m.director);
 
-                // When updating an existing rating, Times Watched should reflect Watch Logs history,
-                // and it should not be editable on the form.
-                const timesWatchedLocked = isUpdate;
-
-                // When updating an existing rating, Watch Method should not be editable on the form.
-                // New watches are recorded via Watch Logs with a separate watch-method prompt.
-                const watchMethodLocked = isUpdate;
-
                 const genreLower = String(m.genre || '').trim().toLowerCase();
                 const genrePlaceholder = allowEditMissingDetails && (genreLower === 'movie' || genreLower === '0');
                 const genreLocked = detailsReadonly && (hasText(m.genre) && !genrePlaceholder);
@@ -944,6 +937,18 @@
                     'Horror','Music','Mystery','Romance','Sci-Fi','TV Movie','Thriller','War','Western'
                 ];
 
+                // Mobile-collapsible Movie Details: flag any auto-filled field that's
+                // missing so the panel can default OPEN (instead of collapsed) and
+                // red-highlight exactly what needs attention.
+                const yearMissing = !hasPositiveInt(m.year);
+                const mpaMissing = !hasText(m.mpa);
+                const runtimeMissing = !hasPositiveInt(m.runtime);
+                const seriesMissing = !hasText(m.isSeriesValue);
+                const directorMissing = !hasText(m.director);
+                const genreMissing = selectedGenres.length === 0;
+                const detailsAnyMissing = yearMissing || mpaMissing || runtimeMissing || seriesMissing || directorMissing || genreMissing;
+                const missCls = (cond) => (cond ? ' submit-field-missing' : '');
+
                 return `
                     <div class="fade-in">
                         <div class="container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
@@ -966,18 +971,18 @@
                             <input type="hidden" id="fld-movie-id" value="${hasDbMovie ? String(prefill.id) : ''}">
                             <input type="hidden" id="fld-tmdb-id" value="${Number.isFinite(Number(prefill?.tmdb_id)) ? String(Number(prefill.tmdb_id)) : ''}">
                             <!-- Read Only Section -->
-                            <div class="glass-panel" style="padding: 1.5rem; border-radius: 1rem; background: color-mix(in srgb, ${formAccent.color} 10%, transparent); border: 1px solid color-mix(in srgb, ${formAccent.color} 22%, transparent);">
-                                <div class="flex items-center gap-3 mb-4">
-                                    <span style="color: ${formAccent.color};">${icons.database}</span>
-                                    <h2 class="text-xl font-semibold text-white">Movie Details</h2>
-                                </div>
-                                <div style="background: color-mix(in srgb, var(--brand) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand) 22%, transparent); padding: 0.75rem; border-radius: 0.5rem; margin-bottom: 1.5rem;" class="text-sm flex items-center gap-2">
-                                    <span style="width:16px;">${icons.info}</span>
-                                    <span style="color: var(--text-main);">${hasDbMovie ? 'Auto-filled from DB' : (allowEditMissingDetails ? 'Auto-filled from TMDb (edit any missing fields)' : 'Auto-filled from TMDb')}</span>
-                                </div>
+                            <div class="glass-panel submit-details-panel" data-has-missing="${detailsAnyMissing ? 'true' : 'false'}" style="padding: 1.5rem; border-radius: 1rem; background: color-mix(in srgb, ${formAccent.color} 10%, transparent); border: 1px solid color-mix(in srgb, ${formAccent.color} 22%, transparent);">
+                                <button type="button" class="submit-details-toggle" onclick="toggleSubmitDetails(this)">
+                                    <span style="color: ${formAccent.color}; display:inline-flex;">${icons.database}</span>
+                                    <h2 class="text-xl font-semibold text-white" style="margin:0;">Movie Details</h2>
+                                    ${detailsAnyMissing ? `<span class="submit-details-missing-badge" title="Some details are missing">Needs info</span>` : ''}
+                                    <span class="submit-details-caret" aria-hidden="true">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                    </span>
+                                </button>
 
                                 ${posterUrl ? `
-                                    <div style="display:flex; justify-content:center; margin-bottom: 1.25rem;">
+                                    <div style="display:flex; justify-content:center; margin: 1rem 0 0.25rem;">
                                         <img
                                             class="submit-poster-img"
                                             src="${posterUrl}"
@@ -989,10 +994,16 @@
                                     </div>
                                 ` : ''}
 
+                                <div class="submit-details-body">
+                                <div style="background: color-mix(in srgb, var(--brand) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand) 22%, transparent); padding: 0.75rem; border-radius: 0.5rem; margin: 1.25rem 0;" class="text-sm flex items-center gap-2">
+                                    <span style="width:16px;">${icons.info}</span>
+                                    <span style="color: var(--text-main);">${hasDbMovie ? 'Auto-filled from DB' : (allowEditMissingDetails ? 'Auto-filled from TMDb (edit any missing fields)' : 'Auto-filled from TMDb')}</span>
+                                </div>
+
                                 <div class="flex flex-col gap-4">
                                     <div><label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Title</label><input id="fld-title" name="Title" class="input-field ${titleLocked ? 'input-readonly' : ''}" value="${m.title}" ${titleLocked ? 'readonly' : ''} ${(titleLocked && hasText(m.title)) ? '' : 'required'} placeholder="Type a movie title"></div>
                                     <div class="grid grid-2 gap-4">
-                                        <div>
+                                        <div class="${yearMissing ? 'submit-field-missing' : ''}">
                                             <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Year</label>
                                             <input
                                                 id="fld-year"
@@ -1006,7 +1017,7 @@
                                                 placeholder="e.g. 2024"
                                             >
                                         </div>
-                                        <div>
+                                        <div class="${mpaMissing ? 'submit-field-missing' : ''}">
                                             <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">MPA</label>
                                             ${mpaLocked ? `
                                                 <input id="fld-mpa" name="MPA" class="input-field input-readonly" value="${m.mpa}" readonly>
@@ -1023,7 +1034,7 @@
                                         </div>
                                     </div>
                                     <div class="grid grid-2 gap-4">
-                                        <div>
+                                        <div class="${runtimeMissing ? 'submit-field-missing' : ''}">
                                             <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Runtime (min)</label>
                                             ${runtimeLocked ? `
                                                 <input id="fld-runtime" name="Run Time" type="number" inputmode="numeric" step="1" class="input-field input-readonly" value="${m.runtime}" readonly>
@@ -1042,7 +1053,7 @@
                                                 >
                                             `}
                                         </div>
-                                        <div>
+                                        <div class="${seriesMissing ? 'submit-field-missing' : ''}">
                                             <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Series?</label>
                                             ${seriesLocked ? `
                                                 <input id="fld-series-display" class="input-field input-readonly" value="${m.isSeriesDisplay}" readonly>
@@ -1056,8 +1067,8 @@
                                             `}
                                         </div>
                                     </div>
-                                    <div><label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Director</label><input id="fld-director" name="Director" class="input-field ${directorLocked ? 'input-readonly' : ''}" value="${m.director}" ${directorLocked ? 'readonly' : ''}></div>
-                                    <div>
+                                    <div class="${directorMissing ? 'submit-field-missing' : ''}"><label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Director</label><input id="fld-director" name="Director" class="input-field ${directorLocked ? 'input-readonly' : ''}" value="${m.director}" ${directorLocked ? 'readonly' : ''}></div>
+                                    <div class="${genreMissing ? 'submit-field-missing' : ''}">
                                         <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Genre</label>
                                         ${genreLocked ? `
                                             <input id="fld-genre" name="Genre" class="input-field input-readonly" value="${m.genre}" readonly>
@@ -1111,6 +1122,7 @@
                                         </div>
                                     </div>
                                 </div>
+                                </div>
                             </div>
 
                             <!-- User Input Section -->
@@ -1123,10 +1135,6 @@
                                 </div>
 
                                 <div class="grid md-row gap-6 mb-6" style="margin-top: 0px;">
-                                    ${isUpdate ? `<div style="flex:1;">
-                                        <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Date Watched</label>
-                                        <input id="fld-datewatch" name="Date Watch" type="date" class="input-field input-readonly" value="${u.date}" readonly title="Locked while updating" onclick="openDatePickerFromInput(this)" onfocus="openDatePickerFromInput(this)" required>
-                                    </div>` : ''}
                                     <div style="flex:1;">
                                         <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Tier List</label>
                                         <input type="hidden" id="fld-tier" name="Tier List" value="${(['S','A','B','C','D','F'].includes(tierLetter) ? `${tierLetter}-Tier` : String(u.tier || ''))}">
@@ -1180,25 +1188,6 @@
                                         <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Notes / Review</label>
                                         <textarea id="fld-notes" name="Notes" class="textarea-field" rows="4" placeholder="Review...">${u.notes}</textarea>
                                     </div>
-                                        ${isUpdate ? `<div class="grid grid-2 gap-6 submit-watch-inline">
-                                            <div class="flex items-center justify-start" style="gap: 25px;">
-                                                <span class="text-sm text-white font-bold label-gap capitalize">Times Watched</span>
-                                                <input id="fld-timeswatch" name="Times Watch" type="number" min="1" value="${u.watched}" class="input-field text-center ${timesWatchedLocked ? 'input-readonly' : ''}" style="width: 100px; height: 42px;" ${timesWatchedLocked ? 'readonly' : ''}>
-                                            </div>
-                                            <div class="flex items-center justify-start" style="gap: 25px;">
-                                                <span class="text-sm text-white font-bold label-gap capitalize">Watch Method</span>
-                                                <button
-                                                    type="button"
-                                                    id="watchmethod-toggle"
-                                                    class="input-field ${watchMethodLocked ? 'input-readonly' : ''}"
-                                                    style="width: 110px; height: 42px; display:flex; align-items:center; justify-content:center; padding:0; background-color: ${String(u.watch_method || 'At Home').toLowerCase().includes('theater') ? 'rgba(20, 184, 166, 0.35)' : 'rgba(168, 85, 247, 0.35)'}; color: white; border-color: ${String(u.watch_method || 'At Home').toLowerCase().includes('theater') ? 'rgba(20, 184, 166, 0.5)' : 'rgba(168, 85, 247, 0.5)'};"
-                                                    ${watchMethodLocked ? 'disabled title="Locked while updating"' : 'onclick="toggleWatchMethod(this)"'}
-                                                >
-                                                    ${String(u.watch_method || 'At Home').toLowerCase().includes('theater') ? 'In Theater' : 'At Home'}
-                                                </button>
-                                                <input type="hidden" id="fld-watchmethod" name="Watch Method" value="${String(u.watch_method || 'At Home').toLowerCase().includes('theater') ? 'In Theater' : 'At Home'}">
-                                            </div>
-                                        </div>` : ''}
                                 </div>
 
                                 <div class="flex" style="border-top: 1px solid rgba(255,255,255,0.05); margin-top: 15px; padding-top: 15px; justify-content: ${isUpdate ? 'space-between' : 'center'}; gap: 10px; flex-wrap: wrap;">

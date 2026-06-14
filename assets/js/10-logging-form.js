@@ -58,10 +58,63 @@
 
             if (isSelected) {
                 setGenreSelection(current.filter(g => g !== genre));
-                return;
+            } else {
+                setGenreSelection([...current, genre]);
             }
+            // Chips don't fire input/change, so clear the genre "missing" highlight here.
+            try { refreshMovieDetailMissingHighlights(); } catch (_) {}
+        }
 
-            setGenreSelection([...current, genre]);
+        // Collapse/expand the "Movie Details" panel (mobile overhaul: keeps the busy
+        // metadata fields tucked away behind a header + caret, poster stays visible).
+        function toggleSubmitDetails(btn) {
+            const panel = (btn && btn.closest) ? btn.closest('.submit-details-panel') : null;
+            if (panel) panel.classList.toggle('open');
+        }
+
+        // Initial state for the Movie Details panel: open on desktop (room to spare),
+        // and on mobile open ONLY when a detail is missing (so it surfaces the red-
+        // highlighted gaps); otherwise collapse it to de-clutter the mobile form.
+        function initSubmitDetailsCollapse() {
+            const panel = document.querySelector('.submit-details-panel');
+            if (!panel) return;
+            const hasMissing = panel.dataset.hasMissing === 'true';
+            let isMobile = false;
+            try { isMobile = window.matchMedia('(max-width: 900px)').matches; } catch (_) {}
+            if (hasMissing || !isMobile) panel.classList.add('open');
+            else panel.classList.remove('open');
+
+            // Live-clear the red highlight as soon as a missing Movie Details field is
+            // filled in (the panel is a fresh DOM node each render, so no dup listeners).
+            panel.addEventListener('input', refreshMovieDetailMissingHighlights);
+            panel.addEventListener('change', refreshMovieDetailMissingHighlights);
+        }
+
+        // Remove the "missing" highlight from any Movie Details field that now has a
+        // valid value. Only Movie Details fields are flagged at render time; ratings
+        // are only flagged AFTER a save attempt (via blockSubmitWithValidationUI).
+        function refreshMovieDetailMissingHighlights() {
+            const hasVal = (v) => String(v ?? '').trim() !== '';
+            const posInt = (v) => { const n = Number(String(v ?? '').trim()); return Number.isFinite(n) && n > 0; };
+            const checks = [
+                ['fld-year', posInt],
+                ['fld-mpa', hasVal],
+                ['fld-runtime', posInt],
+                ['fld-series', hasVal],
+                ['fld-director', hasVal],
+                ['fld-genre', (v) => parseGenreString(v).length > 0],
+            ];
+            for (const [id, ok] of checks) {
+                const el = document.getElementById(id);
+                if (!el) continue;
+                const wrap = el.closest ? el.closest('.submit-field-missing') : null;
+                if (wrap && ok(el.value)) wrap.classList.remove('submit-field-missing');
+            }
+            const panel = document.querySelector('.submit-details-panel');
+            if (panel && !panel.querySelector('.submit-field-missing')) {
+                const badge = panel.querySelector('.submit-details-missing-badge');
+                if (badge) badge.style.display = 'none';
+            }
         }
 
         function clearInlineValidationHints() {
@@ -349,6 +402,9 @@
                 .filter((m) => String(m?.kind || '') === 'movie_details')
                 .map((m) => m.label);
             if (missingMovieDetails.length > 0) {
+                // Make sure the (possibly collapsed) Movie Details panel is open so the
+                // inline hints on those fields are actually visible.
+                try { document.querySelector('.submit-details-panel')?.classList.add('open'); } catch (_) {}
                 openMissingMovieDetailsOverlay(missingMovieDetails);
             }
 
@@ -639,12 +695,12 @@
                         }
                         historicalEntries = Array.isArray(prior.entries) ? prior.entries : [];
                     }
-                } else {
-                    watch_method = String(document.getElementById('fld-watchmethod')?.value || '').trim() || null;
-                    watch_date_from_form = String(document.getElementById('fld-datewatch')?.value || '').trim();
                 }
+                // Updates only change the review fields. Date Watched / Times Watched /
+                // Watch Method were removed from the update form (set once when the movie
+                // is first logged), so there are no watch inputs to read here.
 
-                if (!watch_date_from_form) {
+                if (entryType === 'new' && !watch_date_from_form) {
                     throw new Error('Date Watched is required.');
                 }
 

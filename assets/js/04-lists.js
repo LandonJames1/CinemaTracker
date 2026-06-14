@@ -969,6 +969,11 @@
             const els = getListsSortFilterModalEls();
             if (!els.sortKey) return;
 
+            // Recs are unwatched, so the Watch Count Range filter doesn't apply — hide it.
+            const isRecs = String(listsActiveListName || '').trim().toLowerCase() === 'recs';
+            const watchRange = document.getElementById('lists-watch-count-range');
+            if (watchRange) watchRange.style.display = isRecs ? 'none' : '';
+
             const allowed = new Set(getAllowedListsSortKeysForActiveList());
 
             const sortOptions = [
