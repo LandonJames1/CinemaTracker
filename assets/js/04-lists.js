@@ -945,8 +945,8 @@
                     filterBtn.style.borderColor = '';
                     filterBtn.style.background = '';
                 } else {
-                    filterBtn.style.borderColor = 'rgba(20, 184, 166, 0.65)';
-                    filterBtn.style.background = 'rgba(20, 184, 166, 0.12)';
+                    filterBtn.style.borderColor = 'color-mix(in srgb, var(--brand) 65%, transparent)';
+                    filterBtn.style.background = 'color-mix(in srgb, var(--brand) 12%, transparent)';
                 }
             }
         }
@@ -2677,7 +2677,11 @@
                 if (isRecsList) {
                     recByDataByMovieId = new Map();
                     let recsHighlightSince = '';
-                    try { recsHighlightSince = getNotifLastSeen(RECS_LAST_SEEN_KEY); } catch (_) {}
+                    // DB-aware so a rec seen on another device doesn't re-glow here.
+                    try {
+                        const seen = await loadSeenTimesFromDb();
+                        recsHighlightSince = effectiveSeen(RECS_LAST_SEEN_KEY, seen.recs);
+                    } catch (_) { try { recsHighlightSince = getNotifLastSeen(RECS_LAST_SEEN_KEY); } catch (_) {} }
                     try {
                         const { data: recRows } = await supabaseClient
                             .from('Recommendations')

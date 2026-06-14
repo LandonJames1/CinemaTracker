@@ -983,8 +983,8 @@
                         openBtn.style.borderColor = '';
                         openBtn.style.background = '';
                     } else {
-                        openBtn.style.borderColor = 'rgba(20, 184, 166, 0.65)';
-                        openBtn.style.background = 'rgba(20, 184, 166, 0.12)';
+                        openBtn.style.borderColor = 'color-mix(in srgb, var(--brand) 65%, transparent)';
+                        openBtn.style.background = 'color-mix(in srgb, var(--brand) 12%, transparent)';
                     }
                 }
             }
@@ -1784,8 +1784,12 @@
             }
 
             // Capture the highlight threshold BEFORE marking seen, so new items in
-            // this view glow once, then read as normal next time.
-            try { feedHighlightSince = getNotifLastSeen(FEED_LAST_SEEN_KEY); } catch (_) { feedHighlightSince = ''; }
+            // this view glow once, then read as normal next time. DB-aware so glows are
+            // consistent across devices (an item seen on your phone won't re-glow here).
+            try {
+                const seen = await loadSeenTimesFromDb();
+                feedHighlightSince = effectiveSeen(FEED_LAST_SEEN_KEY, seen.feed);
+            } catch (_) { feedHighlightSince = ''; }
 
             try {
                 await loadMyFollowingIds();
@@ -1818,6 +1822,33 @@
             } catch (_) {
                 return new Date().toISOString();
             }
+        }
+
+        // ===== Cross-device "last seen" =====
+        // The AUTHORITATIVE seen-time lives in Users.feed_seen_at / recs_seen_at (shared
+        // across every device); localStorage is only a per-device cache. So a feed/recs
+        // badge cleared on your phone must also read as cleared on desktop later.
+        async function loadSeenTimesFromDb() {
+            try {
+                const uid = String(cachedAuthUser?.id || '').trim();
+                if (!uid || !supabaseClient || !cachedIsAuthed) return {};
+                const { data } = await supabaseClient
+                    .from('Users').select('feed_seen_at, recs_seen_at').eq('id', uid).single();
+                return { feed: String(data?.feed_seen_at || ''), recs: String(data?.recs_seen_at || '') };
+            } catch (_) { return {}; }
+        }
+
+        // The effective seen-time = the LATER of (this device's localStorage, the shared
+        // DB value). ISO-8601 strings compare lexicographically, so `>` = "more recent".
+        // Also catches this device's cache up to the shared latest so glows stay in sync.
+        function effectiveSeen(localKey, dbVal) {
+            let local = '';
+            try { local = localStorage.getItem(localKey) || ''; } catch (_) {}
+            const db = String(dbVal || '');
+            let eff = (db > local) ? db : local;
+            if (!eff) eff = new Date().toISOString(); // brand-new user, no history → no backlog
+            try { if (eff !== local) localStorage.setItem(localKey, eff); } catch (_) {}
+            return eff;
         }
 
         function setNavBadge(elId, count) {
@@ -1857,9 +1888,12 @@
                 const meId = String(cachedAuthUser?.id || '').trim();
                 if (!meId) return;
 
+                // Pull the shared seen-times once so badges match across devices.
+                const seen = await loadSeenTimesFromDb();
+
                 // Lists badge: recommendations sent to me since last seen.
                 try {
-                    const since = getNotifLastSeen(RECS_LAST_SEEN_KEY);
+                    const since = effectiveSeen(RECS_LAST_SEEN_KEY, seen.recs);
                     const { count } = await supabaseClient
                         .from('Recommendations')
                         .select('id', { count: 'exact', head: true })
@@ -1874,7 +1908,7 @@
                     await loadMyFollowingIds();
                     const followed = Array.from(feedFollowingIds).filter(id => id && id !== meId);
                     if (followed.length) {
-                        const since = getNotifLastSeen(FEED_LAST_SEEN_KEY);
+                        const since = effectiveSeen(FEED_LAST_SEEN_KEY, seen.feed);
                         const { count } = await supabaseClient
                             .from('Movie Ratings')
                             .select('id', { count: 'exact', head: true })

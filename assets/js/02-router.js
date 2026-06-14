@@ -706,11 +706,11 @@
                                                 </div>
 
                                                 <div id="update-options" class="hidden grid-2 gap-3" style="padding: 0; border: 0; background: transparent;">
-                                                    <button onclick="router.startUpdateRatings()" class="text-left" style="padding:0.45rem 0.55rem; border-radius:0.5rem; min-height: 36px; transition: background 0.2s; border: 1px solid rgba(168, 85, 247, 0.45); background: rgba(168, 85, 247, 0.10);">
+                                                    <button onclick="router.startUpdateRatings()" class="text-left" style="padding:0.45rem 0.55rem; border-radius:0.5rem; min-height: 36px; transition: background 0.2s; border: 1px solid color-mix(in srgb, var(--brand-2, #a855f7) 45%, transparent); background: color-mix(in srgb, var(--brand-2, #a855f7) 12%, transparent);">
                                                         <span class="text-brand font-semibold mb-2" style="display:block;">Update Ratings &rarr;</span>
                                                         <span class="text-xs text-gray">Edit your review, scores, and tier.</span>
                                                     </button>
-                                                    <button onclick="router.quickIncrement()" class="text-left" style="padding:0.45rem 0.55rem; border-radius:0.5rem; min-height: 36px; transition: background 0.2s; border: 1px solid rgba(20, 184, 166, 0.45); background: rgba(20, 184, 166, 0.10);">
+                                                    <button onclick="router.quickIncrement()" class="text-left" style="padding:0.45rem 0.55rem; border-radius:0.5rem; min-height: 36px; transition: background 0.2s; border: 1px solid color-mix(in srgb, var(--brand, #14b8a6) 45%, transparent); background: color-mix(in srgb, var(--brand, #14b8a6) 12%, transparent);">
                                                         <span class="text-brand font-semibold mb-2" style="display:block;">Quick Watch (+1) &rarr;</span>
                                                         <span class="text-xs text-gray">Simply add a view to your count.</span>
                                                     </button>

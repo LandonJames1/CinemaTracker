@@ -270,14 +270,15 @@
             box-shadow: 0 0 0 2px var(--brand, #14b8a6), 0 0 16px color-mix(in srgb, var(--brand) 40%, transparent);
             border-radius: 1rem;
         }
-        /* New feed posts from people you follow glow PINK (distinct from Recs). */
+        /* New feed posts from people you follow glow in the THEME's primary color. */
         .feed-item-card.is-new {
-            box-shadow: 0 0 0 2px #ec4899, 0 0 16px rgba(236, 72, 153, 0.45);
+            box-shadow: 0 0 0 2px var(--brand, #14b8a6), 0 0 16px color-mix(in srgb, var(--brand, #14b8a6) 45%, transparent);
             border-radius: 1rem;
         }
-        /* New feed entry for a movie YOU recommended to that person — violet glow. */
+        /* New feed entry for a movie YOU recommended to that person — the theme's
+           secondary accent, so it stays distinct from the normal "new" glow. */
         .feed-item-card.is-new-rec {
-            box-shadow: 0 0 0 2px #a855f7, 0 0 18px rgba(168, 85, 247, 0.5);
+            box-shadow: 0 0 0 2px var(--brand-2, #a855f7), 0 0 18px color-mix(in srgb, var(--brand-2, #a855f7) 50%, transparent);
             border-radius: 1rem;
         }
         /* User profile overview modal */
@@ -404,7 +405,7 @@
         .profile-compat-gap {
             font-size: 0.74rem;
             font-weight: 600;
-            color: #a855f7;
+            color: var(--brand-2, #a855f7);
             white-space: nowrap;
         }
         .nav-link:hover {
@@ -1738,9 +1739,9 @@
             white-space: nowrap;
         }
         .lists-platform-pill.more {
-            background: rgba(20,184,166,0.10);
-            border-color: rgba(20,184,166,0.35);
-            color: rgba(20,184,166,0.95);
+            background: color-mix(in srgb, var(--brand, #14b8a6) 10%, transparent);
+            border-color: color-mix(in srgb, var(--brand, #14b8a6) 35%, transparent);
+            color: var(--brand, #14b8a6);
         }
 
         .nav-actions { display: flex; align-items: center; gap: 0.75rem; }
@@ -1791,8 +1792,8 @@
             height: 1.6rem;
             padding: 0 0.45rem;
             border-radius: 999px;
-            background: rgba(20, 184, 166, 0.35);
-            border: 1px solid rgba(20, 184, 166, 0.55);
+            background: color-mix(in srgb, var(--brand, #14b8a6) 35%, transparent);
+            border: 1px solid color-mix(in srgb, var(--brand, #14b8a6) 55%, transparent);
             font-size: 0.8rem;
             line-height: 1;
         }
@@ -3875,7 +3876,7 @@
             position: absolute;
             height: 6px;
             border-radius: 999px;
-            background: linear-gradient(90deg, rgba(20,184,166,0.4), rgba(20,184,166,0.9));
+            background: linear-gradient(90deg, color-mix(in srgb, var(--brand, #14b8a6) 40%, transparent), color-mix(in srgb, var(--brand, #14b8a6) 90%, transparent));
             left: 0;
             right: 100%;
         }

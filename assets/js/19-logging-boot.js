@@ -320,6 +320,15 @@
             // Populate unread-notification badges (Feed / Lists) on load.
             try { refreshNavBadges(); } catch (_) {}
 
+            // Re-check badges whenever a left-open tab/app regains focus, so a feed/recs
+            // view on another device clears the icons here without a full reload.
+            try {
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'visible') { try { refreshNavBadges(); } catch (_) {} }
+                });
+                window.addEventListener('focus', () => { try { refreshNavBadges(); } catch (_) {} });
+            } catch (_) {}
+
             // New users: prompt to enable push notifications right away (one-shot).
             try { maybePromptPushAfterSignup(); } catch (_) {}
 
