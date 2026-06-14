@@ -1158,7 +1158,7 @@
                                             <div style="${key === 'overall' ? 'grid-column: span 2; padding: 1rem; border-radius: 0.75rem; background: var(--brand-light); border: 1px solid rgba(20,184,166,0.22);' : ''}">
                                                 <label class="text-sm ${key === 'overall' ? 'text-white' : 'text-white'} font-bold mb-2 label-gap submit-label block capitalize" style="${key === 'overall' ? 'display:flex; align-items:center; gap:0.5rem;' : ''}">${key === 'overall' ? `<span class=\"text-brand\">${icons.star}</span><span>Overall</span>` : key === 'sound' ? 'Score - Sound Design' : key === 'imagery' ? 'Imagery - CGI - Animation' : key === 'acting' ? 'Acting - Character Animation' : key}</label>
                                                 <div class="slider-container">
-                                                    <input type="range" min="0" max="100" value="${scores[key]}" oninput="document.getElementById('num-${key}').value = this.value">
+                                                    <input type="range" min="0" max="100" value="${scores[key]}" oninput="syncScoreFromSlider(this, 'num-${key}')">
                                                     <div class="relative" style="width: 140px;">
                                                         <input
                                                             type="number"
@@ -1166,10 +1166,11 @@
                                                             id="num-${key}"
                                                             name="${key === 'overall' ? 'Overall' : key === 'sound' ? 'Score - Sound Design' : key === 'pace' ? 'Pace' : key === 'imagery' ? 'Imagery - CGI - Animation' : key === 'plot' ? 'Plot - Writting' : key === 'acting' ? 'Acting - Character Animation' : key === 'dialogue' ? 'Dialogue' : key}"
                                                             value="${scores[key]}"
+                                                            data-last-valid="${scores[key]}"
                                                             min="0"
                                                             max="100"
                                                             class="input-field text-center ${key === 'overall' ? 'font-bold' : ''}"
-                                                            oninput="this.parentElement.previousElementSibling.value = this.value"
+                                                            oninput="enforceRatingScore(this)"
                                                         >
                                                     </div>
                                                 </div>

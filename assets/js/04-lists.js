@@ -216,6 +216,214 @@
             if (overlay) { overlay.style.display = 'none'; overlay.classList.remove('open'); }
         }
 
+        // ===== Recs poster viewer (Movie Details + followed users' reviews) =====
+        // Opened by clicking a poster in the "Recs" list. Flow:
+        //   - reviewers found → choice screen (Movie Details | User Reviews)
+        //       User Reviews → list of followed users who rated it → their review
+        //   - no reviewers (recommender hasn't watched it) → straight to Movie Details
+        let recsViewMovie = null;        // prefill row (title/genre/mpa/runtime/imdb/etc.)
+        let recsViewReviewers = [];      // [{ id, username, name, icon, row }]
+        let recsViewHasChoice = false;   // whether the choice screen applies (>=1 reviewer)
+        let recsViewState = 'choice';    // choice | details | reviewers | review
+
+        async function openRecsMovieModal(movieId) {
+            const mid = String(movieId || '').trim();
+            if (!mid) return;
+            recsViewMovie = listsMoviePrefillById.get(mid) || null;
+            recsViewReviewers = [];
+
+            // Candidates = people who recommended me this movie + people I follow.
+            const recommenders = (recByDataByMovieId.get(mid) || []).map(r => String(r?.id || '').trim()).filter(Boolean);
+            let followed = [];
+            try { await loadMyFollowingIds(); followed = Array.from(feedFollowingIds || []); } catch (_) {}
+            const myId = String(cachedAuthUser?.id || '').trim();
+            const candidates = Array.from(new Set([...recommenders, ...followed]
+                .map(x => String(x || '').trim()).filter(x => x && x !== myId)));
+
+            // Which of them actually rated this movie?
+            const rowByUser = new Map();
+            if (candidates.length) {
+                try {
+                    const { data } = await supabaseClient
+                        .from('Movie Ratings')
+                        .select('user_id, overall_rating, tier, watch_date, fav_quote, notes, sound_rating, pacing_rating, imagery_rating, acting_rating, plot_rating, dialogue_rating')
+                        .eq('movie_id', mid)
+                        .in('user_id', candidates);
+                    for (const row of (Array.isArray(data) ? data : [])) {
+                        const uid = String(row?.user_id || '').trim();
+                        if (uid) rowByUser.set(uid, row);
+                    }
+                } catch (_) {}
+            }
+
+            const reviewerIds = Array.from(rowByUser.keys());
+            // User info: seed from the recommender cache, then fetch any missing.
+            const infoById = new Map();
+            for (const r of (recByDataByMovieId.get(mid) || [])) {
+                const rid = String(r?.id || '').trim();
+                if (rid) infoById.set(rid, { id: rid, username: String(r?.username || '').trim(), icon: String(r?.icon || '').trim() });
+            }
+            const missing = reviewerIds.filter(id => !infoById.has(id));
+            if (missing.length) {
+                try {
+                    let us = null;
+                    try {
+                        const r1 = await supabaseClient.from('Users').select('id, username, display_name, icon').in('id', missing);
+                        if (r1.error) throw r1.error; us = r1.data;
+                    } catch (e1) {
+                        if (/column\s+"?icon"?\s+does\s+not\s+exist/i.test(String(e1?.message || e1))) {
+                            const r2 = await supabaseClient.from('Users').select('id, username, display_name').in('id', missing);
+                            if (!r2.error) us = r2.data;
+                        }
+                    }
+                    for (const u of (Array.isArray(us) ? us : [])) {
+                        const uid = String(u?.id || '').trim();
+                        if (uid) infoById.set(uid, { id: uid, username: String(u?.username || '').trim(), display_name: String(u?.display_name || '').trim(), icon: String(u?.icon || '').trim() });
+                    }
+                } catch (_) {}
+            }
+
+            recsViewReviewers = reviewerIds.map(uid => {
+                const info = infoById.get(uid) || { id: uid };
+                const username = String(info?.username || '').trim();
+                const name = String(info?.display_name || '').trim() || (username ? `@${username}` : 'User');
+                return { id: uid, username, name, icon: String(info?.icon || '').trim(), row: rowByUser.get(uid) };
+            });
+            recsViewHasChoice = recsViewReviewers.length > 0;
+
+            const overlay = document.getElementById('recs-movie-overlay');
+            if (!overlay) return;
+            overlay.style.display = 'flex';
+            overlay.classList.add('open');
+
+            // No reviewers → straight to Movie Details; otherwise the choice screen.
+            if (recsViewHasChoice) recsMovieRenderChoice();
+            else recsMovieRenderDetails();
+        }
+
+        function closeRecsMovieModal() {
+            const overlay = document.getElementById('recs-movie-overlay');
+            if (overlay) { overlay.style.display = 'none'; overlay.classList.remove('open'); }
+        }
+
+        function recsMovieBack() {
+            // From a single-reviewer review there's no list to go back to → choice.
+            if (recsViewState === 'review' && recsViewReviewers.length > 1) recsMovieRenderReviewers();
+            else recsMovieRenderChoice();
+        }
+
+        // "User Reviews" → list of reviewers, or straight to the review if there's one.
+        function recsMovieShowReviews() {
+            if (recsViewReviewers.length === 1) recsMovieRenderReview(recsViewReviewers[0].id);
+            else recsMovieRenderReviewers();
+        }
+
+        function recsMovieSetBody(html, { title = 'Recommended Movie', showBack = false } = {}) {
+            const body = document.getElementById('recs-movie-body');
+            const titleEl = document.getElementById('recs-movie-title');
+            const backBtn = document.getElementById('recs-movie-back');
+            if (titleEl) titleEl.textContent = title;
+            if (backBtn) backBtn.style.display = showBack ? '' : 'none';
+            if (body) body.innerHTML = html;
+        }
+
+        function recsMovieRenderChoice() {
+            recsViewState = 'choice';
+            const t = String(recsViewMovie?.title || 'this movie').trim();
+            recsMovieSetBody(`
+                <div class="text-xs text-gray" style="margin-bottom:0.85rem;">What do you want to see for “${escapeHtml(t)}”?</div>
+                <div style="display:flex; flex-direction:column; gap:10px;">
+                    <button type="button" class="btn btn-outline" onclick="recsMovieRenderDetails()" style="border-radius:0.85rem; padding:0.85rem; text-align:left;">
+                        <div class="text-white font-bold">Movie Details</div>
+                        <div class="text-xs text-gray" style="margin-top:0.2rem;">Genre, MPA, runtime, year, director, IMDb.</div>
+                    </button>
+                    <button type="button" class="btn btn-outline" onclick="recsMovieShowReviews()" style="border-radius:0.85rem; padding:0.85rem; text-align:left;">
+                        <div class="text-white font-bold">User Reviews</div>
+                        <div class="text-xs text-gray" style="margin-top:0.2rem;">${recsViewReviewers.length} ${recsViewReviewers.length === 1 ? 'review' : 'reviews'} from people you know.</div>
+                    </button>
+                </div>
+            `, { title: 'Recommended Movie', showBack: false });
+        }
+
+        function recsMovieRenderDetails() {
+            recsViewState = 'details';
+            const m = recsViewMovie || {};
+            const title = String(m?.title || 'Untitled').trim();
+            const year = (m?.year ?? m?.release_year ?? '') === '' ? '' : String(m?.year ?? m?.release_year);
+            const poster = (() => {
+                const raw = String(m?.poster_path || m?.posterPath || '').trim();
+                if (!raw) return '';
+                if (/^https?:\/\//i.test(raw)) return raw;
+                return `https://image.tmdb.org/t/p/w342${raw.startsWith('/') ? raw : `/${raw}`}`;
+            })();
+            const genre = normalizeMovieFieldValue(m?.genre);
+            const mpa = normalizeMovieFieldValue(m?.mpa ?? m?.mpa_rating);
+            const director = normalizeMovieFieldValue(m?.director);
+            const runtimeVal = (() => { const n = Number(m?.runtime ?? m?.runtime_minutes); return (Number.isFinite(n) && n > 0) ? `${Math.round(n)} min` : ''; })();
+            const imdbVal = (() => { const raw = (m?.imdb ?? m?.imdb_rating_pct ?? m?.imdb_pct ?? m?.imdb_rating); const n = parsePercentLike(raw, { imdb: true }); return (n !== null && n !== undefined) ? formatPctForDisplay(n) : ''; })();
+            const rows = [
+                ['Year', year], ['Genre', genre], ['MPA', mpa], ['Runtime', runtimeVal], ['Director', director], ['IMDb', imdbVal],
+            ].filter(r => String(r[1] || '').trim());
+            recsMovieSetBody(`
+                <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
+                    ${poster ? `<img src="${poster}" alt="${escapeHtml(title)}" style="width:140px; aspect-ratio:2/3; object-fit:cover; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">` : ''}
+                    <div style="text-align:center; color:#fff; font-weight:800; font-size:1.1rem;">${escapeHtml(title)}</div>
+                </div>
+                <div style="margin-top:12px; display:grid; gap:2px;">
+                    ${rows.length ? rows.map(([k, v]) => `<div style="display:flex; justify-content:space-between; gap:12px; border-bottom:1px solid rgba(255,255,255,0.06); padding:0.45rem 0;"><span class="text-xs text-gray">${escapeHtml(k)}</span><span class="text-white" style="font-weight:600; text-align:right;">${escapeHtml(String(v))}</span></div>`).join('') : `<div class="text-xs text-gray">No details available.</div>`}
+                </div>
+            `, { title: 'Movie Details', showBack: recsViewHasChoice });
+        }
+
+        function recsMovieRenderReviewers() {
+            if (!recsViewReviewers.length) { recsMovieRenderDetails(); return; }
+            recsViewState = 'reviewers';
+            const list = recsViewReviewers.map(rv => `
+                <button type="button" onclick="recsMovieRenderReview('${escapeHtml(rv.id)}')" style="display:flex; align-items:center; gap:12px; width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); cursor:pointer; text-align:left;">
+                    ${renderUserIconHtml(rv.icon, 34)}
+                    <span style="flex:1 1 auto; min-width:0; color:#fff; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(rv.name)}</span>
+                    <span class="text-xs text-gray" style="white-space:nowrap;">View review ›</span>
+                </button>
+            `).join('');
+            recsMovieSetBody(`
+                <div class="text-xs text-gray" style="margin-bottom:0.65rem;">${recsViewReviewers.length} ${recsViewReviewers.length === 1 ? 'person' : 'people'} you know rated this — tap to read:</div>
+                <div style="display:flex; flex-direction:column; gap:8px;">${list}</div>
+            `, { title: 'User Reviews', showBack: true });
+        }
+
+        function recsMovieRenderReview(userId) {
+            recsViewState = 'review';
+            const uid = String(userId || '').trim();
+            const rv = recsViewReviewers.find(x => String(x.id) === uid) || null;
+            const row = rv?.row || null;
+            const movieTitle = String(recsViewMovie?.title || 'this movie').trim();
+            if (!row) { recsMovieSetBody(`<div class="text-gray" style="padding:0.6rem;">No review found.</div>`, { title: 'Review', showBack: true }); return; }
+            const overall = dashFormatScoreWhole(row?.overall_rating);
+            const tierLabel = dashNormalizeTierLabel(row?.tier);
+            const watched = String(row?.watch_date || '').trim();
+            const quote = String(row?.fav_quote || '').trim();
+            const notes = String(row?.notes || '').trim();
+            const subs = [
+                ['Sound', dashFormatScoreWhole(row?.sound_rating)],
+                ['Pace', dashFormatScoreWhole(row?.pacing_rating)],
+                ['Imagery', dashFormatScoreWhole(row?.imagery_rating)],
+                ['Acting', dashFormatScoreWhole(row?.acting_rating)],
+                ['Plot', dashFormatScoreWhole(row?.plot_rating)],
+                ['Dialogue', dashFormatScoreWhole(row?.dialogue_rating)],
+            ].filter(x => String(x[1] || '').trim());
+            recsMovieSetBody(`
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:0.6rem;">
+                    ${renderUserIconHtml(rv?.icon, 30)}
+                    <div class="text-white" style="font-weight:800;">${escapeHtml(rv?.name || 'User')}</div>
+                </div>
+                ${(overall || tierLabel) ? `<div class="feed-metrics" style="margin-bottom:0.5rem;">${overall ? dashRenderHelpScore(overall) : ''}${tierLabel ? dashRenderHelpTier(tierLabel) : ''}</div>` : `<div class="text-xs text-gray">No rating recorded.</div>`}
+                ${watched ? `<div class="text-xs" style="color:rgba(255,255,255,0.55); margin-bottom:0.5rem;">Watched: ${escapeHtml(watched)}</div>` : ''}
+                ${subs.length ? `<div class="library-chip-row" style="margin-top:0.4rem;">${subs.map(([k, v]) => `<span class="dash-quote-pill">${escapeHtml(k)}: ${escapeHtml(v)}</span>`).join('')}</div>` : ''}
+                ${quote ? `<div style="margin-top:0.75rem;"><div class="text-xs text-gray" style="margin-bottom:0.25rem;">Favorite Quote</div><div class="text-white" style="line-height:1.4;">${escapeHtml(quote)}</div></div>` : ''}
+                ${notes ? `<div style="margin-top:0.75rem;"><div class="text-xs text-gray" style="margin-bottom:0.25rem;">Notes</div><div class="text-white" style="line-height:1.4; white-space:pre-wrap;">${escapeHtml(notes)}</div></div>` : ''}
+            `, { title: `${rv?.name || 'Review'} · ${movieTitle}`, showBack: true });
+        }
+
         async function loadRecRecipients() {
             const uid = String(recPendingMovie?.user_id || '').trim();
             recRecipientsCache = [];
@@ -2008,6 +2216,13 @@
                 if (action === 'open_movie') {
                     const mid = String(el.dataset.movieId || '').trim();
                     if (!mid) return;
+
+                    // On the Recs list, a poster opens the recommendation viewer
+                    // (Movie Details / followed users' reviews) instead of the log form.
+                    if (String(listsActiveListName || '').trim().toLowerCase() === 'recs') {
+                        openRecsMovieModal(mid).catch((err) => showToast(`Open failed: ${String(err?.message || err)}`, { level: 'warn' }));
+                        return;
+                    }
 
                     (async () => {
                         const prefill = listsMoviePrefillById.get(mid) || null;

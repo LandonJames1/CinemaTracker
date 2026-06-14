@@ -127,6 +127,38 @@
             }
         }
 
+        // Hard-enforce 0–100 on a rating number box in REAL TIME: the moment a
+        // keystroke would push it out of range (e.g. typing a 3rd digit → 555) the
+        // value snaps back to the last valid value, so an invalid number can never
+        // persist. Keeps the paired slider in sync.
+        function enforceRatingScore(el) {
+            if (!el) return;
+            const digits = String(el.value ?? '').replace(/[^\d]/g, '');
+            if (digits === '') { el.value = ''; el.dataset.lastValid = ''; }
+            else {
+                const n = parseInt(digits, 10);
+                if (Number.isNaN(n)) {
+                    el.value = el.dataset.lastValid || '';
+                } else if (n > 100) {
+                    // Reject the out-of-range keystroke (don't clamp to 100 — keep what was valid).
+                    el.value = (el.dataset.lastValid !== undefined && el.dataset.lastValid !== '') ? el.dataset.lastValid : '100';
+                } else {
+                    el.value = String(n);
+                }
+                el.dataset.lastValid = el.value;
+            }
+            const range = el.parentElement && el.parentElement.previousElementSibling;
+            if (range && range.tagName === 'INPUT' && range.type === 'range') range.value = el.value || '0';
+        }
+
+        // Slider moved → mirror into the number box (always valid) + remember it.
+        function syncScoreFromSlider(rangeEl, numId) {
+            const num = document.getElementById(numId);
+            if (!num || !rangeEl) return;
+            num.value = rangeEl.value;
+            num.dataset.lastValid = String(rangeEl.value);
+        }
+
         function clearInlineValidationHints() {
             try {
                 document.querySelectorAll('.field-error-msg[data-inline-validation="true"]').forEach((n) => n.remove());

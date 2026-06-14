@@ -65,4 +65,30 @@ begin
 end
 $$;
 
+-- Let a recipient READ the rating/review of someone who recommended them a movie,
+-- even if they don't follow that person back. This is what lets the Recs poster
+-- viewer (openRecsMovieModal in 04-lists.js) show the recommender's review under
+-- strict "Movie Ratings" RLS. Scoped to the exact (recommender, movie) pair, so it
+-- only exposes the recommended movie's review — nothing else. Additive: it OR's with
+-- whatever existing select policies you have (e.g. read-own / read-followed).
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'Movie Ratings' and policyname = 'movie_ratings_select_recommenders'
+  ) then
+    create policy movie_ratings_select_recommenders on public."Movie Ratings"
+      for select to authenticated
+      using (
+        exists (
+          select 1 from public."Recommendations" r
+          where r.from_user_id = "Movie Ratings".user_id
+            and r.to_user_id   = auth.uid()
+            and r.movie_id     = "Movie Ratings".movie_id
+        )
+      );
+  end if;
+end
+$$;
+
 commit;

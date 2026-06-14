@@ -2035,6 +2035,8 @@
             /* Footer: span the full width on phones (kill the centered max-width). */
             footer { padding: 1.25rem 0; }
             footer .container { max-width: 100%; }
+            /* App feel on mobile: drop the website-y copyright line. */
+            #footer-copyright { display: none !important; }
 
             /* Feed cards: keep them inside the screen — the 220px main-column basis +
                wide actor column was overflowing. !important is required because the

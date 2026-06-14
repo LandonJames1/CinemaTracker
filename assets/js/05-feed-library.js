@@ -610,12 +610,28 @@
 
         // Tapping a poster in My Movies (esp. grid view on mobile) opens the full
         // diary entry — ratings, sub-ratings, watch info, quote, notes + actions.
-        function openLibraryMovieModal(movieId) {
+        async function openLibraryMovieModal(movieId) {
             const mid = String(movieId || '').trim();
             const overlay = document.getElementById('library-movie-overlay');
             const body = document.getElementById('library-movie-body');
             if (!mid || !overlay || !body) return;
-            const it = (Array.isArray(libraryItems) ? libraryItems : []).find(x => String(x?.movie_id || '').trim() === mid);
+            let it = (Array.isArray(libraryItems) ? libraryItems : []).find(x => String(x?.movie_id || '').trim() === mid);
+            // Not in the My Movies cache (e.g. opened from the Data Dashboard) → fetch
+            // the same flattened row directly from the library view.
+            if (!it) {
+                try {
+                    const uid = String(cachedAuthUser?.id || '').trim();
+                    if (uid && supabaseClient) {
+                        const { data } = await supabaseClient
+                            .from(LIBRARY_ITEMS_VIEW)
+                            .select('*')
+                            .eq('user_id', uid)
+                            .eq('movie_id', mid)
+                            .limit(1);
+                        it = Array.isArray(data) && data.length ? data[0] : null;
+                    }
+                } catch (_) {}
+            }
             if (!it) return;
 
             const esc = (s) => escapeHtml(String(s ?? ''));
@@ -2462,26 +2478,35 @@
             el.innerHTML = `<div class="text-gray">Searching…</div>`;
 
             let data = null;
+            // Search by username OR email via the SECURITY DEFINER RPC (email lives in
+            // auth.users and is never returned — see search_users.sql).
             try {
-                const r1 = await supabaseClient
-                    .from('Users')
-                    .select('id, username, display_name, privacy_level, icon')
-                    .ilike('username', `%${q}%`)
-                    .limit(20);
-                if (r1.error) throw r1.error;
-                data = r1.data;
-            } catch (err1) {
-                const msg1 = String(err1?.message || err1);
-                if (/column\s+"?icon"?\s+does\s+not\s+exist/i.test(msg1)) {
-                    const r2 = await supabaseClient
+                const r = await supabaseClient.rpc('search_users', { p_query: q });
+                if (r.error) throw r.error;
+                data = r.data;
+            } catch (errRpc) {
+                // Fallback (e.g. search_users() not created yet): username-only query.
+                try {
+                    const r1 = await supabaseClient
                         .from('Users')
-                        .select('id, username, display_name, privacy_level')
+                        .select('id, username, display_name, privacy_level, icon')
                         .ilike('username', `%${q}%`)
                         .limit(20);
-                    if (r2.error) throw r2.error;
-                    data = r2.data;
-                } else {
-                    throw err1;
+                    if (r1.error) throw r1.error;
+                    data = r1.data;
+                } catch (err1) {
+                    const msg1 = String(err1?.message || err1);
+                    if (/column\s+"?icon"?\s+does\s+not\s+exist/i.test(msg1)) {
+                        const r2 = await supabaseClient
+                            .from('Users')
+                            .select('id, username, display_name, privacy_level')
+                            .ilike('username', `%${q}%`)
+                            .limit(20);
+                        if (r2.error) throw r2.error;
+                        data = r2.data;
+                    } else {
+                        throw err1;
+                    }
                 }
             }
 

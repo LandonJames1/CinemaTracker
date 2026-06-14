@@ -385,6 +385,20 @@
         </div>
     </div>
 
+    <!-- Recs poster viewer: choose Movie Details or a followed user's review -->
+    <div id="recs-movie-overlay" class="auth-overlay" onclick="if(event.target === this) closeRecsMovieModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="recs-movie-title" style="max-width: 480px;">
+            <div class="auth-modal-header">
+                <div style="display:flex; align-items:center; gap:0.5rem; min-width:0;">
+                    <button class="auth-modal-close" type="button" id="recs-movie-back" onclick="recsMovieBack()" style="display:none;">‹ Back</button>
+                    <div class="auth-modal-title" id="recs-movie-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Recommended Movie</div>
+                </div>
+                <button class="auth-modal-close" type="button" onclick="closeRecsMovieModal()">Close</button>
+            </div>
+            <div id="recs-movie-body" style="margin-top: 0.6rem;"></div>
+        </div>
+    </div>
+
     <!-- User profile overview modal (opened from the Feed) -->
     <div id="profile-overlay" class="auth-overlay" onclick="if(event.target === this) closeUserProfile();" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="profile-title" style="max-width: 760px; width: 100%; max-height: 88vh; overflow-y: auto;">
@@ -926,7 +940,7 @@
     </div>
     <footer>
         <div class="container flex flex-col md-row justify-between items-center">
-            <div class="mb-4">
+            <div class="mb-4" id="footer-copyright">
                 <span class="text-gray text-sm">© 2026 CinemaTracker. Designed for film lovers.</span>
             </div>
             <div class="flex gap-4" id="footer-icons">

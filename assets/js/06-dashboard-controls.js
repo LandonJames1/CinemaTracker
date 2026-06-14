@@ -308,18 +308,19 @@
                 e.preventDefault?.();
                 e.stopPropagation?.();
 
-                // Reuse the exact same update flow as the Home dropdown "Update Ratings" path.
-                // startUpdateRatings() resolves the DB movie id and loads existing rating + watch log data.
-                router.selectedMovie = {
-                    id: movieIdRaw || undefined,
-                    db_movie_id: movieIdRaw || undefined,
-                    tmdb_id: tmdbIdRaw ? Number(tmdbIdRaw) : undefined,
-                    title: titleRaw || undefined,
-                    poster_path: posterRaw || undefined,
-                    prefill_quote: quoteRaw || undefined,
-                };
+                // Open the SAME diary-entry popup as My Movies (review + Edit/Delete/
+                // Recommend), instead of jumping straight into the Update Ratings form.
+                // Resolve the DB movie id (most dash items have it; fall back via TMDb).
+                let mid = movieIdRaw;
+                if (!mid && tmdbIdRaw) {
+                    try { const r = await getDbMovieIdByTmdbId(Number(tmdbIdRaw)); if (r) mid = String(r); } catch (_) {}
+                }
+                if (!mid) return;
 
-                await router.startUpdateRatings();
+                // Ensure the modal's Edit/Delete/Recommend delegated handlers are bound
+                // even if the user never visited My Movies this session (idempotent).
+                try { initLibraryPage(); } catch (_) {}
+                try { await openLibraryMovieModal(mid); } catch (_) {}
             }, { capture: true });
 
             // Cosmetic: move the Quote Wall glow with the mouse.
