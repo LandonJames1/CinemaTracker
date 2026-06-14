@@ -69,7 +69,16 @@
         // metadata fields tucked away behind a header + caret, poster stays visible).
         function toggleSubmitDetails(btn) {
             const panel = (btn && btn.closest) ? btn.closest('.submit-details-panel') : null;
-            if (panel) panel.classList.toggle('open');
+            if (!panel) return;
+            panel.classList.toggle('open');
+            updateSubmitDetailsToggleLabel(panel);
+        }
+
+        // The caret label reads "Collapse" when open, "Expand" when closed.
+        function updateSubmitDetailsToggleLabel(panel) {
+            if (!panel) return;
+            const label = panel.querySelector('.submit-details-toggle-label');
+            if (label) label.textContent = panel.classList.contains('open') ? 'Collapse' : 'Expand';
         }
 
         // Initial state for the Movie Details panel: open on desktop (room to spare),
@@ -83,6 +92,7 @@
             try { isMobile = window.matchMedia('(max-width: 900px)').matches; } catch (_) {}
             if (hasMissing || !isMobile) panel.classList.add('open');
             else panel.classList.remove('open');
+            updateSubmitDetailsToggleLabel(panel);
 
             // Live-clear the red highlight as soon as a missing Movie Details field is
             // filled in (the panel is a fresh DOM node each render, so no dup listeners).

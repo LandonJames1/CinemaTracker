@@ -1920,8 +1920,16 @@
             border-radius: 999px;
             white-space: nowrap;
         }
-        .submit-details-caret {
+        .submit-details-toggle-label {
             margin-left: auto;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+        .submit-details-caret {
             display: inline-flex;
             color: var(--text-muted);
             transition: transform 0.2s ease;
@@ -2170,6 +2178,8 @@
             .slider-container { flex-direction: column; align-items: stretch; gap: 0.5rem; }
             .slider-container .relative { width: 100% !important; }
             .slider-container input[type="number"] { width: 100% !important; }
+            /* Detailed Scoring: put the number box on top and the drag slider BELOW it. */
+            .detailed-scoring .slider-container { flex-direction: column-reverse; }
 
             /* My Movies grid: the desktop 7-column grid is unusable on a phone. */
             .library-movie-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }

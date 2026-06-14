@@ -971,11 +971,12 @@
                             <input type="hidden" id="fld-movie-id" value="${hasDbMovie ? String(prefill.id) : ''}">
                             <input type="hidden" id="fld-tmdb-id" value="${Number.isFinite(Number(prefill?.tmdb_id)) ? String(Number(prefill.tmdb_id)) : ''}">
                             <!-- Read Only Section -->
-                            <div class="glass-panel submit-details-panel" data-has-missing="${detailsAnyMissing ? 'true' : 'false'}" style="padding: 1.5rem; border-radius: 1rem; background: color-mix(in srgb, ${formAccent.color} 10%, transparent); border: 1px solid color-mix(in srgb, ${formAccent.color} 22%, transparent);">
+                            <div class="glass-panel submit-details-panel" data-has-missing="${detailsAnyMissing ? 'true' : 'false'}" style="padding: 1.5rem; border-radius: 1rem; background: color-mix(in srgb, var(--brand) 10%, transparent); border: 1px solid color-mix(in srgb, var(--brand) 22%, transparent);">
                                 <button type="button" class="submit-details-toggle" onclick="toggleSubmitDetails(this)">
                                     <span style="color: ${formAccent.color}; display:inline-flex;">${icons.database}</span>
                                     <h2 class="text-xl font-semibold text-white" style="margin:0;">Movie Details</h2>
                                     ${detailsAnyMissing ? `<span class="submit-details-missing-badge" title="Some details are missing">Needs info</span>` : ''}
+                                    <span class="submit-details-toggle-label"></span>
                                     <span class="submit-details-caret" aria-hidden="true">
                                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
                                     </span>
@@ -1152,7 +1153,7 @@
 
                                 <div class="mb-8">
                                     <h3 class="text-sm font-bold text-white uppercase mb-4 label-gap">Detailed Scoring (%)</h3>
-                                    <div class="grid grid-2 gap-6">
+                                    <div class="grid grid-2 gap-6 detailed-scoring">
                                         ${scoreOrder.map(key => `
                                             <div style="${key === 'overall' ? 'grid-column: span 2; padding: 1rem; border-radius: 0.75rem; background: var(--brand-light); border: 1px solid rgba(20,184,166,0.22);' : ''}">
                                                 <label class="text-sm ${key === 'overall' ? 'text-white' : 'text-white'} font-bold mb-2 label-gap submit-label block capitalize" style="${key === 'overall' ? 'display:flex; align-items:center; gap:0.5rem;' : ''}">${key === 'overall' ? `<span class=\"text-brand\">${icons.star}</span><span>Overall</span>` : key === 'sound' ? 'Score - Sound Design' : key === 'imagery' ? 'Imagery - CGI - Animation' : key === 'acting' ? 'Acting - Character Animation' : key}</label>
@@ -1161,6 +1162,7 @@
                                                     <div class="relative" style="width: 140px;">
                                                         <input
                                                             type="number"
+                                                            inputmode="numeric"
                                                             id="num-${key}"
                                                             name="${key === 'overall' ? 'Overall' : key === 'sound' ? 'Score - Sound Design' : key === 'pace' ? 'Pace' : key === 'imagery' ? 'Imagery - CGI - Animation' : key === 'plot' ? 'Plot - Writting' : key === 'acting' ? 'Acting - Character Animation' : key === 'dialogue' ? 'Dialogue' : key}"
                                                             value="${scores[key]}"
