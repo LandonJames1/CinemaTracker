@@ -1430,7 +1430,7 @@
                 libraryHasMore = true;
                 libraryLoading = false;
                 libraryItems = [];
-                elList.innerHTML = `<div class="text-gray">Loading…</div>`;
+                elList.innerHTML = loadingPlaceholder('rows');
                 if (wrap) wrap.style.display = 'none';
             }
 
@@ -1853,8 +1853,9 @@
 
         function setNavBadge(elId, count) {
             const n = Number(count) || 0;
-            // Update both the desktop nav badge and its mobile-menu twin ("-m").
-            for (const id of [elId, `${elId}-m`]) {
+            // Update the desktop nav badge, its mobile-menu twin ("-m"), and the
+            // mobile bottom-tab-bar twin ("-t").
+            for (const id of [elId, `${elId}-m`, `${elId}-t`]) {
                 const el = document.getElementById(id);
                 if (!el) continue;
                 if (n > 0) {
@@ -2645,7 +2646,7 @@
             }
 
             if (!appendInCommon) {
-                elList.innerHTML = `<div class="text-gray">Loading…</div>`;
+                elList.innerHTML = loadingPlaceholder('rows');
                 if (elMeta) elMeta.textContent = '';
             }
 

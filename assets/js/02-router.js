@@ -95,7 +95,10 @@
                 }
                 document.body.dataset.page = page;
                 const root = document.getElementById('app-root');
-                
+
+                // Phase 2 — play the mobile page-enter transition as the new view swaps in.
+                try { animatePageEnter(root); } catch (_) {}
+
                 // Active Nav
                 document.querySelectorAll('.nav-link').forEach(el => {
                     let label = '';

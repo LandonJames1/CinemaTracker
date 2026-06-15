@@ -268,6 +268,72 @@
             menu.classList.toggle('open');
         }
 
+        // Mobile bottom tab bar — the "More" bottom sheet (secondary routes).
+        function openMoreSheet() {
+            try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
+            const overlay = document.getElementById('more-sheet-overlay');
+            if (!overlay) return;
+            overlay.classList.add('open');
+        }
+        function closeMoreSheet() {
+            const overlay = document.getElementById('more-sheet-overlay');
+            if (!overlay) return;
+            overlay.classList.remove('open');
+        }
+
+        // True only at phone widths — the native-feel touches below are mobile-only.
+        function isMobileViewport() {
+            try { return window.matchMedia('(max-width: 768px)').matches; } catch (_) { return false; }
+        }
+
+        // Phase 2 — play a quick "page enter" animation on the app root whenever the
+        // route's content is swapped in. Mobile-only + respects reduced-motion. The
+        // class is removed on animationend so no transform lingers to trap fixed
+        // descendants (modals/overlays). Called from router.navigate before the swap.
+        function animatePageEnter(root) {
+            try {
+                if (!root || !isMobileViewport()) return;
+                if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+                root.classList.remove('page-enter');
+                void root.offsetWidth; // force reflow so the animation restarts each nav
+                root.classList.add('page-enter');
+                root.addEventListener('animationend', () => root.classList.remove('page-enter'), { once: true });
+            } catch (_) {}
+        }
+
+        // Phase 2 — bottom tab-bar tap handler: light haptic, and tapping the tab you're
+        // already on smooth-scrolls to top (native behavior) instead of re-rendering.
+        function tabNav(page) {
+            try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
+            if (router && router.currentPage === page) {
+                try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) { window.scrollTo(0, 0); }
+                return;
+            }
+            router.navigate(page);
+        }
+
+        // Phase 4 — loading skeletons. On mobile we show shimmering placeholders shaped
+        // like the real content instead of a "Loading…" line; desktop keeps the text so
+        // its loading state is unchanged. `kind`: 'rows' (library/feed stacked cards) or
+        // 'posters' (lists poster grid).
+        function skeletonRows(n = 6) {
+            let out = '';
+            for (let i = 0; i < n; i++) {
+                out += `<div class="skel-card"><div class="skel skel-poster"></div><div class="skel-lines"><div class="skel skel-line lg"></div><div class="skel skel-line"></div><div class="skel skel-line sm"></div></div></div>`;
+            }
+            return out;
+        }
+        function skeletonPosters(n = 12) {
+            let out = '<div class="lists-grid">';
+            for (let i = 0; i < n; i++) out += `<div class="skel skel-tile"></div>`;
+            out += '</div>';
+            return out;
+        }
+        function loadingPlaceholder(kind) {
+            if (!isMobileViewport()) return `<div class="text-gray">Loading…</div>`;
+            return kind === 'posters' ? skeletonPosters() : skeletonRows();
+        }
+
         // Close the Lists-only movie search dropdown when clicking outside it.
         // (This is separate from the Home page search UI.)
         document.addEventListener('click', (e) => {

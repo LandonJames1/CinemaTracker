@@ -42,6 +42,8 @@
             if (navBtn) { navBtn.textContent = 'Demo'; navBtn.classList.remove('icon-only'); }
             const mobileBtn = document.getElementById('mobile-auth-btn');
             if (mobileBtn) mobileBtn.textContent = 'Demo';
+            const moreBtn = document.getElementById('more-auth-btn');
+            if (moreBtn) moreBtn.textContent = 'Demo';
 
             // Navigate to the page the user was trying to reach, or home
             const target = _pendingGuestPage || (window.location.hash || '').replace('#', '') || 'home';
@@ -68,6 +70,8 @@
             if (navBtn) { navBtn.textContent = 'Login'; navBtn.classList.remove('icon-only'); }
             const mobileBtn = document.getElementById('mobile-auth-btn');
             if (mobileBtn) mobileBtn.textContent = 'Login';
+            const moreBtn = document.getElementById('more-auth-btn');
+            if (moreBtn) moreBtn.textContent = 'Login';
 
             // Reset cached data
             cachedLists = [];

@@ -880,6 +880,13 @@
                     ? (displayName ? `${displayName} - Account` : 'Account')
                     : 'Login';
             }
+            // Mobile tab bar "More" sheet auth row mirrors the same label.
+            const moreAuthBtn = document.getElementById('more-auth-btn');
+            if (moreAuthBtn) {
+                moreAuthBtn.textContent = isAuthed
+                    ? (displayName ? `${displayName} - Account` : 'Account')
+                    : 'Login';
+            }
             if (statusEl) {
                 if (isAuthed) {
                     const dn = displayName || fallbackAccountName(user);

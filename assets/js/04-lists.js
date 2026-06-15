@@ -2547,7 +2547,7 @@
             listsLoading = true;
             if (reset) {
                 elLists.innerHTML = `<div class="text-gray">Loading…</div>`;
-                elItems.innerHTML = `<div class="text-gray">Loading…</div>`;
+                elItems.innerHTML = loadingPlaceholder('posters');
             }
 
             try {
