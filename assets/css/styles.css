@@ -495,28 +495,6 @@
             box-shadow: 0 0 0 2px var(--brand) inset, 0 0 14px color-mix(in srgb, var(--brand) 35%, transparent);
         }
 
-        /* Floating "Jump to New" pill on the Feed when unseen entries exist. */
-        .feed-jump-new-btn {
-            position: fixed;
-            left: 50%;
-            transform: translateX(-50%);
-            bottom: 1.5rem;
-            z-index: 60;
-            display: none;
-            align-items: center;
-            gap: 0.45rem;
-            padding: 0.6rem 1.05rem;
-            border-radius: 999px;
-            background-color: var(--brand);
-            color: #fff;
-            font-weight: 700;
-            border: none;
-            cursor: pointer;
-            box-shadow: 0 8px 22px 0 var(--brand-shadow, rgba(20, 184, 166, 0.45));
-        }
-        .feed-jump-new-btn.show { display: inline-flex; }
-        .feed-jump-new-btn:hover { background-color: var(--brand-hover, #0f9b8e); }
-
         .input-group { position: relative; }
         .input-field, .select-field, .textarea-field {
             width: 100%;

@@ -2602,8 +2602,6 @@
             const elMeta = document.getElementById('feed-meta');
             if (!elList) return;
 
-            // Hide the "Jump to New" pill during (re)loads; it's re-shown after render.
-            document.getElementById('feed-jump-new-btn')?.classList.remove('show');
 
             if (!supabaseClient || !cachedIsAuthed) {
                 elList.innerHTML = `<div class="text-gray">Log in to view your feed.</div>`;
@@ -2931,9 +2929,6 @@
 
             // In-common mode: offer "Load More" if there may be more watch logs to scan.
             renderFeedInCommonLoadMore(elList);
-
-            // Surface the floating "Jump to New" pill when there are highlighted entries.
-            updateFeedJumpNewButton();
         }
 
         // Appends a "Load More" button (in-common mode only) when the last page came
@@ -2956,25 +2951,6 @@
             };
             wrap.appendChild(btn);
             el.appendChild(wrap);
-        }
-
-        // Show/hide + label the floating "Jump to New" button based on how many
-        // highlighted (new/updated, non-own) feed cards are currently rendered.
-        function updateFeedJumpNewButton() {
-            const btn = document.getElementById('feed-jump-new-btn');
-            if (!btn) return;
-            // Reparent to <body> so position:fixed anchors to the viewport, not the
-            // transformed .fade-in container (which would pin it to the page bottom).
-            if (btn.parentElement !== document.body) document.body.appendChild(btn);
-            const list = document.getElementById('feed-list');
-            const newCount = list ? list.querySelectorAll('.feed-item-card.is-new, .feed-item-card.is-new-rec').length : 0;
-            if (newCount > 0) {
-                const label = btn.querySelector('span');
-                if (label) label.textContent = `↓ Jump to New (${newCount})`;
-                btn.classList.add('show');
-            } else {
-                btn.classList.remove('show');
-            }
         }
 
         // Mobile: the "Follow People" panel becomes a full-screen overlay opened by
@@ -3006,14 +2982,5 @@
             feedFollowsHome = null;
         }
 
-        // Scroll the first new/updated feed card into view.
-        function jumpToNewFeed() {
-            const list = document.getElementById('feed-list');
-            if (!list) return;
-            const first = list.querySelector('.feed-item-card.is-new, .feed-item-card.is-new-rec');
-            if (!first) return;
-            try { first.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
-            catch (_) { first.scrollIntoView(); }
-        }
 
 

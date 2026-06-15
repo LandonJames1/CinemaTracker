@@ -860,6 +860,85 @@ Deno.serve(async (req) => {
     // Service role client for server-side repairs and upserts.
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // ---- Scheduled IMDb-rating refresh (cron job, no user session) ------------
+    // Re-pulls OMDb IMDb ratings for the movies whose stored rating is the STALEST
+    // (oldest `Movie External Ratings.fetched_at`) and overwrites them in place, so a
+    // film's rating drifts as more people rate it over time. Refreshed rows get a new
+    // fetched_at and move to the back of the queue, so daily runs rotate through the
+    // whole catalog. Gated by a shared CRON_SECRET so only the scheduled job can call
+    // it. Triggered daily by .github/workflows/refresh-imdb.yml.
+    if (action === "refresh_imdb_ratings") {
+      const provided = String(req.headers.get("x-cron-secret") ?? "").trim();
+      const expected = String(Deno.env.get("CRON_SECRET") ?? "").trim();
+      if (!expected || provided !== expected) {
+        return jsonResponse({ code: 401, message: "Invalid or missing cron secret." }, 401);
+      }
+
+      const OMDB_API_KEY = Deno.env.get("OMDB_API_KEY");
+      if (!OMDB_API_KEY) {
+        return jsonResponse({ ok: false, message: "Missing OMDB_API_KEY." }, 200);
+      }
+
+      // Per-run cap — stay well under OMDb's ~1000/day free-tier limit.
+      const limit = Math.max(1, Math.min(900, Number(body?.limit) || 300));
+
+      // Oldest-fetched IMDb ratings first.
+      const { data: stale, error: staleErr } = await supabaseAdmin
+        .from("Movie External Ratings")
+        .select("movie_id, fetched_at")
+        .eq("source", "imdb")
+        .order("fetched_at", { ascending: true, nullsFirst: true })
+        .limit(limit);
+      if (staleErr) {
+        return jsonResponse({ ok: false, message: `Select failed: ${staleErr.message}` }, 200);
+      }
+      const rows = Array.isArray(stale) ? stale : [];
+      if (rows.length === 0) {
+        return jsonResponse({ ok: true, checked: 0, updated: 0, failed: 0 }, 200);
+      }
+
+      // Movie identity (imdb_id / title / year) needed to query OMDb.
+      const movieIds = rows.map((r) => r.movie_id).filter(Boolean);
+      const { data: movies } = await supabaseAdmin
+        .from("Movies")
+        .select("id, imdb_id, title, release_year")
+        .in("id", movieIds);
+      const movieById = new Map((Array.isArray(movies) ? movies : []).map((m) => [m.id, m]));
+
+      let checked = 0, updated = 0, failed = 0;
+      let idx = 0;
+      const CONCURRENCY = 6; // modest parallelism so N fetches don't hit the timeout
+      const worker = async () => {
+        while (idx < rows.length) {
+          const m = movieById.get(rows[idx++]?.movie_id);
+          if (!m?.id) continue;
+          checked++;
+          try {
+            const r = await fetchOmdbImdbRatingPercent({
+              imdb_id: m.imdb_id,
+              title: m.title,
+              year: m.release_year,
+              omdbApiKey: OMDB_API_KEY,
+            });
+            if (r?.ok && r.pct !== null) {
+              const { error: upErr } = await supabaseAdmin
+                .from("Movie External Ratings")
+                .upsert(
+                  { movie_id: m.id, source: "imdb", rating: r.pct, fetched_at: new Date().toISOString() },
+                  { onConflict: "movie_id,source" },
+                );
+              upErr ? failed++ : updated++;
+            } else {
+              failed++;
+            }
+          } catch (_) { failed++; }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, rows.length) }, worker));
+
+      return jsonResponse({ ok: true, checked, updated, failed }, 200);
+    }
+
     // ---- Movie recommendations: add a movie to each recipient's "Recs" list ----
     // (Cross-user writes require the service role, so this must run server-side.)
     if (action === "send_recommendation") {

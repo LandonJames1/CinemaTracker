@@ -1,0 +1,23 @@
+name: Refresh IMDb ratings
+
+# Runs daily and re-pulls the 300 stalest IMDb ratings from OMDb (via the swift-api
+# Edge Function), overwriting them in Supabase. GitHub Actions is ONLY the timer +
+# the HTTP trigger — the Edge Function (running on Supabase with the service-role key)
+# does the actual database writes.
+on:
+  schedule:
+    - cron: '0 8 * * *'   # every day at 08:00 UTC
+  workflow_dispatch: {}     # also lets you run it on demand from the Actions tab
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger refresh_imdb_ratings
+        run: |
+          curl -sS -X POST "${{ secrets.SUPABASE_FUNCTION_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -d '{"action":"refresh_imdb_ratings","limit":300}' \
+            --fail-with-body

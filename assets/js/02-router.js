@@ -1533,10 +1533,6 @@
                                     <div id="feed-list" style="margin-top: 0.9rem; display: grid; gap: 12px;"></div>
                                 </div>
 
-                                <button id="feed-jump-new-btn" type="button" class="feed-jump-new-btn" onclick="jumpToNewFeed()" aria-label="Jump to new entries">
-                                    <span>↓ Jump to New</span>
-                                </button>
-
                                 <div id="feed-follows-panel" class="glass-panel feed-follows-panel" style="padding: 1rem; border-radius: 1rem;">
                                     <div class="flex justify-between items-center" style="gap: 10px;">
                                         <div class="text-white font-bold">Follow People</div>
