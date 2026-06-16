@@ -334,6 +334,105 @@
             return kind === 'posters' ? skeletonPosters() : skeletonRows();
         }
 
+        // Pull-to-refresh (mobile, Instagram-style): drag down at the top of a refreshable
+        // page to reload it. Per-page refresh is dispatched in pullToRefreshAction(); right
+        // now only the Feed opts in (more pages can be added here later).
+        function pullToRefreshAction() {
+            const page = router && router.currentPage;
+            if (page === 'feed') return loadFeedPage();
+            if (page === 'library') return loadLibraryPage({ reset: true });
+            // Lists: refresh the cover-grid overview (detail view has its own reload paths).
+            if (page === 'lists' && typeof listsViewMode !== 'undefined' && listsViewMode === 'overview') {
+                return loadListsOverview();
+            }
+            return null;
+        }
+        function pageSupportsPullToRefresh() {
+            const page = router && router.currentPage;
+            if (!isMobileViewport()) return false;
+            if (page === 'feed' || page === 'library') return true;
+            // Only the Lists overview (not an open list) opts in.
+            if (page === 'lists' && typeof listsViewMode !== 'undefined' && listsViewMode === 'overview') return true;
+            return false;
+        }
+        (function initPullToRefresh() {
+            const THRESHOLD = 70;     // px pulled before a release triggers a refresh
+            const MAX_PULL = 120;     // hard cap on how far the content can be dragged
+            const RESIST = 0.5;       // drag resistance (content moves at half the finger)
+            let startY = 0, pulling = false, armed = false, refreshing = false;
+            const ind = () => document.getElementById('ptr-indicator');
+            const root = () => document.getElementById('app-root');
+
+            // Move BOTH the spinner and the page content down with the finger.
+            function dragTo(pull) {
+                const dist = Math.min(pull * RESIST, MAX_PULL);
+                const el = ind();
+                if (el) {
+                    el.classList.add('show');
+                    el.style.opacity = String(Math.min(1, pull / THRESHOLD));
+                    el.style.transform = `translateX(-50%) translateY(${dist}px) rotate(${pull * 2.2}deg)`;
+                }
+                const r = root();
+                if (r) { r.style.transition = 'none'; r.style.transform = `translateY(${dist}px)`; }
+            }
+            // Snap content back to rest; optionally keep the spinner up while refreshing.
+            function release(spinning) {
+                const r = root();
+                if (r) {
+                    r.style.transition = 'transform 0.25s ease';
+                    r.style.transform = 'translateY(0)';
+                    window.setTimeout(() => { if (r) { r.style.transition = ''; r.style.transform = ''; } }, 280);
+                }
+                const el = ind();
+                if (!el) return;
+                if (spinning) {
+                    el.classList.add('refreshing');
+                    el.style.opacity = '1';
+                    el.style.transform = 'translateX(-50%) translateY(56px)';
+                } else {
+                    hideIndicator();
+                }
+            }
+            function hideIndicator() {
+                const el = ind();
+                if (!el) return;
+                el.classList.remove('refreshing', 'show');
+                el.style.opacity = '0';
+                el.style.transform = 'translateX(-50%) translateY(0)';
+            }
+
+            document.addEventListener('touchstart', (e) => {
+                if (refreshing || !pageSupportsPullToRefresh() || window.scrollY > 0 || e.touches.length !== 1) {
+                    pulling = false; return;
+                }
+                startY = e.touches[0].clientY;
+                pulling = true; armed = false;
+            }, { passive: true });
+
+            document.addEventListener('touchmove', (e) => {
+                if (!pulling || refreshing) return;
+                if (window.scrollY > 0) { pulling = false; release(false); return; }
+                const dy = e.touches[0].clientY - startY;
+                if (dy <= 0) { dragTo(0); armed = false; return; }
+                dragTo(dy);
+                armed = dy >= THRESHOLD;
+            }, { passive: true });
+
+            document.addEventListener('touchend', async () => {
+                if (!pulling || refreshing) return;
+                pulling = false;
+                if (armed) {
+                    refreshing = true;
+                    release(true);              // snap content back, keep spinner up
+                    try { await pullToRefreshAction(); } catch (_) {}
+                    refreshing = false;
+                    hideIndicator();
+                } else {
+                    release(false);
+                }
+            }, { passive: true });
+        })();
+
         // Close the Lists-only movie search dropdown when clicking outside it.
         // (This is separate from the Home page search UI.)
         document.addEventListener('click', (e) => {

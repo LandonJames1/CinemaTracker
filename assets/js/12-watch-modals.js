@@ -493,7 +493,7 @@
         }
 
         // ---- Watch Details (Modal 1 of the new-entry save flow) -----------------
-        // Asks: When did you watch? / Where did you watch? / Have you watched before?
+        // Asks: When did you watch? / Where did you watch? / Was this your first time?
         function openWatchDetailsModal() {
             const overlay = document.getElementById('watch-details-overlay');
             if (!overlay) return;
@@ -506,7 +506,7 @@
             if (dateEl) dateEl.value = getLocalISODate();
 
             overlay.querySelectorAll('[data-wd-method-option]').forEach((b) => setModalOptionSelected(b, false));
-            overlay.querySelectorAll('[data-wd-before-option]').forEach((b) => setModalOptionSelected(b, false));
+            overlay.querySelectorAll('[data-wd-before]').forEach((b) => setModalOptionSelected(b, false));
 
             overlay.style.display = 'flex';
             overlay.classList.add('open');
@@ -528,12 +528,14 @@
         }
 
         function selectWatchDetailsBefore(before) {
+            // `before` = "have they watched it before?" — i.e. NOT their first time.
+            // UI asks "Was this your first time?": Yes → before=false, No → before=true.
             watchDetailsPendingBefore = !!before;
             const overlay = document.getElementById('watch-details-overlay');
             if (!overlay) return;
-            const want = before ? 'yes' : 'no';
-            overlay.querySelectorAll('[data-wd-before-option]').forEach((b) => {
-                setModalOptionSelected(b, b.getAttribute('data-wd-before-option') === want);
+            const want = String(!!before);
+            overlay.querySelectorAll('[data-wd-before]').forEach((b) => {
+                setModalOptionSelected(b, b.getAttribute('data-wd-before') === want);
             });
         }
 
@@ -550,7 +552,7 @@
                 return;
             }
             if (watchDetailsPendingBefore === null) {
-                showToast('Please answer whether you\'ve watched this before.', { level: 'warn' });
+                showToast('Please answer whether this was your first time watching it.', { level: 'warn' });
                 return;
             }
             closeWatchDetailsModal({
@@ -587,13 +589,8 @@
 
         function openPriorWatchesModal() {
             const overlay = document.getElementById('prior-watches-overlay');
-            const msg = document.getElementById('prior-watches-message');
             const countEl = document.getElementById('prior-watches-count');
             if (!overlay) return;
-
-            if (msg) {
-                msg.textContent = "Tell us about the times you watched this before. Set how many previous watches to add, then fill in each one.";
-            }
 
             // Reset the count input to 1 and render its rows.
             if (countEl) countEl.value = '1';

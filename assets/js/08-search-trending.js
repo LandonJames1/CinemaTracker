@@ -10,9 +10,10 @@
 
         async function callSwiftApiSearchMoviesForLists({ query, page = 1, signal }) {
             try {
-                // Lists page search should be dedicated to adding movies to lists only.
-                // It intentionally does not use the Home page filter state.
-                return await callSwiftApiPublic({ action: 'search', query, page, limit: 8 }, { signal });
+                // Uses the add-movie modal's own Year/MPA filter state (mirrors Home search).
+                const year = (typeof listsAddAppliedYear !== 'undefined') ? listsAddAppliedYear : '';
+                const mpa = (typeof listsAddAppliedMpa !== 'undefined') ? listsAddAppliedMpa : '';
+                return await callSwiftApiPublic({ action: 'search', query, page, year, mpa, limit: 8 }, { signal });
             } catch (err) {
                 throw new Error(`Search failed: ${String(err?.message || err)}`);
             }

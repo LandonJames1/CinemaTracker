@@ -23,7 +23,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/css/styles.css">
 </head>
-<body>
+<body class="app-sheets"><!-- "app-sheets" = bottom-sheet modals on mobile (Phase 3). Remove this class to revert to centered modals. -->
     <div class="theme-background"></div>
     <div class="theme-gradient-overlay"></div>
 
@@ -40,9 +40,11 @@
         <div class="container nav-inner">
             <div class="nav-brand" onclick="router.navigate('home')" style="cursor:pointer;">
                 <span class="icon-wrapper" id="nav-logo-icon"></span>
-                <span><span class="cinema-title">Cinema</span><span class="tracker-title">Tracker</span></span>
+                <span class="nav-brand-text"><span class="cinema-title">Cinema</span><span class="tracker-title">Tracker</span></span>
             </div>
-            
+            <!-- Mobile-only: the header bar becomes a dynamic page title (set in router.navigate). -->
+            <div id="mobile-page-title" class="nav-page-title"></div>
+
             <div class="nav-links">
                 <button onclick="router.navigate('home')" class="nav-link">Home</button>
                 <button onclick="router.navigate('feed')" class="nav-link">Feed<span id="nav-badge-feed" class="nav-badge"></span></button>
@@ -81,16 +83,18 @@
             <span class="tabbar-label">Home</span>
         </button>
         <button class="tabbar-btn" id="tab-feed" type="button" onclick="tabNav('feed')" aria-label="Feed">
-            <span class="tabbar-icon"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span id="nav-badge-feed-t" class="nav-badge"></span></span>
+            <span class="tabbar-icon"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
             <span class="tabbar-label">Feed</span>
+            <span id="nav-badge-feed-t" class="nav-badge tabbar-badge"></span>
         </button>
         <button class="tabbar-btn" id="tab-library" type="button" onclick="tabNav('library')" aria-label="My Movies">
             <span class="tabbar-icon"><svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg></span>
             <span class="tabbar-label">My Movies</span>
         </button>
         <button class="tabbar-btn" id="tab-lists" type="button" onclick="tabNav('lists')" aria-label="Lists">
-            <span class="tabbar-icon"><svg viewBox="0 0 24 24"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg><span id="nav-badge-lists-t" class="nav-badge"></span></span>
+            <span class="tabbar-icon"><svg viewBox="0 0 24 24"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg></span>
             <span class="tabbar-label">Lists</span>
+            <span id="nav-badge-lists-t" class="nav-badge tabbar-badge"></span>
         </button>
         <button class="tabbar-btn" id="tab-more" type="button" onclick="openMoreSheet()" aria-label="More">
             <span class="tabbar-icon"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></svg></span>
@@ -110,6 +114,11 @@
         </div>
     </div>
 
+    <!-- Pull-to-refresh spinner (mobile; shown by the PTR handler in 09-home-ui.js) -->
+    <div id="ptr-indicator" class="ptr-indicator" aria-hidden="true">
+        <svg viewBox="0 0 24 24" class="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+    </div>
+
     <!-- Main Content Area -->
     <main id="app-root" style="padding-top: calc(var(--header-height) + env(safe-area-inset-top));">
         <!-- Content injected by JS -->
@@ -119,6 +128,12 @@
         <span class="icon-sm" id="log-fab-icon"></span>
         Logs <span id="log-badge" class="log-badge">0</span>
     </button>
+
+    <!-- Floating "New List" button for the Lists overview. Lives at BODY level (not inside
+         #app-root) because the page wrapper .fade-in keeps a transform, which would make a
+         fixed child anchor to the page box instead of the viewport. Shown only on the Lists
+         overview via setListsFabVisible() + a body[data-page] CSS gate. -->
+    <button type="button" id="lists-fab" class="lists-fab" aria-label="Add" onclick="listsFabAction()" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
 
     <div id="log-panel" class="log-panel" aria-live="polite">
         <div class="log-panel-header">
@@ -154,6 +169,7 @@
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="push-prompt-title" style="max-width: 460px;">
             <div class="auth-modal-header">
                 <div class="auth-modal-title" id="push-prompt-title">Enable Notifications?</div>
+                <button class="auth-modal-close" type="button" onclick="closePushPromptModal()">Close</button>
             </div>
             <div class="text-sm" style="margin-top: 0.5rem; color: rgba(255,255,255,0.85); line-height: 1.5;">
                 Get notified the moment someone recommends you a movie or a person you follow posts a new review.
@@ -347,7 +363,7 @@
                 <div class="auth-modal-title" id="feed-filter-title">Filter Feed</div>
                 <button class="auth-modal-close" type="button" onclick="closeFeedFilterModal()">Close</button>
             </div>
-            <div class="text-xs text-gray" style="margin-top: 0.25rem;">Choose what appears in your feed.</div>
+            <div class="text-xs text-gray feed-filter-help" style="margin-top: 0.25rem;">Choose what appears in your feed.</div>
 
             <div class="feed-filter-section-label">Display options</div>
             <div class="feed-filter-options">
@@ -512,25 +528,79 @@
         </div>
     </div>
 
+    <!-- Add a movie to the active list (opened by the "+" FAB while viewing a list).
+         Mirrors the Home search bar + Year/MPA filters; picking a result adds it. -->
+    <div id="lists-add-overlay" class="auth-overlay" onclick="if(event.target === this) closeListsAddModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="lists-add-title" style="max-width: 560px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="lists-add-title">Add to <span id="lists-add-title-name">list</span></div>
+                <button class="auth-modal-close" type="button" onclick="closeListsAddModal()">Close</button>
+            </div>
+
+            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;">Search for a movie to add to this list.</div>
+
+            <!-- Optional Year / MPA filters (same as the Home search). -->
+            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 0.85rem;">
+                <input id="lists-add-year" type="text" inputmode="numeric" placeholder="Year" class="input-field" oninput="applyListsAddFilters()" style="border-radius: 0.85rem;">
+                <select id="lists-add-mpa" class="select-field" onchange="applyListsAddFilters()" style="border-radius: 0.85rem;">
+                    <option value="">MPA (All)</option>
+                    <option value="G">G</option>
+                    <option value="PG">PG</option>
+                    <option value="PG-13">PG-13</option>
+                    <option value="R">R</option>
+                    <option value="NC-17">NC-17</option>
+                    <option value="NR">NR / Unrated</option>
+                </select>
+            </div>
+
+            <!-- Search box -->
+            <div class="input-group" style="margin-top: 0.85rem; position: relative;">
+                <div class="input-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
+                <input type="text" id="lists-movie-search-input" oninput="handleListsAddMovieSearch(this.value)" autocomplete="off" placeholder="Type a movie title…" class="input-field glass-input" style="border-radius: 0.85rem; padding-left: 2.6rem;">
+            </div>
+
+            <!-- Results (static list inside the modal, not an absolute dropdown). -->
+            <div id="lists-movie-search-results" class="search-dropdown hidden lists-add-results"></div>
+        </div>
+    </div>
+
     <div id="lists-rename-overlay" class="auth-overlay" onclick="if(event.target === this) closeListsRenameModal();" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="lists-rename-title" style="max-width: 520px;">
             <div class="auth-modal-header">
-                <div class="auth-modal-title" id="lists-rename-title">Rename List</div>
+                <div class="auth-modal-title" id="lists-rename-title">Edit List</div>
                 <button class="auth-modal-close" type="button" onclick="closeListsRenameModal()">Close</button>
             </div>
 
-            <div class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;">
-                Enter a new name (max 80 characters).
+            <!-- Cover photo (available for every list, including Recs / Bucket List):
+                 a large centered preview with a small upload-icon button at its corner. -->
+            <div class="lists-edit-cover-wrap">
+                <div id="lists-edit-cover-preview" class="lists-edit-cover-preview"></div>
+                <button type="button" class="lists-edit-cover-upload" aria-label="Change cover photo" title="Change cover photo" onclick="triggerListCoverPick(listsActiveListId)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                </button>
+            </div>
+            <div style="text-align:center; margin-top: 0.5rem;">
+                <button type="button" id="lists-edit-remove-cover" class="lists-edit-remove-link" onclick="removeListCover()">Remove photo</button>
             </div>
 
-            <form id="lists-rename-form" style="margin-top: 0.85rem; display:grid; gap: 0.65rem;">
-                <input id="lists-rename-name" type="text" class="input-field" placeholder="New list name" maxlength="80" autocomplete="off">
-                <div style="display:flex; gap: 10px; flex-wrap: wrap;">
-                    <button type="submit" class="btn btn-primary" style="border-radius: 0.85rem;">Save</button>
-                    <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="closeListsRenameModal()">Cancel</button>
-                </div>
-                <div id="lists-rename-status" class="text-xs" style="color: rgba(255,255,255,0.60);"></div>
-            </form>
+            <!-- Rename (hidden for the auto-managed Recs / Bucket List) -->
+            <div id="lists-edit-rename-section">
+                <div class="text-white font-bold" style="margin-top: 1.1rem;">List name</div>
+                <form id="lists-rename-form" style="margin-top: 0.55rem; display:grid; gap: 0.5rem;">
+                    <input id="lists-rename-name" type="text" class="input-field" placeholder="New list name" maxlength="80" autocomplete="off">
+                    <div id="lists-rename-status" class="text-xs" style="color: rgba(255,255,255,0.60);"></div>
+                </form>
+            </div>
+
+            <!-- Delete (hidden for Recs / Bucket List) -->
+            <div id="lists-edit-delete-section" style="margin-top: 1.1rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.85rem;">
+                <button type="button" class="btn btn-outline" style="border-radius: 0.85rem; border-color: rgba(239,68,68,0.55); background: #3a1a1d;" onclick="openListsDeleteFromEdit()">Delete this list</button>
+            </div>
+
+            <!-- One button saves the name (if changed) AND closes — no per-action saves. -->
+            <div class="auth-modal-actions" style="margin-top: 1.1rem; display:flex; justify-content: flex-end;">
+                <button type="button" class="btn btn-primary" style="border-radius: 0.85rem;" onclick="submitListsEditModal()">Save</button>
+            </div>
         </div>
     </div>
 
@@ -546,7 +616,7 @@
             </div>
 
             <div style="margin-top: 0.85rem; display:flex; gap: 10px; flex-wrap: wrap;">
-                <button type="button" class="btn btn-outline" data-lists-action="confirm_delete_list" style="border-radius: 0.85rem; border-color: rgba(239,68,68,0.55); background: rgba(239,68,68,0.10);">Delete</button>
+                <button type="button" class="btn btn-outline" data-lists-action="confirm_delete_list" style="border-radius: 0.85rem; border-color: rgba(239,68,68,0.55); background: #3a1a1d;">Delete</button>
                 <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="closeListsDeleteModal()">Cancel</button>
             </div>
             <div id="lists-delete-status" class="text-xs" style="color: rgba(255,255,255,0.60); margin-top: 0.65rem;"></div>
@@ -584,6 +654,7 @@
             </div>
 
             <div class="glass-panel" style="margin-top: 0.85rem; padding: 0.85rem; border-radius: 0.85rem; background: rgba(0,0,0,0.10);">
+                <div data-sf="sort">
                 <div class="text-white font-bold" style="margin-bottom: 0.55rem;">Sort</div>
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                     <select id="lists-modal-sort-key" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
@@ -604,9 +675,11 @@
                         <option value="asc">Ascending</option>
                     </select>
                 </div>
+                </div>
 
-                <div style="height: 1px; background: rgba(255,255,255,0.06); margin: 0.85rem 0;"></div>
+                <div class="lists-sf-divider" style="height: 1px; background: rgba(255,255,255,0.06); margin: 0.85rem 0;"></div>
 
+                <div data-sf="filters">
                 <div class="text-white font-bold" style="margin-bottom: 0.55rem;">Filters</div>
                 <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
                     <select id="lists-modal-filter-timeframe" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
@@ -662,6 +735,7 @@
                         </div>
                     </div>
                 </div>
+                </div><!-- /data-sf=filters -->
             </div>
 
             <div class="auth-modal-actions" style="margin-top: 0.85rem; display:flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
@@ -684,6 +758,7 @@
             </div>
 
             <div class="glass-panel" style="margin-top: 0.85rem; padding: 0.85rem; border-radius: 0.85rem; background: rgba(0,0,0,0.10);">
+                <div data-sf="sort">
                 <div class="text-white font-bold" style="margin-bottom: 0.55rem;">Sort</div>
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                     <select id="library-modal-sort-key" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
@@ -705,8 +780,11 @@
                     </select>
                 </div>
 
-                <div style="height: 1px; background: rgba(255,255,255,0.06); margin: 0.85rem 0;"></div>
+                </div>
 
+                <div class="library-sf-divider" style="height: 1px; background: rgba(255,255,255,0.06); margin: 0.85rem 0;"></div>
+
+                <div data-sf="filters">
                 <div class="text-white font-bold" style="margin-bottom: 0.55rem;">Filters</div>
                 <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
                     <select id="library-modal-filter-timeframe" class="input-field" style="padding: 0.55rem 0.75rem; border-radius: 0.85rem;">
@@ -762,6 +840,7 @@
                         </div>
                     </div>
                 </div>
+                </div><!-- /data-sf=filters -->
             </div>
 
             <div class="auth-modal-actions" style="margin-top: 0.85rem; display:flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
@@ -809,7 +888,7 @@
                     This permanently deletes your <span class="text-white font-semibold">Movie Ratings</span> row and all related <span class="text-white font-semibold">Watch Logs</span> for this movie.
                 </div>
                 <div style="margin-top: 0.75rem; display:flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
-                    <button type="button" class="btn btn-outline" style="border-radius: 0.85rem; border-color: rgba(239,68,68,0.55); color: rgba(239,68,68,0.95); background: rgba(239,68,68,0.10);" onclick="confirmDeleteRatingAndAllLogs()">Delete rating + all watch logs</button>
+                    <button type="button" class="btn btn-outline" style="border-radius: 0.85rem; border-color: rgba(239,68,68,0.55); color: rgba(239,68,68,0.95); background: #3a1a1d;" onclick="confirmDeleteRatingAndAllLogs()">Delete rating + all watch logs</button>
                 </div>
                 <div id="delete-rating-status" class="text-xs" style="color: rgba(255,255,255,0.60); margin-top: 0.45rem;"></div>
             </div>
@@ -832,7 +911,7 @@
                         <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="clearDeleteLogsSelection()">Clear</button>
                         <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="toggleSelectAllDeleteLogs()">Select all</button>
                     </div>
-                    <button type="button" id="btn-delete-selected-logs" class="btn btn-primary" style="border-radius: 0.85rem; background: rgba(239,68,68,0.90); border-color: rgba(239,68,68,0.90);" onclick="confirmDeleteSelectedWatchLogs()" disabled aria-disabled="true" title="Select at least one watch log.">Delete selected</button>
+                    <button type="button" id="btn-delete-selected-logs" class="btn btn-primary" style="border-radius: 0.85rem; background: #c62828; border-color: rgba(239,68,68,0.90);" onclick="confirmDeleteSelectedWatchLogs()" disabled aria-disabled="true" title="Select at least one watch log.">Delete selected</button>
                 </div>
                 <div id="delete-logs-status" class="text-xs" style="color: rgba(255,255,255,0.60); margin-top: 0.45rem;"></div>
             </div>
@@ -919,10 +998,10 @@
             </div>
 
             <div style="margin-top: 0.85rem;">
-                <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Have you watched this before?</label>
+                <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Was this your first time watching this film?</label>
                 <div style="display:flex; gap: 0.75rem;">
-                    <button type="button" class="choice-btn" data-wd-before-option="no" onclick="selectWatchDetailsBefore(false)">No</button>
-                    <button type="button" class="choice-btn" data-wd-before-option="yes" onclick="selectWatchDetailsBefore(true)">Yes</button>
+                    <button type="button" class="choice-btn" data-wd-before="false" onclick="selectWatchDetailsBefore(false)">Yes</button>
+                    <button type="button" class="choice-btn" data-wd-before="true" onclick="selectWatchDetailsBefore(true)">No</button>
                 </div>
             </div>
 
@@ -936,9 +1015,8 @@
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="prior-watches-title">
             <div class="auth-modal-header">
                 <div class="auth-modal-title" id="prior-watches-title">Add Previous Watches</div>
+                <button class="auth-modal-close" type="button" onclick="closePriorWatchesModal(null)">Close</button>
             </div>
-
-            <div class="text-sm" id="prior-watches-message" style="color: var(--text-muted); margin-top: 0.5rem;"></div>
 
             <div style="margin-top: 0.85rem;">
                 <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">How many times had you watched this before?</label>
@@ -968,6 +1046,7 @@
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="loading-title">
             <div class="auth-modal-header">
                 <div class="auth-modal-title" id="loading-title">Loading</div>
+                <button class="auth-modal-close" type="button" onclick="hideLoadingOverlay()">Close</button>
             </div>
             <div class="text-sm" style="color: var(--text-muted); margin-top: 0.5rem; display:flex; align-items:center; gap: 0.5rem;">
                 <span class="icon-sm"><svg viewBox="0 0 24 24" class="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg></span>

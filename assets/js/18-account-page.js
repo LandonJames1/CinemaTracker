@@ -65,11 +65,18 @@
             });
 
             document.addEventListener('click', (e) => {
-                const filterBtn = e?.target?.closest ? e.target.closest('#account-achievement-filters-btn') : null;
+                const sortBtn = e?.target?.closest ? e.target.closest('#account-achievement-sort-btn') : null;
+                const filterBtn = e?.target?.closest ? e.target.closest('#account-achievement-filter-btn') : null;
                 const pop = document.getElementById('account-achievement-filters-pop');
-                if (filterBtn) {
+                if (sortBtn || filterBtn) {
                     e.preventDefault();
-                    toggleAchievementFiltersOpen();
+                    const mode = sortBtn ? 'sort' : 'filter';
+                    // Same button again closes; otherwise (re)open showing that section.
+                    if (achievementFiltersOpen && achievementFiltersMode === mode) {
+                        setAchievementFiltersOpen(false);
+                    } else {
+                        setAchievementFiltersOpen(true, mode);
+                    }
                     return;
                 }
                 if (pop && achievementFiltersOpen) {

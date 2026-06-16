@@ -7,7 +7,7 @@
             --glass-border: rgba(255, 255, 255, 0.05);
             --glass-shadow: rgba(0, 0, 0, 0.35);
             --glass-bg: rgba(24, 24, 27, 0.86);
-            --btn-outline-bg: rgba(24, 24, 27, 0.65);
+            --btn-outline-bg: #202024;   /* SOLID (opaque) — buttons must never be see-through */
             --focus-ring: rgba(20, 184, 166, 0.6);
 
             --bg-image: none;
@@ -183,9 +183,8 @@
         .icon-wrapper img { width: 120px; height: 120px; object-fit: contain; display: block; }
 
         @media (max-width: 768px) {
-            :root { --header-height: 82px; }
-            .icon-wrapper { width: 82px; height: 82px; }
-            .icon-wrapper img { width: 82px; height: 82px; }
+            /* Compact app-style header: small logo + dynamic page title (see nav rules below). */
+            :root { --header-height: 64px; }
         }
 
         /* Home hero logo (bigger brand mark) */
@@ -443,6 +442,53 @@
             .mobile-menu-btn { display: block; }
         }
 
+        /* Mobile: keep the LOGO (compact) on the left, drop the "CinemaTracker" wordmark,
+           and show the current page title next to it. */
+        .nav-page-title { display: none; }
+        @media (max-width: 768px) {
+            .nav-brand-text { display: none; }
+            .nav-brand { gap: 0.4rem; flex: 0 0 auto; }
+            .icon-wrapper { width: 46px; height: 46px; }
+            .icon-wrapper img { width: 46px; height: 46px; }
+            /* === Lock the whole header row to ONE centered baseline ===
+               The bar is a fixed-height flex row and EVERY child (logo, title, avatar)
+               is forced to the full row height + centered, so nothing can sit higher or
+               lower from one page to the next regardless of the title text or avatar. */
+            .nav-inner { align-items: stretch; }
+            .nav-brand,
+            .nav-actions,
+            .nav-page-title {
+                display: flex;
+                align-items: center;
+                height: var(--header-height);
+            }
+            /* Avatar: a fixed 44px square that centers in the bar (it was inheriting the
+               desktop 64px, which filled the whole bar with no slack and looked like it
+               drifted between pages; 34px was too small). */
+            .nav-auth-btn.icon-only {
+                width: 44px !important;
+                height: 44px !important;
+                min-width: 44px;
+                flex: 0 0 44px;
+                padding: 2px;
+                align-self: center;
+            }
+            .nav-auth-btn.icon-only .user-icon { width: 100% !important; height: 100% !important; }
+            .nav-page-title {
+                flex: 1 1 auto;
+                min-width: 0;
+                margin-left: 0.6rem;
+                font-size: 1.4rem;
+                line-height: 1;
+                font-weight: 800;
+                color: #fff;
+                letter-spacing: -0.01em;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+        }
+
         /* ===== Mobile bottom tab bar (Phase 1) — hidden on desktop ===== */
         #mobile-tabbar { display: none; }
         @media (max-width: 768px) {
@@ -460,6 +506,7 @@
                 padding: 6px 4px calc(6px + env(safe-area-inset-bottom)) 4px;
             }
             .tabbar-btn {
+                position: relative;
                 flex: 1 1 0;
                 min-width: 0;
                 background: transparent;
@@ -505,7 +552,15 @@
             body[data-page="account"]       #tab-more,
             body[data-page="achievements"]  #tab-more,
             body[data-page="theme_creator"] #tab-more { color: var(--brand, #14b8a6); }
-            #mobile-tabbar .nav-badge { transform: translate(70%, -30%); }
+            /* Badge sits at the top-right of the individual tab BUTTON (anchored just
+               right of the centred icon so it's width-independent), not the whole bar. */
+            #mobile-tabbar .tabbar-badge {
+                top: 3px;
+                left: 50%;
+                right: auto;
+                margin-left: 5px;
+                transform: none;
+            }
 
             /* The tab bar replaces the hamburger + dropdown on phones. */
             .mobile-menu-btn { display: none !important; }
@@ -642,6 +697,158 @@
             }
         }
 
+        /* ===== Mobile page layout overhaul (≤768px, scoped to #app-root) =====
+           Kills the oversized page headers, the glass card chrome around titles, and the
+           big top/inter-section gaps that made every page feel boxy and wasteful. The
+           whole app shares the `.container > (header row w/ .page-title-card) > panels`
+           structure, so this one block tightens Feed / My Movies / Lists / AI Picks /
+           Data Dash / Achievements / Log form at once. Home + Account are bespoke and
+           left untouched. */
+        @media (max-width: 768px) {
+            /* 1. Snug content to the top — drop the inline 2rem/3rem container padding.
+                  ONE value (0.6rem) for EVERY page so the header→first-content gap is
+                  identical everywhere (Feed/Lists/My Movies also use 0.6rem below). */
+            #app-root .container {
+                padding-top: 0.6rem !important;
+                padding-bottom: 1.25rem !important;
+            }
+            /* 2. The page title sheds its card (transparent, no border/pad) and shrinks
+                  so it stops eating a third of the screen — reads as a clean heading. */
+            #app-root .page-title-card {
+                background: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+                border-radius: 0 !important;
+            }
+            #app-root .page-title-card h1,
+            #app-root .page-title-card .text-3xl,
+            #app-root .page-title-card .text-4xl {
+                font-size: 1.5rem !important;
+                line-height: 1.1 !important;
+            }
+            #app-root .page-title-card p {
+                font-size: 0.82rem !important;
+                margin-top: 0.15rem !important;
+                line-height: 1.3 !important;
+            }
+            /* 3. Tighten the gap below the header row (only rows holding a page title). */
+            #app-root .container .mb-6:has(.page-title-card) { margin-bottom: 0.55rem !important; }
+            /* Fallback for engines without :has() — still shrinks the standard 1.5rem gap. */
+            #app-root .lists-header-row { margin-bottom: 0.55rem !important; }
+            /* 4. Trim the oversized bottom margins between stacked sections so they flow. */
+            #app-root .glass-panel[style*="margin-bottom: 1rem"],
+            #app-root .glass-panel[style*="margin-bottom: 1.25rem"] { margin-bottom: 0.7rem !important; }
+            /* 5. The header bar already shows the page name, so DROP the redundant in-page
+                  title/subtitle on AI Picks, Data Dash + Achievements (matches Feed / Lists /
+                  My Movies). All selectors are #app-root-scoped so the FIXED navbar's own
+                  `.container` is never touched (that unscoped-`.container` leak is what used
+                  to shove the header-bar text down — keep these scoped). */
+            body[data-page="ai_picks"] #app-root .container > .glass-panel:first-child {
+                display: none !important;
+            }
+            body[data-page="dashboard"] #app-root .page-title-card,
+            body[data-page="achievements"] #app-root .page-title-card,
+            body[data-page="account"] #app-root .page-title-card {
+                display: none !important;
+            }
+        }
+
+        /* ===== Feed page mobile redesign =====
+           The dynamic header bar already shows "Feed", so the in-page title + all the grey
+           help text are redundant — hide them and let the content fill the reclaimed space.
+           Refresh button is replaced by pull-to-refresh. */
+        @media (max-width: 768px) {
+            body[data-page="feed"] .feed-title-row { display: none !important; }
+            .feed-activity-heading { display: none !important; }
+            #feed-refresh { display: none !important; }
+            /* (header→buttons + buttons→data gaps are set by the unified rule below) */
+            /* Filter modal: drop the grey help texts. */
+            .feed-filter-help,
+            #feed-filter-overlay .feed-filter-toggle-sub { display: none !important; }
+        }
+
+        /* ===== My Movies page mobile redesign (mirrors Feed) =====
+           Header bar already shows "My Movies", so the in-page title + "Recent Watches"
+           heading + grey meta are redundant. The wrapper panel is flattened so the movie
+           cards aren't a container-inside-a-container. Refresh → pull-to-refresh. */
+        @media (max-width: 768px) {
+            body[data-page="library"] .library-title-row { display: none !important; }
+            .library-section-heading { display: none !important; }
+            #library-refresh { display: none !important; }
+            body[data-page="library"] .library-panel {
+                background: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                padding-top: 0 !important;
+                padding-bottom: 0 !important;
+                /* keep the slim full-bleed side gutter from Phase 1c (≈0.45rem) */
+            }
+        }
+
+        /* ===== Lists page mobile redesign (mirrors Feed / My Movies) =====
+           Header bar shows "Lists", so the in-page title card + the active-list heading +
+           grey subtitle are redundant. The data panel is flattened so the movie cards
+           aren't a container-in-a-container. (Top controls New List / list picker stay.) */
+        @media (max-width: 768px) {
+            body[data-page="lists"] .page-title-card { display: none !important; }
+            body[data-page="lists"] .lists-active-heading { display: none !important; }
+            body[data-page="lists"] .lists-panel {
+                background: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                padding-top: 0 !important;
+                padding-bottom: 0 !important;
+            }
+        }
+
+        /* ===== Identical spacing across Feed / My Movies / Lists =====
+           gap1 (header bar → first buttons) = container padding-top; gap2 (buttons → start
+           of the movie data) = the items container's top margin. Both are the same value on
+           all three pages, and the wrapping panels add no extra top padding. */
+        @media (max-width: 768px) {
+            /* Scope to #app-root: the navbar's inner div is ALSO `.container`, so an
+               unscoped rule here pushes the fixed header title down ~0.6rem on exactly
+               these three pages (the Feed/Lists header-drift bug). */
+            body[data-page="feed"] #app-root .container,
+            body[data-page="library"] #app-root .container,
+            body[data-page="lists"] #app-root .container { padding-top: 0.6rem !important; }
+
+            body[data-page="feed"] .feed-activity-panel,
+            body[data-page="library"] .library-panel,
+            body[data-page="lists"] .lists-panel { padding-top: 0 !important; }
+
+            body[data-page="feed"] #feed-list,
+            body[data-page="library"] #library-list,
+            body[data-page="lists"] #lists-items { margin-top: 0.6rem !important; }
+        }
+
+        /* ===== Pull-to-refresh spinner (mobile) ===== */
+        .ptr-indicator {
+            position: fixed;
+            top: calc(var(--header-height) + env(safe-area-inset-top) - 18px);
+            left: 50%;
+            transform: translateX(-50%) translateY(0);
+            z-index: 60;
+            width: 36px;
+            height: 36px;
+            border-radius: 999px;
+            background: var(--surface);
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.45);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.15s ease;
+        }
+        .ptr-indicator.show { transition: opacity 0.1s ease; }
+        .ptr-indicator.refreshing { transition: transform 0.2s ease, opacity 0.2s ease; }
+        .ptr-indicator svg { width: 20px; height: 20px; color: var(--brand); }
+        /* Desktop never pulls-to-refresh, so the spinner stays hidden there. */
+        @media (min-width: 769px) { .ptr-indicator { display: none; } }
+
         /* ===== Phase 2 — page-enter transition (mobile-only, set by animatePageEnter) ===== */
         @media (max-width: 768px) {
             #app-root.page-enter { animation: pageEnter 0.2s ease-out both; will-change: opacity, transform; }
@@ -713,11 +920,12 @@
         .btn-primary:hover { background-color: var(--brand-hover); box-shadow: 0 8px 22px 0 var(--brand-shadow); }
         
         .btn-glass {
-            background: color-mix(in srgb, var(--brand-2) 20%, rgba(255,255,255,0.04));
+            /* Opaque: mix the accent over the SOLID surface, not over translucent white. */
+            background: color-mix(in srgb, var(--brand-2) 22%, #202024);
             color: white;
             border: 1px solid color-mix(in srgb, var(--brand-2) 50%, rgba(255,255,255,0.12));
         }
-        .btn-glass:hover { background: color-mix(in srgb, var(--brand-2) 35%, rgba(255,255,255,0.08)); }
+        .btn-glass:hover { background: color-mix(in srgb, var(--brand-2) 36%, #202024); }
 
         .btn-outline {
             background: var(--btn-outline-bg);
@@ -729,7 +937,7 @@
         /* Segmented choice buttons used in modals (e.g. Watch Details). */
         .choice-btn {
             flex: 1;
-            background: rgba(255, 255, 255, 0.04);
+            background: #202024;
             border: 1px solid var(--border, rgba(255, 255, 255, 0.14));
             color: var(--text-muted, rgba(255, 255, 255, 0.65));
             border-radius: 0.7rem;
@@ -1201,6 +1409,49 @@
             max-height: calc(100dvh - 2.5rem);
             overflow: auto;
         }
+
+        /* ===== Phase 3 — bottom-sheet modals (mobile-only) =====
+           The whole app shares the .auth-overlay > .auth-modal pattern, so this single
+           block docks EVERY modal to the bottom of the screen as a slide-up sheet with a
+           grab handle. It is gated behind `body.app-sheets` (set in index.html's <body>),
+           so to fully REVERT to centered modals you just remove the "app-sheets" class
+           from <body> — no other change needed. Two celebration popups are excluded so
+           their bespoke animations aren't disturbed.
+           CSS @keyframes (not transitions) are used so the slide plays even though modals
+           are opened by toggling inline display:flex. */
+        @media (max-width: 768px) {
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay) {
+                align-items: flex-end !important;
+                padding: 0 !important;
+            }
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay) > .auth-modal {
+                width: 100% !important;
+                max-width: 100% !important;
+                max-height: 92dvh !important;
+                border-radius: 1.25rem 1.25rem 0 0 !important;
+                border-bottom: none !important;
+                padding: 1rem 1.1rem calc(1.25rem + env(safe-area-inset-bottom)) !important;
+                animation: sheetUp 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay) > .auth-modal::before {
+                content: "";
+                display: block;
+                width: 40px;
+                height: 4px;
+                border-radius: 999px;
+                background: rgba(255,255,255,0.28);
+                margin: 0 auto 0.85rem;
+                flex: 0 0 auto;
+            }
+        }
+        @keyframes sheetUp {
+            from { transform: translateY(100%); }
+            to   { transform: translateY(0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            body.app-sheets .auth-overlay > .auth-modal { animation: none !important; }
+        }
+
         .auth-modal-header {
             display: flex;
             align-items: center;
@@ -1782,20 +2033,214 @@
         .tier-summary-card[data-tier="Oscar Winner"] { --tier-rgb: 235, 186, 3; }
 
         /* Lists Page */
+
+        /* ===== Lists overview — Spotify-style cover grid of all lists ===== */
+        .lists-cover-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 16px;
+        }
+        .lists-cover-card {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            background: transparent;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+            text-align: left;
+            -webkit-tap-highlight-color: transparent;
+            transition: transform 0.1s ease;
+        }
+        .lists-cover-card:active { transform: scale(0.97); }
+        .lists-cover-art {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            border-radius: 0.9rem;
+            overflow: hidden;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 10px 24px rgba(0,0,0,0.35);
+        }
+        .lists-cover-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .lists-cover-collage { width: 100%; height: 100%; display: grid; gap: 0; }
+        .lists-cover-collage-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+        .lists-cover-collage span { background-size: cover; background-position: center; display: block; }
+        .lists-cover-fallback {
+            width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            background: linear-gradient(135deg, color-mix(in srgb, var(--brand, #14b8a6) 42%, #18181b), #101012);
+        }
+        .lists-cover-fallback-icon { width: 40%; max-width: 70px; color: rgba(255,255,255,0.88); display: flex; }
+        .lists-cover-fallback-icon svg { width: 100%; height: auto; }
+        .lists-cover-edit {
+            position: absolute;
+            right: 6px; bottom: 6px;
+            width: 30px; height: 30px;
+            border-radius: 999px;
+            background: rgba(0,0,0,0.62);
+            border: 1px solid rgba(255,255,255,0.22);
+            display: flex; align-items: center; justify-content: center;
+            color: #fff;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.15s ease, background 0.15s ease;
+        }
+        .lists-cover-edit:hover { background: rgba(0,0,0,0.8); }
+        .lists-cover-edit svg { width: 16px; height: 16px; }
+        .lists-cover-card:hover .lists-cover-edit { opacity: 1; }
+        .lists-cover-name {
+            color: #fff; font-weight: 700; font-size: 0.95rem; line-height: 1.2;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .lists-cover-count { color: rgba(255,255,255,0.55); font-size: 0.8rem; }
+        @media (max-width: 768px) {
+            /* 3 across on phones; the edit button is always visible (no hover on touch). */
+            .lists-cover-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+            .lists-cover-edit { opacity: 1; width: 26px; height: 26px; }
+            .lists-cover-edit svg { width: 14px; height: 14px; }
+            .lists-cover-name { font-size: 0.82rem; }
+            .lists-cover-count { font-size: 0.72rem; }
+        }
+        @media (max-width: 420px) {
+            .lists-cover-grid { gap: 8px; }
+        }
+
+        /* Floating "New List" button — fixed bottom-right, above all content + the tab bar. */
+        .lists-fab {
+            position: fixed;
+            right: 1.5rem;
+            bottom: 1.75rem;
+            z-index: 120;
+            width: 58px;
+            height: 58px;
+            border-radius: 999px;
+            background: var(--brand, #14b8a6);
+            color: #fff;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 12px 28px rgba(0,0,0,0.45);
+            cursor: pointer;
+            transition: transform 0.12s ease, filter 0.15s ease;
+        }
+        .lists-fab:hover { filter: brightness(1.08); }
+        .lists-fab:active { transform: scale(0.92); }
+        .lists-fab svg { width: 28px; height: 28px; }
+        /* The FAB lives at body level (always visible/fixed). Only show it on the Lists
+           page; setListsFabVisible() further hides it within the detail view. */
+        body:not([data-page="lists"]) #lists-fab { display: none !important; }
+        @media (max-width: 768px) {
+            /* Float above the bottom tab bar + the iOS home-indicator safe area. */
+            .lists-fab { right: 1rem; bottom: calc(80px + env(safe-area-inset-bottom)); width: 54px; height: 54px; }
+        }
+
+        /* Edit-modal cover: a large centered preview + a small upload-icon button. */
+        .lists-edit-cover-wrap {
+            position: relative;
+            width: 150px;
+            height: 150px;
+            margin: 0.9rem auto 0;
+        }
+        .lists-edit-cover-preview {
+            width: 100%; height: 100%;
+            border-radius: 1rem;
+            overflow: hidden;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.10);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .lists-edit-cover-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .lists-edit-cover-empty { width: 42%; color: rgba(255,255,255,0.55); display: flex; }
+        .lists-edit-cover-empty svg { width: 100%; height: auto; }
+        .lists-edit-cover-upload {
+            position: absolute;
+            right: -8px; bottom: -8px;
+            width: 40px; height: 40px;
+            border-radius: 999px;
+            background: var(--brand, #14b8a6);
+            color: #fff;
+            border: 2px solid var(--surface, #18181b);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+            transition: transform 0.12s ease, filter 0.15s ease;
+        }
+        .lists-edit-cover-upload:hover { filter: brightness(1.08); }
+        .lists-edit-cover-upload:active { transform: scale(0.92); }
+        .lists-edit-cover-upload svg { width: 18px; height: 18px; }
+        .lists-edit-remove-link {
+            background: none; border: none; cursor: pointer;
+            color: rgba(255,255,255,0.55);
+            font-size: 0.8rem; font-weight: 600;
+            text-decoration: underline;
+            padding: 0.25rem;
+        }
+        .lists-edit-remove-link:hover { color: rgba(255,255,255,0.85); }
+
+        /* Add-movie modal results: a normal in-flow list, not the absolute search dropdown. */
+        .lists-add-results.lists-add-results {
+            position: static;
+            margin-top: 0.7rem;
+            max-height: 52vh;
+            overflow-y: auto;
+            box-shadow: none;
+        }
+
+        /* Vibrant "a filter/sort is active" highlight — used on every filter/sort button
+           across the app (Feed, My Movies, Lists, Achievements). Solid (not see-through)
+           brand fill so it's obvious something is filtering the data. */
+        .filter-active,
+        .btn.filter-active {
+            position: relative;
+            background: var(--brand, #14b8a6) !important;
+            border-color: var(--brand, #14b8a6) !important;
+            color: #fff !important;
+            font-weight: 800 !important;
+        }
+        .filter-active:hover,
+        .btn.filter-active:hover { filter: brightness(1.08); }
+        /* Little white "a filter is on" dot at the button's top-right corner. */
+        .filter-active::after {
+            content: "";
+            position: absolute;
+            top: 5px;
+            right: 6px;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.22);
+        }
+
+        /* Detail-view top row (Back + Filter + Sort + Edit) stretches edge to edge on
+           phones so the buttons fill the width instead of clustering top-left. */
+        @media (max-width: 768px) {
+            .lists-detail-toprow { flex-wrap: nowrap !important; }
+            .lists-detail-toprow > button { flex: 1 1 0; min-width: 0; }
+        }
+
         .lists-grid {
             display: grid;
             grid-template-columns: repeat(7, minmax(0, 1fr));
             gap: 1.3rem;
             justify-items: center;
         }
-        @media (max-width: 640px) {
+        /* Match the My Movies grid: 3 columns from ≤768px with the same 10px gap, so Lists
+           posters are the same size as the My Movies posters. */
+        @media (max-width: 768px) {
             .lists-grid {
                 display: grid;
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 0.9rem;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 10px;
                 margin-bottom: 2rem;
             }
-            .lists-movie-card { width: 100%; max-width: none; }
+            /* !important because the base .lists-movie-card (width:140px) is defined LATER
+               in this file and would otherwise win — capping the poster at 140px and
+               leaving big gaps. This makes the card fill the column like My Movies. */
+            .lists-movie-card { width: 100% !important; max-width: none !important; }
         }
         .lists-movie-card {
             display: flex;
@@ -1979,7 +2424,7 @@
             border-radius: 0.75rem;
             font-weight: 800;
             font-size: 0.875rem;
-            background: rgba(255,255,255,0.05);
+            background: #202024;
             color: white;
             border: 1px solid rgba(255,255,255,0.10);
             display: inline-flex;
@@ -1987,7 +2432,7 @@
             justify-content: center;
             gap: 0.35rem;
         }
-        .nav-auth-btn:hover { background: rgba(255,255,255,0.10); }
+        .nav-auth-btn:hover { background: #2a2a2f; }
         .nav-auth-btn.icon-only {
             padding: 0.2rem;
             width: 64px;
@@ -2230,6 +2675,8 @@
 
         /* Feed "Follows" button + panel-as-overlay are mobile-only (hidden on desktop). */
         .feed-follows-toggle, .feed-follows-close { display: none; }
+        .feed-follows-backdrop { display: none; }
+        @keyframes feedFollowsFade { from { opacity: 0; } to { opacity: 1; } }
 
         @media (max-width: 768px) {
             .text-5xl { font-size: 2.25rem; }
@@ -2249,8 +2696,12 @@
                 font-size: 0.85rem !important;
             }
 
-            /* Feed header buttons were too small to tap comfortably. */
-            .feed-follows-toggle, #feed-filter-btn, #feed-refresh {
+            /* Feed header buttons were too small to tap comfortably. The My Movies
+               Filters/Sort + Achievements Filter/Sort buttons share the same look so they
+               all stay the same size. */
+            .feed-follows-toggle, #feed-filter-btn, #feed-refresh,
+            #library-open-filters, #library-open-sort,
+            #account-achievement-filter-btn, #account-achievement-sort-btn {
                 padding: 0.6rem 1rem !important;
                 font-size: 0.95rem !important;
             }
@@ -2262,11 +2713,8 @@
             #rec-modal-overlay .feed-filter-user-name { font-size: 0.85rem; font-weight: 700; }
             #rec-modal-overlay .user-icon { width: 30px !important; height: 30px !important; }
 
-            /* Footer: span the full width on phones (kill the centered max-width). */
-            footer { padding: 1.25rem 0; }
-            footer .container { max-width: 100%; }
-            /* App feel on mobile: drop the website-y copyright line. */
-            #footer-copyright { display: none !important; }
+            /* App feel on mobile: drop the website-y footer entirely (copyright + social icons). */
+            footer { display: none !important; }
 
             /* Feed cards: keep them inside the screen — the 220px main-column basis +
                wide actor column was overflowing. !important is required because the
@@ -2276,17 +2724,20 @@
             .feed-card-row { flex-wrap: nowrap !important; gap: 10px !important; min-width: 0; }
             .feed-card-poster { flex: 0 0 auto !important; }
             .feed-card-main { flex: 1 1 auto !important; min-width: 0 !important; overflow: hidden; }
-            .feed-card-actor { flex: 0 0 auto !important; min-width: 0 !important; max-width: 58px !important; margin-left: 6px !important; }
-            .feed-card-actor .user-icon { width: 38px !important; height: 38px !important; }
-            .feed-card-actor-name { max-width: 58px; overflow: hidden; text-overflow: ellipsis; font-size: 0.7rem !important; }
+            .feed-card-actor { flex: 0 0 auto !important; min-width: 0 !important; max-width: 64px !important; margin-left: 6px !important; }
+            .feed-card-actor .user-icon { width: 50px !important; height: 50px !important; }
+            .feed-card-actor-name { max-width: 64px; overflow: hidden; text-overflow: ellipsis; font-size: 0.7rem !important; }
 
             /* AI Picks result cards: constrain to the screen + wrap long text. */
             #ai-results > .glass-panel { max-width: 100%; overflow: hidden; }
             #ai-results .glass-panel > div { min-width: 0; }
             #ai-results .text-xs { overflow-wrap: anywhere; }
 
-            /* My Movies: phones get grid view only (the toggle is hidden + grid forced). */
-            #library-view-toggle { display: none !important; }
+            /* My Movies controls (View toggle + Filters + Sort) share ONE full-width row,
+               each button stretching to fill — never split across two rows. Refresh is
+               hidden on mobile (pull-to-refresh), so it doesn't count. */
+            .library-controls-row { width: 100%; flex-wrap: nowrap !important; }
+            .library-controls-row > button:not(#library-refresh) { flex: 1 1 0; min-width: 0; }
 
             /* AI Picks: the inline 2-column grid overrode the responsive class, so the
                page never stacked and hung off-screen. Force a single column, give the
@@ -2344,19 +2795,44 @@
             }
 
             /* Feed: hide the inline "Follow People" panel; the "Follows" button opens
-               it as a full-screen overlay instead. */
+               it as a bottom sheet (same look as the Filter modal) instead. */
             .feed-follows-toggle, .feed-follows-close { display: inline-flex; }
             .feed-follows-panel { display: none; }
-            .feed-follows-panel.open {
+            /* Dimmed backdrop behind the sheet (tap to close — wired in openFeedFollows). */
+            .feed-follows-backdrop.open {
                 display: block;
                 position: fixed;
                 inset: 0;
+                z-index: 199;
+                background: rgba(0, 0, 0, 0.55);
+                animation: feedFollowsFade 0.2s ease;
+            }
+            .feed-follows-panel.open {
+                display: block;
+                position: fixed;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                top: auto;
                 z-index: 200;
                 margin: 0;
-                border-radius: 0;
+                max-height: 88dvh;
+                border-radius: 1.25rem 1.25rem 0 0;
                 overflow-y: auto;
-                padding: calc(1rem + env(safe-area-inset-top)) 1rem calc(1rem + env(safe-area-inset-bottom)) 1rem !important;
+                padding: 0.5rem 1.1rem calc(1.25rem + env(safe-area-inset-bottom)) 1.1rem !important;
                 background: rgba(15, 15, 18, 0.98);
+                box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5);
+                animation: sheetUp 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            /* Grab handle, matching the app-sheets modals. */
+            .feed-follows-panel.open::before {
+                content: "";
+                display: block;
+                width: 40px;
+                height: 4px;
+                border-radius: 999px;
+                background: rgba(255, 255, 255, 0.28);
+                margin: 0 auto 0.85rem;
             }
 
             /* Hero: drop the fixed 62vh height + bottom-anchoring on phones so the
@@ -2373,8 +2849,11 @@
                 padding-bottom: 1rem !important;
             }
 
-            /* Search filters: stack into 2 columns so Year/MPA/Apply/Clear fit. */
-            #movie-search-filters { grid-template-columns: 1fr 1fr !important; }
+            /* Search filters: stack into 2 columns so Year/MPA/Apply/Clear fit. The
+               panel's inline `margin-top:-0.25rem` (a desktop nicety) made the Year/MPA
+               row overlap up into the full-width "Hide Filters" button on mobile — clear
+               it so the filters sit below the button with a normal gap. */
+            #movie-search-filters { grid-template-columns: 1fr 1fr !important; margin-top: 0.6rem !important; }
 
             /* Movie action buttons: stack full-width instead of squishing 3 across. */
             #home-secondary-actions { flex-direction: column !important; }
@@ -2413,8 +2892,9 @@
             /* Detailed Scoring: put the number box on top and the drag slider BELOW it. */
             .detailed-scoring .slider-container { flex-direction: column-reverse; }
 
-            /* My Movies grid: the desktop 7-column grid is unusable on a phone. */
-            .library-movie-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+            /* My Movies grid: the desktop 7-column grid is unusable on a phone. 3 posters
+               per row (tighter gap) now that the full-bleed layout reclaimed the gutters. */
+            .library-movie-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 10px !important; }
 
             /* Data Dash: stack the controls row + its panels full-width so the
                timeframe/rank-by pills wrap instead of running off-screen. */
@@ -2466,13 +2946,11 @@
         }
 
         @media (max-width: 520px) {
-            :root { --header-height: 74px; }
+            /* Header sizing is unified with the ≤768 rules so EVERY page's top bar (incl.
+               Home) is identical — header height 64px, logo 46px, avatar button 34px.
+               (The old 72px logo / 60px header here didn't fit and didn't match.) */
             .container { padding: 0 1rem; }
-            .nav-brand { font-size: 1rem; gap: 0.35rem; }
-            .nav-auth-btn { font-size: 0.8rem; padding: 0.4rem 0.7rem; }
-            .nav-auth-btn.icon-only { width: 48px; height: 48px; }
-            .icon-wrapper { width: 72px; height: 72px; }
-            .icon-wrapper img { width: 72px; height: 72px; }
+            .nav-brand { gap: 0.35rem; }
             .home-hero-logo { width: 84px; height: 84px; }
 
             .auth-overlay {
@@ -2525,10 +3003,12 @@
         }
 
         @media (max-width: 420px) {
+            /* Tighter gap on the narrowest phones so 3 posters per row still fit. */
             .text-5xl { font-size: 2rem; }
             .text-4xl { font-size: 1.5rem; }
             .nav-brand span { font-size: 0.95rem; }
-            .lists-grid { gap: 1rem; }
+            .lists-grid { gap: 8px; }
+            .library-movie-grid { gap: 8px !important; }
         }
 
         /* Dashboard helpers */

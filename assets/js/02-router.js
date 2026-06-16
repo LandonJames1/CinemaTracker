@@ -96,6 +96,19 @@
                 document.body.dataset.page = page;
                 const root = document.getElementById('app-root');
 
+                // Mobile header bar shows the current page title (desktop shows the brand).
+                try {
+                    const titleEl = document.getElementById('mobile-page-title');
+                    if (titleEl) {
+                        const MOBILE_PAGE_TITLES = {
+                            home: 'Home', feed: 'Feed', library: 'My Movies', lists: 'Lists',
+                            ai_picks: 'AI Picks', dashboard: 'Data Dash', account: 'Account',
+                            achievements: 'Achievements', submit: 'Log Entry', theme_creator: 'Theme Creator',
+                        };
+                        titleEl.textContent = MOBILE_PAGE_TITLES[page] || 'CinemaTracker';
+                    }
+                } catch (_) {}
+
                 // Phase 2 — play the mobile page-enter transition as the new view swaps in.
                 try { animatePageEnter(root); } catch (_) {}
 
@@ -126,6 +139,7 @@
                     root.innerHTML = this.renderHome();
                     this.selectedMovie = null;
                     this.pendingTitle = '';
+                    refreshAuthStateAndUI();   // keep the header avatar/title identical to other pages
                     resetHomeSearchAndFilters();
                     loadTrendingNow();
                 } else if (page === 'feed') {
@@ -142,7 +156,7 @@
                     root.innerHTML = this.renderLists();
                     refreshAuthStateAndUI();
                     initListsPage();
-                    loadListsPage({ reset: true });
+                    enterListsPage();
                 } else if (page === 'ai_picks') {
                     root.innerHTML = this.renderAiPicks();
                     refreshAuthStateAndUI();
@@ -691,7 +705,7 @@
                                                     <button id="btn-log-new-entry" onclick="router.startNewEntry()" class="btn btn-primary" style="flex:1;">
                                                         ${icons.plusCircle} Log as New Entry
                                                     </button>
-                                                    <button id="update-existing-btn" onclick="router.toggleUpdateOptions()" class="btn btn-outline" style="flex:1; border-color: color-mix(in srgb, var(--brand-2) 60%, transparent); background: color-mix(in srgb, var(--brand-2) 30%, transparent);">
+                                                    <button id="update-existing-btn" onclick="router.toggleUpdateOptions()" class="btn btn-outline" style="flex:1; border-color: color-mix(in srgb, var(--brand-2) 60%, transparent); background: color-mix(in srgb, var(--brand-2) 30%, #202024);">
                                                         <span style="color: var(--accent-2); width:20px;">${icons.refreshCw}</span> Update Existing
                                                     </button>
                                                 </div>
@@ -709,11 +723,11 @@
                                                 </div>
 
                                                 <div id="update-options" class="hidden grid-2 gap-3" style="padding: 0; border: 0; background: transparent;">
-                                                    <button onclick="router.startUpdateRatings()" class="text-left" style="padding:0.45rem 0.55rem; border-radius:0.5rem; min-height: 36px; transition: background 0.2s; border: 1px solid color-mix(in srgb, var(--brand-2, #a855f7) 45%, transparent); background: color-mix(in srgb, var(--brand-2, #a855f7) 12%, transparent);">
+                                                    <button onclick="router.startUpdateRatings()" class="text-left" style="padding:0.45rem 0.55rem; border-radius:0.5rem; min-height: 36px; transition: background 0.2s; border: 1px solid color-mix(in srgb, var(--brand-2, #a855f7) 45%, transparent); background: color-mix(in srgb, var(--brand-2, #a855f7) 14%, #202024);">
                                                         <span class="text-brand font-semibold mb-2" style="display:block;">Update Ratings &rarr;</span>
                                                         <span class="text-xs text-gray">Edit your review, scores, and tier.</span>
                                                     </button>
-                                                    <button onclick="router.quickIncrement()" class="text-left" style="padding:0.45rem 0.55rem; border-radius:0.5rem; min-height: 36px; transition: background 0.2s; border: 1px solid color-mix(in srgb, var(--brand, #14b8a6) 45%, transparent); background: color-mix(in srgb, var(--brand, #14b8a6) 12%, transparent);">
+                                                    <button onclick="router.quickIncrement()" class="text-left" style="padding:0.45rem 0.55rem; border-radius:0.5rem; min-height: 36px; transition: background 0.2s; border: 1px solid color-mix(in srgb, var(--brand, #14b8a6) 45%, transparent); background: color-mix(in srgb, var(--brand, #14b8a6) 14%, #202024);">
                                                         <span class="text-brand font-semibold mb-2" style="display:block;">Quick Watch (+1) &rarr;</span>
                                                         <span class="text-xs text-gray">Simply add a view to your count.</span>
                                                     </button>
@@ -748,77 +762,67 @@
                 return `
                     <div class="fade-in">
                         <div class="container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
+                            <!-- Hidden file input shared by every list-cover "edit" button. -->
+                            <input type="file" id="lists-cover-input" accept="image/*" style="display:none;" onchange="if(this.files&&this.files[0]) handleListCoverPick(this.files[0]);">
+
                             <div class="flex justify-between items-center mb-6 lists-header-row" style="gap: 12px; flex-wrap: wrap;">
                                 <div class="glass-panel page-title-card">
                                     <h1 class="text-3xl font-bold text-white">Lists</h1>
                                     <p class="text-gray mt-2">Organize your movies into custom lists.</p>
                                 </div>
-                                <div class="flex lists-top-controls" style="gap: 10px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
-                                    <button type="button" class="btn btn-primary" onclick="openListsCreateModal()" style="border-radius: 0.85rem; height: 42px; display:inline-flex; align-items:center; justify-content:center;">New List</button>
-                                    <div class="glass-panel lists-select-wrap" style="padding: 0 0.5rem; border-radius: 0.8rem; display:flex; align-items:center; gap: 0.55rem; min-width: 220px; max-width: 260px; height: 42px;">
-                                        <div class="text-xs" style="color: rgba(255,255,255,0.78); font-weight: 800; letter-spacing: 0.02em; white-space: nowrap;">Your Lists</div>
-                                        <div id="lists-list" class="text-gray" style="flex: 1; min-width: 130px;">
-                                            <select id="lists-select" class="input-field" style="width:100%; border-radius: 0.7rem; height: 34px; font-size: 0.84rem; padding: 0 0.65rem;">
-                                                <option value="">Loading…</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <button type="button" class="btn btn-outline" data-lists-action="refresh" style="border-radius: 0.85rem;">Refresh</button>
+                                <!-- Legacy list <select>: kept (hidden) so loadListsPage + its change
+                                     handler keep working; navigation is now the cover grid below.
+                                     New List moved to the floating "+" FAB; Refresh → pull-to-refresh. -->
+                                <div id="lists-list" style="display:none;">
+                                    <select id="lists-select"><option value="">Loading…</option></select>
                                 </div>
                             </div>
 
-                            <div class="glass-panel" style="padding: 1rem; border-radius: 1rem;">
-                                    <div class="flex justify-between items-center" style="gap: 10px; flex-wrap: wrap;">
-                                        <div>
-                                            <div id="lists-active-title" class="text-white font-bold">Select a list</div>
-                                            <div id="lists-active-subtitle" class="text-xs text-gray" style="margin-top: 0.25rem;"></div>
-                                        </div>
+                            <!-- OVERVIEW: cover grid of all lists (default view). The floating
+                                 "New List" + button lives at body level (see index.html). -->
+                            <div id="lists-overview" class="glass-panel lists-panel" style="padding: 1rem; border-radius: 1rem;">
+                                <div id="lists-overview-grid" class="lists-cover-grid">${loadingPlaceholder('posters')}</div>
+                            </div>
 
-                                        <div class="flex items-center lists-action-controls" style="gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
-                                            <button
-                                                id="lists-filter-btn"
-                                                type="button"
-                                                class="btn btn-outline"
-                                                data-lists-action="open_sort_filter"
-                                                style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.65rem; font-size: 0.85rem;"
-                                                disabled
-                                            >Filters/Sort</button>
-                                            <button
-                                                id="lists-rename-btn"
-                                                type="button"
-                                                class="btn btn-outline"
-                                                data-lists-action="rename_list"
-                                                style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.65rem; font-size: 0.85rem;"
-                                                disabled
-                                            >Rename</button>
-                                            <button
-                                                id="lists-delete-btn"
-                                                type="button"
-                                                class="btn btn-outline"
-                                                data-lists-action="delete_list"
-                                                style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.65rem; font-size: 0.85rem; border-color: rgba(239,68,68,0.55); background: rgba(239,68,68,0.10);"
-                                                disabled
-                                            >Delete</button>
-
-                                            <!-- Lists-only Search (adds directly to the active list) -->
-                                            <div class="lists-add-search" style="position: relative; width: 260px; max-width: 100%;">
-                                                <div class="input-group" style="margin: 0;">
-                                                    <div class="input-icon" style="height: 34px; display:flex; align-items:center;">${icons.search}</div>
-                                                    <input
-                                                        type="text"
-                                                        id="lists-movie-search-input"
-                                                        oninput="handleListsAddMovieSearch(this.value)"
-                                                        autocomplete="off"
-                                                        placeholder="Select a list to add movies…"
-                                                        class="input-field glass-input"
-                                                        style="border-radius: 0.75rem; height: 34px; font-size: 0.85rem; padding-left: 2.35rem;"
-                                                        disabled
-                                                    >
-                                                    <div id="lists-movie-search-results" class="search-dropdown hidden"></div>
-                                                </div>
-                                            </div>
-                                        </div>
+                            <!-- DETAIL: one list's movies (opened from the grid). -->
+                            <div id="lists-detail" class="glass-panel lists-panel" style="padding: 1rem; border-radius: 1rem; display:none;">
+                                    <!-- One control row: Back + Filter + Sort + Edit. -->
+                                    <div class="flex items-center lists-detail-toprow" style="gap: 8px; flex-wrap: wrap;">
+                                        <button type="button" class="btn btn-outline lists-back-btn" onclick="showListsOverview()" style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.7rem; font-size: 0.85rem; display:inline-flex; align-items:center; gap:0.35rem;">${icons.arrowLeft} All Lists</button>
+                                        <button
+                                            id="lists-filter-btn"
+                                            type="button"
+                                            class="btn btn-outline"
+                                            data-lists-action="open_filters"
+                                            style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.65rem; font-size: 0.85rem;"
+                                            disabled
+                                        >Filter</button>
+                                        <button
+                                            id="lists-sort-btn"
+                                            type="button"
+                                            class="btn btn-outline"
+                                            data-lists-action="open_sort"
+                                            style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.65rem; font-size: 0.85rem;"
+                                            disabled
+                                        >Sort</button>
+                                        <button
+                                            id="lists-edit-btn"
+                                            type="button"
+                                            class="btn btn-outline"
+                                            data-lists-action="edit_list"
+                                            style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.65rem; font-size: 0.85rem;"
+                                            disabled
+                                        >Edit</button>
                                     </div>
+
+                                    <div class="lists-active-heading" style="margin-top: 0.85rem;">
+                                        <div id="lists-active-title" class="text-white font-bold">Select a list</div>
+                                        <div id="lists-active-subtitle" class="text-xs text-gray" style="margin-top: 0.25rem;"></div>
+                                    </div>
+
+                                    <!-- Add-movie search now lives in the #lists-add-overlay modal,
+                                         opened by the floating "+" FAB (see index.html). -->
+
                                     <div id="lists-items" class="text-gray" style="margin-top: 0.85rem;">Choose a list above.</div>
                             </div>
                         </div>
@@ -1198,7 +1202,7 @@
 
                                 <div class="flex" style="border-top: 1px solid rgba(255,255,255,0.05); margin-top: 15px; padding-top: 15px; justify-content: ${isUpdate ? 'space-between' : 'center'}; gap: 10px; flex-wrap: wrap;">
                                     ${isUpdate ? `
-                                        <button id="btn-delete-rating" type="button" class="btn btn-outline" style="margin-top: 0px; border-radius: 0.85rem; border-color: rgba(239,68,68,0.55); color: rgba(239,68,68,0.95); background: rgba(239,68,68,0.10);" onclick="openDeleteRatingModal()">
+                                        <button id="btn-delete-rating" type="button" class="btn btn-outline" style="margin-top: 0px; border-radius: 0.85rem; border-color: rgba(239,68,68,0.55); color: rgba(239,68,68,0.95); background: #3a1a1d;" onclick="openDeleteRatingModal()">
                                             Delete
                                         </button>
                                     ` : ''}
@@ -1512,7 +1516,7 @@
                 return `
                     <div class="fade-in">
                         <div class="container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
-                            <div class="flex justify-between items-center mb-6" style="gap: 14px; flex-wrap: wrap;">
+                            <div class="flex justify-between items-center mb-6 feed-title-row" style="gap: 14px; flex-wrap: wrap;">
                                 <div class="glass-panel page-title-card">
                                     <h1 class="text-3xl font-bold text-white">Feed</h1>
                                     <p class="text-gray mt-2">New and updated ratings from people you follow.</p>
@@ -1520,9 +1524,9 @@
                             </div>
 
                             <div class="grid feed-grid" style="grid-template-columns: 1.2fr 0.8fr; gap: 16px; align-items: start;">
-                                <div class="glass-panel" style="padding: 1rem; border-radius: 1rem;">
-                                    <div class="flex justify-between items-center" style="gap: 12px; flex-wrap: wrap;">
-                                        <div>
+                                <div class="glass-panel feed-activity-panel" style="padding: 1rem; border-radius: 1rem;">
+                                    <div class="flex justify-between items-center feed-controls-row" style="gap: 12px; flex-wrap: wrap;">
+                                        <div class="feed-activity-heading">
                                             <div class="text-white font-bold">Following Activity</div>
                                             <div id="feed-meta" class="text-xs text-gray" style="margin-top: 0.25rem;"></div>
                                         </div>
@@ -1765,25 +1769,24 @@
                 return `
                     <div class="fade-in">
                         <div class="container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
-                            <div class="flex justify-between items-center mb-6" style="gap: 14px; flex-wrap: wrap;">
+                            <div class="flex justify-between items-center mb-6 library-title-row" style="gap: 14px; flex-wrap: wrap;">
                                 <div class="glass-panel page-title-card">
                                     <h1 class="text-3xl font-bold text-white">My Movies</h1>
                                     <p class="text-gray mt-2">All your watches, with details and ratings.</p>
                                 </div>
                             </div>
 
-                            <div class="glass-panel" id="theme-creator-search-panel" style="padding: 1rem; border-radius: 1rem;">
+                            <div class="glass-panel library-panel" id="theme-creator-search-panel" style="padding: 1rem; border-radius: 1rem;">
                                 <div class="flex justify-between items-center" style="gap: 12px; flex-wrap: wrap;">
-                                    <div>
+                                    <div class="library-section-heading">
                                         <div class="text-white font-bold">Recent Watches</div>
                                         <div id="library-meta" class="text-xs text-gray" style="margin-top: 0.25rem;"></div>
                                     </div>
-                                    <div style="display:flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
-                                        <div id="library-view-toggle" class="flex" style="gap: 8px; flex-wrap: wrap;">
-                                            <button type="button" class="btn dash-pill-btn btn-glass" data-library-action="set_view" data-library-view="list" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">List View</button>
-                                            <button type="button" class="btn dash-pill-btn btn-outline" data-library-action="set_view" data-library-view="grid" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Grid View</button>
-                                        </div>
-                                        <button id="library-open-sortfilter" type="button" class="btn btn-outline" data-library-action="open_sort_filter" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Filters/Sort</button>
+                                    <div class="library-controls-row" style="display:flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
+                                        <!-- One button that flips List/Grid (shows the view you'll switch TO). -->
+                                        <button id="library-view-toggle-btn" type="button" class="btn btn-outline" data-library-action="toggle_view" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">List View</button>
+                                        <button id="library-open-filters" type="button" class="btn btn-outline" data-library-action="open_filters" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Filters</button>
+                                        <button id="library-open-sort" type="button" class="btn btn-outline" data-library-action="open_sort" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Sort</button>
                                         <button id="library-refresh" type="button" class="btn btn-outline" data-library-action="refresh" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Refresh</button>
                                     </div>
                                 </div>
@@ -1807,26 +1810,24 @@
                                     <h1 class="text-3xl font-bold text-white">Achievements</h1>
                                     <p class="text-gray mt-2">Your tier, points, and badges.</p>
                                 </div>
-                                <div style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap; justify-content:flex-end;">
-                                    <div class="achievement-filter-wrap">
-                                        <button id="account-achievement-filters-btn" type="button" class="btn btn-outline" style="padding: 0.45rem 0.7rem; border-radius: 0.85rem;">Sort/Filter</button>
-                                        <div id="account-achievement-filters-pop" class="achievement-filters-pop" aria-hidden="true">
-                                            <div class="achievement-filters-row">
-                                                <div class="achievement-filters-label">Sort</div>
-                                                <select id="account-achievement-sort" class="input-field">
-                                                    <option value="points_asc" selected>Points: Low to High</option>
-                                                    <option value="points_desc">Points: High to Low</option>
-                                                </select>
-                                            </div>
-                                            <div class="achievement-filters-row">
-                                                <div class="achievement-filters-label">Type</div>
-                                                <select id="account-achievement-filter" class="input-field">
-                                                    <option value="all">All types</option>
-                                                </select>
-                                            </div>
+                                <div class="achievement-filter-wrap" style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap; justify-content:flex-end;">
+                                    <button id="account-achievement-filter-btn" type="button" class="btn btn-outline" style="padding: 0.45rem 0.7rem; border-radius: 0.85rem;">Filter</button>
+                                    <button id="account-achievement-sort-btn" type="button" class="btn btn-outline" style="padding: 0.45rem 0.7rem; border-radius: 0.85rem;">Sort</button>
+                                    <div id="account-achievement-filters-pop" class="achievement-filters-pop" aria-hidden="true">
+                                        <div class="achievement-filters-row" data-af="sort">
+                                            <div class="achievement-filters-label">Sort</div>
+                                            <select id="account-achievement-sort" class="input-field">
+                                                <option value="points_asc" selected>Points: Low to High</option>
+                                                <option value="points_desc">Points: High to Low</option>
+                                            </select>
+                                        </div>
+                                        <div class="achievement-filters-row" data-af="filter">
+                                            <div class="achievement-filters-label">Type</div>
+                                            <select id="account-achievement-filter" class="input-field">
+                                                <option value="all">All types</option>
+                                            </select>
                                         </div>
                                     </div>
-                                    <button type="button" class="btn btn-outline" onclick="router.navigate('account')" style="padding: 0.45rem 0.8rem; border-radius: 0.85rem;">Back</button>
                                 </div>
                             </div>
 
@@ -1914,7 +1915,7 @@
                                         ${buildThemeCreatorOptions(themeOptions, getStoredTheme())}
                                     </select>
                                 </div>
-                                <button type="button" class="glass-panel account-logout-card" data-account-action="logout" style="padding: 1rem; border-radius: 1rem; text-align: left; border: 1px solid rgba(239,68,68,0.55); background: rgba(239,68,68,0.12);">
+                                <button type="button" class="glass-panel account-logout-card" data-account-action="logout" style="padding: 1rem; border-radius: 1rem; text-align: left; border: 1px solid rgba(239,68,68,0.55); background: #3a1a1d;">
                                     <div class="font-bold" style="color: #f87171;">⎋ Log out</div>
                                     <div class="text-xs" style="margin-top: 0.35rem; color: rgba(248,113,113,0.8);">Sign out of your account.</div>
                                 </button>

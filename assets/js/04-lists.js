@@ -3,6 +3,10 @@
         let listsLoading = false;
         let listsActiveListId = null;
         let listsActiveListName = '';
+        let listsViewMode = 'overview';  // 'overview' (cover grid of all lists) | 'detail' (one list's movies)
+        let listsCoverUploadBusy = false;
+        let listsAddAppliedYear = '';    // Year/MPA filters for the add-movie modal search
+        let listsAddAppliedMpa = '';
         let listsPendingSelectName = ''; // when set, loadListsPage opens the list with this name (deep-links, e.g. "Recs")
         let recByDataByMovieId = new Map(); // movie_id -> [{ id, username, icon }] recommenders (for the Recs "+" modal)
         let cachedLists = [];
@@ -223,8 +227,9 @@
         //   - no reviewers (recommender hasn't watched it) → straight to Movie Details
         let recsViewMovie = null;        // prefill row (title/genre/mpa/runtime/imdb/etc.)
         let recsViewReviewers = [];      // [{ id, username, name, icon, row }]
-        let recsViewHasChoice = false;   // whether the choice screen applies (>=1 reviewer)
-        let recsViewState = 'choice';    // choice | details | reviewers | review
+        let recsViewPlatforms = [];      // streaming platforms (the old "Watch Options")
+        let recsViewHasChoice = false;   // whether the choice screen applies
+        let recsViewState = 'choice';    // choice | details | reviewers | review | watch
 
         async function openRecsMovieModal(movieId) {
             const mid = String(movieId || '').trim();
@@ -289,14 +294,17 @@
                 const name = String(info?.display_name || '').trim() || (username ? `@${username}` : 'User');
                 return { id: uid, username, name, icon: String(info?.icon || '').trim(), row: rowByUser.get(uid) };
             });
-            recsViewHasChoice = recsViewReviewers.length > 0;
+            // Streaming availability (the former standalone "Watch Options" button).
+            recsViewPlatforms = listsPlatformsByMovieId.get(mid) || [];
+            // Show the choice screen when there's more than just Movie Details to offer.
+            recsViewHasChoice = recsViewReviewers.length > 0 || recsViewPlatforms.length > 0;
 
             const overlay = document.getElementById('recs-movie-overlay');
             if (!overlay) return;
             overlay.style.display = 'flex';
             overlay.classList.add('open');
 
-            // No reviewers → straight to Movie Details; otherwise the choice screen.
+            // Nothing extra → straight to Movie Details; otherwise the choice screen.
             if (recsViewHasChoice) recsMovieRenderChoice();
             else recsMovieRenderDetails();
         }
@@ -330,6 +338,16 @@
         function recsMovieRenderChoice() {
             recsViewState = 'choice';
             const t = String(recsViewMovie?.title || 'this movie').trim();
+            const reviewsBtn = recsViewReviewers.length ? `
+                    <button type="button" class="btn btn-outline" onclick="recsMovieShowReviews()" style="border-radius:0.85rem; padding:0.85rem; text-align:left;">
+                        <div class="text-white font-bold">User Reviews</div>
+                        <div class="text-xs text-gray" style="margin-top:0.2rem;">${recsViewReviewers.length} ${recsViewReviewers.length === 1 ? 'review' : 'reviews'} from people you know.</div>
+                    </button>` : '';
+            const watchBtn = recsViewPlatforms.length ? `
+                    <button type="button" class="btn btn-outline" onclick="recsMovieRenderWatchOptions()" style="border-radius:0.85rem; padding:0.85rem; text-align:left;">
+                        <div class="text-white font-bold">Watch Options</div>
+                        <div class="text-xs text-gray" style="margin-top:0.2rem;">Where to stream it (${recsViewPlatforms.length} ${recsViewPlatforms.length === 1 ? 'platform' : 'platforms'}).</div>
+                    </button>` : '';
             recsMovieSetBody(`
                 <div class="text-xs text-gray" style="margin-bottom:0.85rem;">What do you want to see for “${escapeHtml(t)}”?</div>
                 <div style="display:flex; flex-direction:column; gap:10px;">
@@ -337,12 +355,33 @@
                         <div class="text-white font-bold">Movie Details</div>
                         <div class="text-xs text-gray" style="margin-top:0.2rem;">Genre, MPA, runtime, year, director, IMDb.</div>
                     </button>
-                    <button type="button" class="btn btn-outline" onclick="recsMovieShowReviews()" style="border-radius:0.85rem; padding:0.85rem; text-align:left;">
-                        <div class="text-white font-bold">User Reviews</div>
-                        <div class="text-xs text-gray" style="margin-top:0.2rem;">${recsViewReviewers.length} ${recsViewReviewers.length === 1 ? 'review' : 'reviews'} from people you know.</div>
-                    </button>
+                    ${reviewsBtn}
+                    ${watchBtn}
                 </div>
             `, { title: 'Recommended Movie', showBack: false });
+        }
+
+        // "Watch Options" → the streaming platforms the movie is available on (moved here
+        // from the old per-card "Watch Options" button).
+        function recsMovieRenderWatchOptions() {
+            recsViewState = 'watch';
+            const platforms = Array.isArray(recsViewPlatforms) ? recsViewPlatforms : [];
+            const body = platforms.length ? `
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">
+                    ${platforms.map((p) => {
+                        const full = normalizePlatformName(p);
+                        const label = platformShortLabel(full) || full;
+                        const theme = platformBrandTheme(full);
+                        const pillStyle = `background: ${theme.bg}; border: 1px solid ${theme.border}; color: ${theme.text};`;
+                        return `
+                            <div style="display:flex; align-items:center; justify-content: center; padding: 0.7rem; border-radius: 0.85rem; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10);">
+                                <span style="display:inline-flex; align-items:center; padding: 0.28rem 0.6rem; border-radius: 999px; font-weight: 900; font-size: 0.88rem; line-height: 1; ${pillStyle}">${escapeHtml(label)}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            ` : `<div class="text-gray">No watch options found yet.</div>`;
+            recsMovieSetBody(body, { title: 'Watch Options', showBack: recsViewHasChoice });
         }
 
         function recsMovieRenderDetails() {
@@ -742,14 +781,106 @@
             listsRenameBusy = false;
         }
 
+        // Auto-managed lists (Bucket List + Recs) can't be renamed or deleted — only
+        // their cover photo is editable. (Renaming would break the name-based lookups.)
+        function isSpecialAutoList(list_id, list_name) {
+            const n = String(list_name || '').trim().toLowerCase();
+            return isBucketList({ list_id, list_name }) || n === 'recs';
+        }
+
+        // The "Edit" button on a list → the combined edit modal: change cover photo
+        // (all lists) + rename + delete (non-special lists only).
+        function openListsEditModal() {
+            const lid = String(listsActiveListId || '').trim();
+            if (!lid) { showToast('Select a list first.', { level: 'warn' }); return; }
+            const overlay = document.getElementById('lists-rename-overlay');
+            if (!overlay) return;
+
+            const special = isSpecialAutoList(lid, listsActiveListName);
+            const renameSec = document.getElementById('lists-edit-rename-section');
+            const deleteSec = document.getElementById('lists-edit-delete-section');
+            if (renameSec) renameSec.style.display = special ? 'none' : '';
+            if (deleteSec) deleteSec.style.display = special ? 'none' : '';
+
+            const titleEl = document.getElementById('lists-rename-title');
+            if (titleEl) titleEl.textContent = listsActiveListName ? `Edit “${listsActiveListName}”` : 'Edit List';
+
+            const statusEl = document.getElementById('lists-rename-status');
+            if (statusEl) statusEl.textContent = '';
+            const input = document.getElementById('lists-rename-name');
+            if (input) input.value = String(listsActiveListName || '').trim();
+
+            refreshListsEditCoverPreview();
+            overlay.style.display = 'flex';
+            listsRenameBusy = false;
+        }
+
+        // Render the current cover (or a placeholder) inside the Edit modal.
+        function refreshListsEditCoverPreview() {
+            const lid = String(listsActiveListId || '').trim();
+            const row = (cachedLists || []).find(l => String(l.id) === lid);
+            const cover = String(row?.cover || '').trim();
+            const prev = document.getElementById('lists-edit-cover-preview');
+            const removeBtn = document.getElementById('lists-edit-remove-cover');
+            if (prev) {
+                prev.innerHTML = cover
+                    ? `<img src="${escapeHtml(cover)}" alt="Cover">`
+                    : `<span class="lists-edit-cover-empty">${icons.film}</span>`;
+            }
+            if (removeBtn) removeBtn.style.display = cover ? '' : 'none';
+        }
+
+        async function removeListCover() {
+            const lid = String(listsActiveListId || '').trim();
+            if (!lid) return;
+            if (guardGuestWrite()) return;
+            try {
+                const { user } = await requireAuthOrThrow();
+                const { error } = await supabaseClient
+                    .from('Lists')
+                    .update({ cover: null })
+                    .eq('id', lid)
+                    .eq('user_id', user.id);
+                if (error) throw error;
+                const row = (cachedLists || []).find(l => String(l.id) === lid);
+                if (row) row.cover = null;
+                refreshListsEditCoverPreview();
+                loadListsOverview().catch(() => null);
+                showToast('Cover removed.', { level: 'success' });
+            } catch (err) {
+                showToast(`Couldn’t remove cover: ${err?.message || err}`, { level: 'error' });
+            }
+        }
+
+        // Delete from inside the Edit modal → swap to the existing delete-confirm modal.
+        function openListsDeleteFromEdit() {
+            closeListsRenameModal();
+            openListsDeleteModal();
+        }
+
+        // The single "Save" button on the Edit modal: save the (possibly changed) name
+        // for normal lists — the rename form handler saves + closes (and just closes if
+        // the name is unchanged). Cover changes already persist on pick. Special lists
+        // (no name field) just close.
+        function submitListsEditModal() {
+            const lid = String(listsActiveListId || '').trim();
+            const form = document.getElementById('lists-rename-form');
+            if (lid && form && !isSpecialAutoList(lid, listsActiveListName)) {
+                if (typeof form.requestSubmit === 'function') form.requestSubmit();
+                else form.dispatchEvent(new Event('submit', { cancelable: true }));
+                return;
+            }
+            closeListsRenameModal();
+        }
+
         function openListsDeleteModal() {
             const lid = String(listsActiveListId || '').trim();
             if (!lid) {
                 showToast('Select a list first.', { level: 'warn' });
                 return;
             }
-            if (isBucketList({ list_id: lid, list_name: listsActiveListName })) {
-                showToast('Bucket List can’t be deleted.', { level: 'warn' });
+            if (isSpecialAutoList(lid, listsActiveListName)) {
+                showToast('This list can’t be deleted.', { level: 'warn' });
                 return;
             }
 
@@ -900,19 +1031,17 @@
         }
 
         function setListsActiveListActionsEnabledState() {
-            const renameBtn = document.getElementById('lists-rename-btn');
-            const deleteBtn = document.getElementById('lists-delete-btn');
             const filterBtn = document.getElementById('lists-filter-btn');
+            const sortBtn = document.getElementById('lists-sort-btn');
+            const editBtn = document.getElementById('lists-edit-btn');
             const lid = String(listsActiveListId || '').trim();
-            const isBucket = isBucketList({ list_id: lid, list_name: listsActiveListName });
-            const enabled = Boolean(lid) && !isBucket;
-            if (renameBtn) renameBtn.disabled = !enabled || listsRenameBusy;
-            if (deleteBtn) deleteBtn.disabled = !enabled || listsDeleteBusy;
 
-            // Bucket List should not expose a Delete entry point.
-            if (deleteBtn) deleteBtn.style.display = isBucket ? 'none' : '';
+            // Filter / Sort / Edit all work for every list (Edit = cover for special
+            // lists, full rename/delete for the rest — gated inside the Edit modal).
+            const ready = Boolean(lid) && !listsLoading;
+            if (sortBtn) sortBtn.disabled = !ready;
+            if (editBtn) editBtn.disabled = !Boolean(lid);
 
-            // Filters/Sort works for all lists (including Bucket List).
             const filtersEnabled = Boolean(lid) && !listsLoading;
             if (filterBtn) filterBtn.disabled = !filtersEnabled;
 
@@ -941,13 +1070,16 @@
                 });
 
                 filterBtn.title = model?.summaryText || '';
-                if (model?.isDefault) {
-                    filterBtn.style.borderColor = '';
-                    filterBtn.style.background = '';
-                } else {
-                    filterBtn.style.borderColor = 'color-mix(in srgb, var(--brand) 65%, transparent)';
-                    filterBtn.style.background = 'color-mix(in srgb, var(--brand) 12%, transparent)';
-                }
+                // Light up Filter when a FILTER is active, Sort when SORT is non-default.
+                const def = getDefaultListsSortFilterStateForActiveList();
+                const st = listsSortFilterState || {};
+                const sortActive = String(st.sortKey ?? '') !== String(def.sortKey ?? '')
+                    || String(st.sortDir ?? '') !== String(def.sortDir ?? '');
+                const filterActive = Object.keys({ ...def, ...st }).some(k =>
+                    k !== 'sortKey' && k !== 'sortDir' && String(st[k] ?? '') !== String(def[k] ?? ''));
+                filterBtn.classList.toggle('filter-active', filterActive);
+                const sortBtnEl = document.getElementById('lists-sort-btn');
+                if (sortBtnEl) sortBtnEl.classList.toggle('filter-active', sortActive);
             }
         }
 
@@ -1456,7 +1588,7 @@
             };
         }
 
-        function openListsSortFilterModal() {
+        function openListsSortFilterModal(mode) {
             ensureListsSortFilterStateInitialized();
             const els = getListsSortFilterModalEls();
             if (!els.overlay) return;
@@ -1470,9 +1602,22 @@
             setListsSortFilterModalFromState(listsSortFilterState);
             initListsWatchCountRange();
             setListsWatchCountRangeFromState(listsSortFilterState);
+
+            // Show only the requested section (both still save together) — mirrors My Movies.
+            const showSort = mode !== 'filters';
+            const showFilters = mode !== 'sort';
+            const sortSec = els.overlay.querySelector('[data-sf="sort"]');
+            const filterSec = els.overlay.querySelector('[data-sf="filters"]');
+            const divider = els.overlay.querySelector('.lists-sf-divider');
+            if (sortSec) sortSec.style.display = showSort ? '' : 'none';
+            if (filterSec) filterSec.style.display = showFilters ? '' : 'none';
+            if (divider) divider.style.display = (showSort && showFilters) ? '' : 'none';
+            const titleEl = document.getElementById('lists-sortfilter-title');
+            if (titleEl) titleEl.textContent = mode === 'sort' ? 'Sort' : (mode === 'filters' ? 'Filters' : 'Filters & Sort');
+
             els.overlay.style.display = 'flex';
             setTimeout(() => {
-                try { els.sortKey?.focus?.(); } catch (_) {}
+                try { (showSort ? els.sortKey : filterSec?.querySelector('.input-field'))?.focus?.(); } catch (_) {}
             }, 0);
         }
 
@@ -1770,11 +1915,22 @@
                 return cachedLists;
             }
 
-            const { data, error } = await supabaseClient
+            // `cover` is the optional per-list square image (data URL); see
+            // lists_cover_column.sql. Fall back to a cover-less select on older DBs
+            // that haven't run the migration yet, so the page still works.
+            let data, error;
+            ({ data, error } = await supabaseClient
                 .from('Lists')
-                .select('id, list_name, created_at')
+                .select('id, list_name, created_at, cover')
                 .eq('user_id', uid)
-                .order('created_at', { ascending: true });
+                .order('created_at', { ascending: true }));
+            if (error && /column .*cover.* does not exist/i.test(String(error?.message || ''))) {
+                ({ data, error } = await supabaseClient
+                    .from('Lists')
+                    .select('id, list_name, created_at')
+                    .eq('user_id', uid)
+                    .order('created_at', { ascending: true }));
+            }
             if (error) throw error;
 
             const rows = Array.isArray(data) ? data : [];
@@ -2088,13 +2244,19 @@
 
                 if (action === 'refresh') {
                     (async () => {
-                        await loadListsPage({ reset: true });
+                        if (listsViewMode === 'overview') await loadListsOverview();
+                        else await loadListsPage({ reset: true });
                     })().catch(() => {});
                     return;
                 }
 
-                if (action === 'rename_list') {
-                    openListsRenameModal();
+                if (action === 'edit_list') {
+                    openListsEditModal();
+                    return;
+                }
+
+                if (action === 'rename_list') {       // legacy entry point (kept harmless)
+                    openListsEditModal();
                     return;
                 }
 
@@ -2103,7 +2265,17 @@
                     return;
                 }
 
-                if (action === 'open_sort_filter') {
+                if (action === 'open_filters') {
+                    openListsSortFilterModal('filters');
+                    return;
+                }
+
+                if (action === 'open_sort') {
+                    openListsSortFilterModal('sort');
+                    return;
+                }
+
+                if (action === 'open_sort_filter') {   // legacy entry point (both sections)
                     openListsSortFilterModal();
                     return;
                 }
@@ -2149,8 +2321,8 @@
 
                         const lid = String(listsActiveListId || '').trim();
                         if (!lid) return;
-                        if (isBucketList({ list_id: lid, list_name: listsActiveListName })) {
-                            showToast('Bucket List can’t be deleted.', { level: 'warn' });
+                        if (isSpecialAutoList(lid, listsActiveListName)) {
+                            showToast('This list can’t be deleted.', { level: 'warn' });
                             return;
                         }
 
@@ -2192,7 +2364,7 @@
                             listsActiveListName = '';
 
                             closeListsDeleteModal();
-                            await loadListsPage({ reset: true });
+                            showListsOverview(); // the deleted list is gone — return to the grid
                             showToast('List deleted.', { level: 'success' });
                         } catch (err) {
                             setStatus('');
@@ -2429,7 +2601,12 @@
                         }
 
                         closeListsCreateModal();
-                        await loadListsPage({ reset: true });
+                        // Open the new list's (empty) detail view, or fall back to overview.
+                        if (created?.id) {
+                            openListFromOverview(String(created.id), String(created?.list_name || name).trim());
+                        } else {
+                            showListsOverview();
+                        }
                         showToast('List created!', { level: 'success' });
                     } catch (err) {
                         const msg = String(err?.message || err);
@@ -2453,8 +2630,8 @@
 
                     const lid = String(listsActiveListId || '').trim();
                     if (!lid) return;
-                    if (isBucketList({ list_id: lid, list_name: listsActiveListName })) {
-                        showToast('Bucket List can’t be renamed.', { level: 'warn' });
+                    if (isSpecialAutoList(lid, listsActiveListName)) {
+                        showToast('This list can’t be renamed.', { level: 'warn' });
                         return;
                     }
 
@@ -2521,6 +2698,267 @@
                         setListsActiveListActionsEnabledState();
                     }
                 }, { capture: true });
+            }
+        }
+
+        // ===== Lists overview (Spotify-style cover grid of all lists) =====
+
+        function listsCoverPosterUrl(path) {
+            const raw = String(path || '').trim();
+            if (!raw) return '';
+            return `https://image.tmdb.org/t/p/w342${raw.startsWith('/') ? raw : `/${raw}`}`;
+        }
+
+        // The visible art for one list card: an uploaded cover, else a poster
+        // collage of its movies, else a colored fallback tile with an icon.
+        function renderListCoverArt(list, info) {
+            const cover = String(list?.cover || '').trim();
+            if (cover) {
+                return `<img class="lists-cover-img" src="${escapeHtml(cover)}" alt="" loading="lazy" decoding="async">`;
+            }
+            const posters = (info?.posters || []).map(listsCoverPosterUrl).filter(Boolean).slice(0, 4);
+            if (posters.length >= 4) {
+                return `<div class="lists-cover-collage lists-cover-collage-4">${
+                    posters.map(u => `<span style="background-image:url('${escapeHtml(u)}')"></span>`).join('')
+                }</div>`;
+            }
+            if (posters.length >= 1) {
+                // 1–3 posters: show them side-by-side as vertical strips.
+                return `<div class="lists-cover-collage lists-cover-collage-strip" style="grid-template-columns: repeat(${posters.length}, 1fr);">${
+                    posters.map(u => `<span style="background-image:url('${escapeHtml(u)}')"></span>`).join('')
+                }</div>`;
+            }
+            const name = String(list?.list_name || '').trim().toLowerCase();
+            const icon = name === 'recs' ? icons.star : icons.film;
+            return `<div class="lists-cover-fallback"><span class="lists-cover-fallback-icon">${icon}</span></div>`;
+        }
+
+        async function loadListsOverview() {
+            const grid = document.getElementById('lists-overview-grid');
+            if (!grid) return;
+
+            if (!supabaseClient || !cachedIsAuthed) {
+                grid.innerHTML = `<div class="text-gray">Log in to view your lists.</div>`;
+                return;
+            }
+
+            try {
+                const { user } = await requireAuthOrThrow();
+                await ensureBucketListForUser({ user_id: user.id }).catch(() => null);
+                const allLists = await loadUserLists({ user_id: user.id, force: true });
+
+                // Overview order: Recs first, then Bucket List, then the rest as-is.
+                const listRank = (l) => {
+                    const n = String(l?.list_name || '').trim().toLowerCase();
+                    if (n === 'recs') return 0;
+                    if (n === 'bucket list') return 1;
+                    return 2;
+                };
+                const lists = [...allLists].sort((a, b) => listRank(a) - listRank(b));
+
+                // One pass to get movie counts + a few posters per list for the collage
+                // fallback. Two simple queries (no FK-embed assumptions): the join rows,
+                // then the posters for those movies.
+                const infoByList = new Map(); // list_id -> { count, posters: [poster_path] }
+                lists.forEach(l => infoByList.set(String(l.id), { count: 0, posters: [], _ids: [] }));
+
+                const { data: joinRows } = await supabaseClient
+                    .from('Movie Lists')
+                    .select('list_id, movie_id, created_at')
+                    .eq('user_id', user.id)
+                    .order('created_at', { ascending: false });
+
+                const wantIds = new Set();
+                (Array.isArray(joinRows) ? joinRows : []).forEach(r => {
+                    const lid = String(r?.list_id || '');
+                    const mid = String(r?.movie_id || '');
+                    const info = infoByList.get(lid);
+                    if (!info || !mid) return;
+                    info.count += 1;
+                    if (info._ids.length < 4) { info._ids.push(mid); wantIds.add(mid); }
+                });
+
+                if (wantIds.size) {
+                    const { data: movieRows } = await supabaseClient
+                        .from('Movies')
+                        .select('id, poster_path')
+                        .in('id', Array.from(wantIds));
+                    const posterById = new Map(
+                        (Array.isArray(movieRows) ? movieRows : []).map(m => [String(m.id), String(m.poster_path || '')]));
+                    infoByList.forEach(info => {
+                        info.posters = info._ids.map(id => posterById.get(id)).filter(Boolean);
+                    });
+                }
+
+                if (!lists.length) {
+                    grid.innerHTML = `<div class="text-gray" style="grid-column:1/-1;">No lists yet — tap “New List” to create one.</div>`;
+                    return;
+                }
+
+                grid.innerHTML = lists.map(l => {
+                    const id = String(l?.id || '').trim();
+                    const name = String(l?.list_name || '').trim() || 'Untitled';
+                    if (!id) return '';
+                    const info = infoByList.get(id) || { count: 0, posters: [] };
+                    const countLabel = `${info.count} movie${info.count === 1 ? '' : 's'}`;
+                    return `
+                        <button type="button" class="lists-cover-card" onclick="openListFromOverview('${escapeHtml(id)}')">
+                            <span class="lists-cover-art">
+                                ${renderListCoverArt(l, info)}
+                                <span class="lists-cover-edit" title="Change cover" onclick="event.stopPropagation(); triggerListCoverPick('${escapeHtml(id)}')">${icons.edit3}</span>
+                            </span>
+                            <span class="lists-cover-name">${escapeHtml(name)}</span>
+                            <span class="lists-cover-count">${escapeHtml(countLabel)}</span>
+                        </button>
+                    `;
+                }).filter(Boolean).join('');
+            } catch (err) {
+                grid.innerHTML = `<div class="text-gray">Couldn’t load your lists.</div>`;
+                emitLog?.(`Lists overview failed: ${err?.message || err}`, 'error');
+            }
+        }
+
+        // Entry point when the Lists page mounts: deep-link (e.g. "Recs" from a push)
+        // opens that list directly; otherwise show the cover-grid overview.
+        async function enterListsPage() {
+            if (listsPendingSelectName) {
+                listsViewMode = 'detail';
+                const ov = document.getElementById('lists-overview');
+                const dt = document.getElementById('lists-detail');
+                if (ov) ov.style.display = 'none';
+                if (dt) dt.style.display = '';
+                updateListsFab();
+                await loadListsPage({ reset: true }).catch(() => null); // resolves listsPendingSelectName
+                return;
+            }
+            showListsOverview();
+        }
+
+        // The floating "+" FAB (body-level). It's contextual: on the overview it creates a
+        // NEW LIST; inside a list it opens the ADD-MOVIE modal. Hidden on the auto-managed
+        // Recs list (no manual adds).
+        function setListsFabVisible(show) {
+            const fab = document.getElementById('lists-fab');
+            if (fab) fab.style.display = show ? 'flex' : 'none';
+        }
+        function updateListsFab() {
+            if (listsViewMode !== 'detail') { setListsFabVisible(true); return; }
+            const isRecs = String(listsActiveListName || '').trim().toLowerCase() === 'recs';
+            setListsFabVisible(!isRecs);
+        }
+        function listsFabAction() {
+            if (listsViewMode === 'detail') openListsAddModal();
+            else openListsCreateModal();
+        }
+
+        // ===== Add-movie-to-list modal (Home-style search + Year/MPA filters) =====
+        function openListsAddModal() {
+            const lid = String(listsActiveListId || '').trim();
+            if (!lid) { showToast('Select a list first.', { level: 'warn' }); return; }
+            const overlay = document.getElementById('lists-add-overlay');
+            if (!overlay) return;
+            const nameEl = document.getElementById('lists-add-title-name');
+            if (nameEl) nameEl.textContent = String(listsActiveListName || 'this list').trim() || 'this list';
+
+            const input = document.getElementById('lists-movie-search-input');
+            if (input) { input.value = ''; input.disabled = false; }
+            listsAddAppliedYear = '';
+            listsAddAppliedMpa = '';
+            const yEl = document.getElementById('lists-add-year'); if (yEl) yEl.value = '';
+            const mEl = document.getElementById('lists-add-mpa'); if (mEl) mEl.value = '';
+            try { clearListsSearchUI(); } catch (_) {}
+
+            overlay.style.display = 'flex';
+            setTimeout(() => { try { input?.focus(); } catch (_) {} }, 0);
+        }
+        function closeListsAddModal() {
+            const overlay = document.getElementById('lists-add-overlay');
+            if (overlay) overlay.style.display = 'none';
+            try { clearListsSearchUI(); } catch (_) {}
+        }
+        function applyListsAddFilters() {
+            const yEl = document.getElementById('lists-add-year');
+            const mEl = document.getElementById('lists-add-mpa');
+            const yRaw = yEl ? String(yEl.value || '').trim() : '';
+            listsAddAppliedYear = /^\d{4}$/.test(yRaw) ? yRaw : '';
+            listsAddAppliedMpa = mEl ? String(mEl.value || '').trim() : '';
+            const input = document.getElementById('lists-movie-search-input');
+            const q = String(input?.value || '').trim();
+            if (q.length >= 3) handleListsAddMovieSearch(q, { force: true });
+        }
+
+        // Show the overview grid (hide the single-list detail panel).
+        function showListsOverview() {
+            listsViewMode = 'overview';
+            const ov = document.getElementById('lists-overview');
+            const dt = document.getElementById('lists-detail');
+            if (ov) ov.style.display = '';
+            if (dt) dt.style.display = 'none';
+            setListsFabVisible(true);
+            loadListsOverview().catch(() => null);
+        }
+
+        // Open one list's movies (the existing detail layout).
+        function openListFromOverview(listId, listName) {
+            const id = String(listId || '').trim();
+            if (!id) return;
+            listsActiveListId = id;
+            if (listName) listsActiveListName = String(listName);
+            listsViewMode = 'detail';
+            const ov = document.getElementById('lists-overview');
+            const dt = document.getElementById('lists-detail');
+            if (ov) ov.style.display = 'none';
+            if (dt) dt.style.display = '';
+            updateListsFab();
+            try {
+                const input = document.getElementById('lists-movie-search-input');
+                if (input) input.value = '';
+                clearListsSearchUI();
+            } catch (_) {}
+            loadListsPage({ reset: true }).catch(() => null);
+            try { window.scrollTo(0, 0); } catch (_) {}
+        }
+
+        // Cover upload: trigger the shared hidden file input for a specific list.
+        function triggerListCoverPick(listId) {
+            if (guardGuestWrite()) return;
+            const input = document.getElementById('lists-cover-input');
+            if (!input) return;
+            input.dataset.listId = String(listId || '').trim();
+            input.value = '';
+            input.click();
+        }
+
+        async function handleListCoverPick(file) {
+            const input = document.getElementById('lists-cover-input');
+            const listId = String(input?.dataset?.listId || '').trim();
+            if (!file || !listId) return;
+            if (guardGuestWrite()) return;
+            if (listsCoverUploadBusy) return;
+
+            try {
+                listsCoverUploadBusy = true;
+                showToast('Updating cover…');
+                const { user } = await requireAuthOrThrow();
+                const dataUrl = await processAccountIconFile(file, 320);
+
+                const { error } = await supabaseClient
+                    .from('Lists')
+                    .update({ cover: dataUrl })
+                    .eq('id', listId)
+                    .eq('user_id', user.id);
+                if (error) throw error;
+
+                // Update the cache so the grid re-renders with the new art instantly.
+                const row = (cachedLists || []).find(l => String(l.id) === listId);
+                if (row) row.cover = dataUrl;
+                await loadListsOverview();
+                try { refreshListsEditCoverPreview(); } catch (_) {} // if the Edit modal is open
+                showToast('Cover updated.', { level: 'success' });
+            } catch (err) {
+                showToast(`Couldn’t update cover: ${err?.message || err}`, { level: 'error' });
+            } finally {
+                listsCoverUploadBusy = false;
             }
         }
 
@@ -2623,6 +3061,7 @@
                 }
                 try { setListsQuickAddEnabledState(); } catch (_) {}
                 try { setListsActiveListActionsEnabledState(); } catch (_) {}
+                try { if (listsViewMode === 'detail') updateListsFab(); } catch (_) {}
 
                 if (!listsActiveListId) {
                     elItems.innerHTML = `<div class="text-gray">Create a list to get started.</div>`;
@@ -3007,30 +3446,12 @@
                                         const recs = recByDataByMovieId.get(String(id)) || [];
                                         if (!recs.length) return '';
                                         const first = recs[0];
-                                        const avatar = renderUserIconHtml(first.icon, 26);
+                                        const avatar = renderUserIconHtml(first.icon, 42);
                                         if (recs.length === 1) {
                                             return `<div class="lists-rec-by" title="Recommended by @${escapeHtml(first.username)}">${avatar}</div>`;
                                         }
                                         return `<button type="button" class="lists-rec-by lists-rec-by-multi" title="Recommended by ${recs.length} people" onclick="event.stopPropagation(); openRecByModal('${escapeHtml(String(id))}')">${avatar}<span class="lists-rec-plus">+</span></button>`;
                                     })()}
-                                    <div class="lists-meta-list">
-                                        <div class="lists-meta-item" style="color:rgba(255,255,255,0.82);">
-                                            <span style="font-weight:700;">IMDb:</span> <span>${imdbVal || '—'}</span>
-                                        </div>
-                                        <div class="lists-meta-item" style="color:rgba(255,255,255,0.82);">
-                                            <span>${(() => {
-                                                const n = Number(movie?.runtime_minutes ?? movie?.runtime);
-                                                if (!Number.isFinite(n) || n <= 0) return '—';
-                                                const h = Math.floor(n / 60);
-                                                const m = n % 60;
-                                                let out = '';
-                                                if (h > 0) out += `${h}h`;
-                                                if (m > 0 || h === 0) out += `${h > 0 ? ' ' : ''}${m}m`;
-                                                return out.trim();
-                                            })()}</span>
-                                        </div>
-                                    </div>
-                                    <button type="button" class="lists-watch-options-btn" data-lists-action="watch_options" data-movie-id="${escapeHtml(String(id))}" data-movie-title="${escapeHtml(title)}" style="margin:0.1rem auto 0 auto; display:block;">Watch Options</button>
                                 </div>
                             </div>
                         `;
@@ -3038,7 +3459,6 @@
                     .join('');
 
                 elItems.innerHTML = `
-                    <div class="text-xs" style="color: rgba(255,255,255,0.70); margin-bottom: 0.65rem;">Showing ${visibleItems.length} of ${movieIds.length}</div>
                     <div class="lists-grid">${cards}</div>
                 `;
             } catch (err) {

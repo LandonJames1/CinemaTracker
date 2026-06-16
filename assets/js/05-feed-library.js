@@ -207,6 +207,10 @@
                     setLibraryViewMode(view);
                     return;
                 }
+                if (action === 'toggle_view') {
+                    setLibraryViewMode(libraryViewMode === 'grid' ? 'list' : 'grid');
+                    return;
+                }
                 if (action === 'load_more') {
                     await loadLibraryMore({ replace: false });
                     return;
@@ -214,6 +218,14 @@
 
                 if (action === 'open_sort_filter') {
                     openLibrarySortFilterModal();
+                    return;
+                }
+                if (action === 'open_sort') {
+                    openLibrarySortFilterModal('sort');
+                    return;
+                }
+                if (action === 'open_filters') {
+                    openLibrarySortFilterModal('filters');
                     return;
                 }
 
@@ -315,14 +327,10 @@
         }
 
         function syncLibraryViewUI() {
-            const wrap = document.getElementById('library-view-toggle');
-            if (!wrap) return;
-            wrap.querySelectorAll('[data-library-view]').forEach((btn) => {
-                const isOn = String(btn.dataset.libraryView || '').trim().toLowerCase() === libraryViewMode;
-                btn.classList.remove('btn-glass', 'btn-outline');
-                btn.classList.add(isOn ? 'btn-glass' : 'btn-outline');
-                btn.setAttribute('aria-pressed', isOn ? 'true' : 'false');
-            });
+            const btn = document.getElementById('library-view-toggle-btn');
+            if (!btn) return;
+            // The button shows the view you'll switch TO when you tap it.
+            btn.textContent = libraryViewMode === 'grid' ? 'List View' : 'Grid View';
         }
 
         function getLibraryWatchCountRangeEls() {
@@ -567,7 +575,9 @@
             };
         }
 
-        function openLibrarySortFilterModal() {
+        // mode: 'sort' | 'filters' | undefined(both). The Sort + Filters controls live in
+        // one modal; the two My Movies buttons just open it focused on one section.
+        function openLibrarySortFilterModal(mode) {
             ensureLibrarySortFilterStateInitialized();
             const els = getLibrarySortFilterModalEls();
             if (!els.overlay) return;
@@ -577,9 +587,22 @@
             setLibrarySortFilterModalFromState(librarySortFilterState);
             initLibraryWatchCountRange();
             setLibraryWatchCountRangeFromState(librarySortFilterState);
+
+            // Show only the requested section (both inputs still save together).
+            const showSort = mode !== 'filters';
+            const showFilters = mode !== 'sort';
+            const sortSec = els.overlay.querySelector('[data-sf="sort"]');
+            const filterSec = els.overlay.querySelector('[data-sf="filters"]');
+            const divider = els.overlay.querySelector('.library-sf-divider');
+            if (sortSec) sortSec.style.display = showSort ? '' : 'none';
+            if (filterSec) filterSec.style.display = showFilters ? '' : 'none';
+            if (divider) divider.style.display = (showSort && showFilters) ? '' : 'none';
+            const titleEl = document.getElementById('library-sortfilter-title');
+            if (titleEl) titleEl.textContent = mode === 'sort' ? 'Sort' : (mode === 'filters' ? 'Filters' : 'Filters & Sort');
+
             els.overlay.style.display = 'flex';
             setTimeout(() => {
-                try { els.sortKey?.focus?.(); } catch (_) {}
+                try { (showSort ? els.sortKey : els.overlay.querySelector('[data-sf="filters"] .input-field'))?.focus?.(); } catch (_) {}
             }, 0);
         }
 
@@ -703,10 +726,8 @@
             const wrap = document.getElementById('library-load-more-wrap');
             if (!elList) return;
 
-            // Phones only get grid view (the list view is too cramped); the toggle is
-            // hidden via CSS, and we force grid here regardless of libraryViewMode.
-            const forceGrid = !!(window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
-            const isGrid = forceGrid || String(libraryViewMode || '').trim().toLowerCase() === 'grid';
+            // Both views work on phones now (the list view uses compact Feed-style cards).
+            const isGrid = String(libraryViewMode || '').trim().toLowerCase() === 'grid';
             elList.style.display = isGrid ? 'block' : 'grid';
             elList.style.gap = '12px';
 
@@ -741,7 +762,7 @@
                     const metaParts = [];
                     if (overallGrid) metaParts.push(dashRenderHelpScore(overallGrid));
                     if (tierLabel) metaParts.push(dashRenderHelpTier(tierLabel));
-                    if (watchCount > 0) metaParts.push(`<span class="text-gray">${watchCount} Times</span>`);
+                    if (watchCount > 0) metaParts.push(`<span class="text-gray">${watchCount} ${watchCount === 1 ? 'Time' : 'Times'}</span>`);
                     return `
                         <div class="dash-kpi-movie-card">
                             <div class="dash-kpi-movie-poster" ${movie_id ? `onclick="openLibraryMovieModal('${escapeHtml(movie_id)}')" title="View diary entry"` : ''}>
@@ -837,101 +858,23 @@
                     return lines.join('');
                 })();
 
+                // List view = compact Feed-style card. Tapping anywhere opens the same
+                // diary popup (openLibraryMovieModal) that Edit/Delete/Recommend live in.
                 return `
-                    <div class="glass-panel" style="padding: 0.9rem; border-radius: 1rem;">
-                        <div class="library-card-row">
-                            <div class="library-card-left">
-                                <div class="library-card-poster">
-                                    <div class="library-poster-flip">
-                                        <div class="library-poster-flip-inner">
-                                            <div class="library-poster-face library-poster-front">
-                                                ${posterUrl
-                                                    ? `<img src="${posterUrl}" loading="lazy" decoding="async" alt="${escapeHtml(title)}" style="width:100%; height:100%; object-fit: cover; display:block;" onerror="this.style.display='none';">`
-                                                    : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size: 12px;">No poster</div>`}
-                                            </div>
-                                            <div class="library-poster-face library-poster-back">
-                                                ${posterBackDetailsHtml || `<div class="text-xs text-gray" style="text-align:center;">No details</div>`}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="library-under">
-                                    ${mostRecentLabel
-                                        ? `<div class="text-xs text-gray tabular-nums" style="margin-top: 0.55rem;">Most Recent Watch: ${escapeHtml(mostRecentLabel)}</div>`
-                                        : ''
-                                    }
-                                </div>
+                    <div class="glass-panel feed-item-card library-feed-card" ${movie_id ? `onclick="openLibraryMovieModal('${escapeHtml(movie_id)}')" role="button" tabindex="0" title="View diary entry"` : ''} style="padding: 0.9rem; border-radius: 1rem; ${movie_id ? 'cursor: pointer;' : ''}">
+                        <div class="feed-card-row">
+                            <div class="feed-card-poster">
+                                ${posterUrl
+                                    ? `<img src="${posterUrl}" loading="lazy" decoding="async" alt="${escapeHtml(title)}" style="width:100%; height:100%; object-fit: cover; display:block;" onerror="this.style.display='none';">`
+                                    : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size: 12px;">No poster</div>`}
                             </div>
-
                             <div class="feed-card-main">
-                                <div class="text-white font-bold" style="white-space: normal; overflow: hidden;">
-                                    <span class="library-title-line">${escapeHtml(title)}${year ? ` <span style="color: rgba(255,255,255,0.65); font-weight: 800;">(${escapeHtml(year)})</span>` : ''}</span>
-                                    ${(directorVal || mpaVal)
-                                        ? `<span class="library-title-meta">${directorVal ? `<span class="library-title-sep"> — </span>${escapeHtml(directorVal)}` : ''}${mpaVal ? `<span class="library-title-sep"> — </span>${escapeHtml(mpaVal)}` : ''}</span>`
-                                        : ''}
-                                </div>
-
+                                <div class="text-white font-bold" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(title)}${year ? ` <span style="color: rgba(255,255,255,0.65); font-weight: 800;">(${escapeHtml(year)})</span>` : ''}</div>
                                 ${(overall || tierLabel)
                                     ? `<div class="feed-metrics">${ratingChips}</div>`
                                     : `<div class="text-xs text-gray" style="margin-top: 0.25rem;">No rating yet</div>`
                                 }
-
-                                ${movie_id ? `
-                                    <div style="margin-top: 0.65rem; display:flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
-                                        <button
-                                            type="button"
-                                            class="btn btn-outline"
-                                            data-library-action="edit_entry"
-                                            data-movie-id="${escapeHtml(movie_id)}"
-                                            data-movie-title="${escapeHtml(title)}"
-                                            data-tmdb-id="${escapeHtml(String(it?.tmdb_id ?? ''))}"
-                                            data-poster-path="${escapeHtml(poster_path)}"
-                                            style="border-radius: 0.85rem; padding: 0.5rem 0.75rem; border-color: color-mix(in srgb, var(--brand-2) 60%, transparent); color: rgba(255,255,255,0.95); background: color-mix(in srgb, var(--brand-2) 22%, transparent);"
-                                            title="Edit this movie's rating"
-                                        >Edit</button>
-                                        <button
-                                            type="button"
-                                            class="btn btn-outline"
-                                            data-library-action="delete_entry"
-                                            data-movie-id="${escapeHtml(movie_id)}"
-                                            data-movie-title="${escapeHtml(title)}"
-                                            style="border-radius: 0.85rem; padding: 0.5rem 0.75rem; border-color: rgba(239,68,68,0.55); color: rgba(239,68,68,0.95); background: rgba(239,68,68,0.10);"
-                                            title="Delete rating and/or watch logs"
-                                        >Delete</button>
-                                        <button
-                                            type="button"
-                                            class="btn btn-outline"
-                                            data-library-action="recommend"
-                                            data-movie-id="${escapeHtml(movie_id)}"
-                                            data-movie-title="${escapeHtml(title)}"
-                                            style="border-radius: 0.85rem; padding: 0.5rem 0.75rem; border-color: color-mix(in srgb, var(--brand) 55%, transparent); color: rgba(255,255,255,0.95); background: color-mix(in srgb, var(--brand) 18%, transparent);"
-                                            title="Recommend this movie to people you follow"
-                                        >Recommend</button>
-                                    </div>
-                                ` : ''}
-
-                                <div class="library-chip-row library-subratings" style="margin-top: 0.6rem;">
-                                    ${subRatingRows.map(d => `<span class=\"dash-quote-pill\">${escapeHtml(d.k)}: ${escapeHtml(d.v)}</span>`).join('')}
-                                </div>
-
-                                ${String(extraMovieChips || '').trim()
-                                    ? `<div class="library-chip-row" style="margin-top: 0.55rem;">${extraMovieChips}</div>`
-                                    : ''
-                                }
-
-                                ${quote ? `
-                                    <div style="margin-top: 0.75rem;">
-                                        <div class="text-xs text-gray" style="margin-bottom: 0.25rem;">Favorite Quote</div>
-                                        <div class="text-white" style="line-height: 1.4;">${escapeHtml(quote)}</div>
-                                    </div>
-                                ` : ''}
-                                ${notes ? `
-                                    <div style="margin-top: 0.75rem;">
-                                        <div class="text-xs text-gray" style="margin-bottom: 0.25rem;">Notes</div>
-                                        <div class="text-white" style="line-height: 1.4; white-space: pre-wrap;">${escapeHtml(notes)}</div>
-                                    </div>
-                                ` : ''}
+                                ${mostRecentLabel ? `<div class="text-xs" style="margin-top: 0.25rem; color: rgba(255,255,255,0.55);">Watched: ${escapeHtml(mostRecentLabel)}</div>` : ''}
                             </div>
                         </div>
                     </div>
@@ -976,17 +919,18 @@
                     <div style="margin-top: 0.35rem; color: rgba(255,255,255,0.72);">${chipsHtml}</div>
                 `;
 
-                const openBtn = document.getElementById('library-open-sortfilter');
-                if (openBtn) {
-                    openBtn.title = model?.summaryText || '';
-                    if (model?.isDefault) {
-                        openBtn.style.borderColor = '';
-                        openBtn.style.background = '';
-                    } else {
-                        openBtn.style.borderColor = 'color-mix(in srgb, var(--brand) 65%, transparent)';
-                        openBtn.style.background = 'color-mix(in srgb, var(--brand) 12%, transparent)';
-                    }
-                }
+                // Highlight the Filters button when a FILTER is active and the Sort button
+                // when SORT is non-default (they share one state, but light up separately).
+                const def = getDefaultLibrarySortFilterState();
+                const st = librarySortFilterState || {};
+                const sortActive = String(st.sortKey ?? '') !== String(def.sortKey ?? '')
+                    || String(st.sortDir ?? '') !== String(def.sortDir ?? '');
+                const filterActive = Object.keys({ ...def, ...st }).some(k =>
+                    k !== 'sortKey' && k !== 'sortDir' && String(st[k] ?? '') !== String(def[k] ?? ''));
+                const fBtn = document.getElementById('library-open-filters');
+                const sBtn = document.getElementById('library-open-sort');
+                if (fBtn) { fBtn.title = model?.summaryText || ''; fBtn.classList.toggle('filter-active', filterActive); }
+                if (sBtn) { sBtn.title = model?.summaryText || ''; sBtn.classList.toggle('filter-active', sortActive); }
             }
             if (wrap) wrap.style.display = libraryHasMore ? 'flex' : 'none';
         }
@@ -2295,7 +2239,8 @@
             const excludedCount = followed.filter((id) => feedExcludedUserIds.has(id)).length;
             const active = excludedCount > 0 || feedCompareOwn || feedInCommonOnly;
             btn.classList.toggle('active', active);
-            btn.textContent = active ? 'Filter •' : 'Filter';
+            btn.classList.toggle('filter-active', active); // vibrant solid highlight
+            btn.textContent = active ? 'Filter' : 'Filter';
         }
 
         // Fetch the people the active user follows (for the Filter modal list).
@@ -2967,10 +2912,22 @@
                 feedFollowsHome = { parent: p.parentNode, next: p.nextSibling };
                 document.body.appendChild(p);
             }
+            // Dimmed backdrop behind the bottom sheet — tap it to close (matches Filter).
+            let bd = document.getElementById('feed-follows-backdrop');
+            if (!bd) {
+                bd = document.createElement('div');
+                bd.id = 'feed-follows-backdrop';
+                bd.className = 'feed-follows-backdrop';
+                bd.addEventListener('click', closeFeedFollows);
+                document.body.appendChild(bd);
+            }
+            bd.classList.add('open');
             p.classList.add('open');
         }
         function closeFeedFollows() {
             const p = document.getElementById('feed-follows-panel');
+            const bd = document.getElementById('feed-follows-backdrop');
+            if (bd) bd.classList.remove('open');
             if (!p) return;
             p.classList.remove('open');
             if (feedFollowsHome && feedFollowsHome.parent && feedFollowsHome.parent.isConnected) {

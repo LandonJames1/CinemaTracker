@@ -859,18 +859,26 @@
                     const dn = displayName || fallbackAccountName(user);
                     const iconId = String(cachedUserIcon || '').trim();
                     if (iconId) {
-                        navLoginBtn.innerHTML = renderUserIconHtml(iconId, 60);
+                        // Only rebuild the avatar <img> when the icon actually changes —
+                        // re-setting innerHTML on every navigation re-decodes the (data-URL)
+                        // image and visibly flashes/shifts the header. Idempotent now.
+                        if (navLoginBtn.dataset.avatarIcon !== iconId) {
+                            navLoginBtn.innerHTML = renderUserIconHtml(iconId, 60);
+                            navLoginBtn.dataset.avatarIcon = iconId;
+                        }
                         navLoginBtn.classList.add('icon-only');
                         navLoginBtn.setAttribute('aria-label', dn ? `Account: ${dn}` : 'Account');
                     } else {
                         navLoginBtn.textContent = dn ? `${dn} - Account` : 'Account';
                         navLoginBtn.classList.remove('icon-only');
                         navLoginBtn.removeAttribute('aria-label');
+                        delete navLoginBtn.dataset.avatarIcon;
                     }
                 } else {
                     navLoginBtn.textContent = 'Login';
                     navLoginBtn.classList.remove('icon-only');
                     navLoginBtn.removeAttribute('aria-label');
+                    delete navLoginBtn.dataset.avatarIcon;
                 }
             }
 

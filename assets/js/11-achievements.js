@@ -211,6 +211,7 @@
         let achievementSortMode = 'points_asc';
         let achievementTypeFilter = 'all';
         let achievementFiltersOpen = false;
+        let achievementFiltersMode = 'filter'; // which section the shared popover shows
 
         function syncAchievementFilterOptions() {
             const select = document.getElementById('account-achievement-filter');
@@ -241,14 +242,26 @@
             if (select.value !== value) select.value = value;
         }
 
-        function setAchievementFiltersOpen(isOpen) {
+        // mode: 'sort' | 'filter' | undefined (both). The popover is shared by the two
+        // header buttons (Sort / Filter) and shows only the requested section.
+        function setAchievementFiltersOpen(isOpen, mode) {
             const pop = document.getElementById('account-achievement-filters-pop');
-            const btn = document.getElementById('account-achievement-filters-btn');
-            if (!pop || !btn) return;
+            const sortBtn = document.getElementById('account-achievement-sort-btn');
+            const filterBtn = document.getElementById('account-achievement-filter-btn');
+            if (!pop) return;
             achievementFiltersOpen = Boolean(isOpen);
+            if (achievementFiltersOpen && mode) achievementFiltersMode = mode;
+            const m = achievementFiltersOpen ? achievementFiltersMode : null;
+
+            const sortRow = pop.querySelector('[data-af="sort"]');
+            const filterRow = pop.querySelector('[data-af="filter"]');
+            if (sortRow) sortRow.style.display = (!m || m === 'sort') ? '' : 'none';
+            if (filterRow) filterRow.style.display = (!m || m === 'filter') ? '' : 'none';
+
             pop.classList.toggle('is-open', achievementFiltersOpen);
             pop.setAttribute('aria-hidden', achievementFiltersOpen ? 'false' : 'true');
-            btn.setAttribute('aria-expanded', achievementFiltersOpen ? 'true' : 'false');
+            if (sortBtn) sortBtn.setAttribute('aria-expanded', (achievementFiltersOpen && m === 'sort') ? 'true' : 'false');
+            if (filterBtn) filterBtn.setAttribute('aria-expanded', (achievementFiltersOpen && m === 'filter') ? 'true' : 'false');
         }
 
         function toggleAchievementFiltersOpen() {
@@ -341,12 +354,22 @@
             }
         }
 
+        // Vibrant highlight on the Filter button when a type filter is active, and on the
+        // Sort button when sort is non-default.
+        function syncAchievementFilterButtons() {
+            const fBtn = document.getElementById('account-achievement-filter-btn');
+            const sBtn = document.getElementById('account-achievement-sort-btn');
+            if (fBtn) fBtn.classList.toggle('filter-active', !!achievementTypeFilter && achievementTypeFilter !== 'all');
+            if (sBtn) sBtn.classList.toggle('filter-active', achievementSortMode !== 'points_asc');
+        }
+
         function renderAccountAchievements() {
             const list = document.getElementById('account-achievements-list');
             if (!list) return;
 
             syncAchievementSortControl();
             syncAchievementFilterOptions();
+            syncAchievementFilterButtons();
 
             if (!cachedIsAuthed) {
                 list.innerHTML = '<div class="text-xs text-gray">Log in to view your achievements.</div>';

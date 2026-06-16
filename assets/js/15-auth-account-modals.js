@@ -165,7 +165,8 @@
                 // Validate immediately (catches Invalid JWT situations early).
                 const { data: userData, error: userErr } = await supabaseClient.auth.getUser();
                 if (userErr || !userData?.user?.id) {
-                    await supabaseClient.auth.signOut();
+                    // scope:'local' → only clears THIS device, never revokes other devices' sessions.
+                    await supabaseClient.auth.signOut({ scope: 'local' });
                     throw new Error('Login succeeded, but session token is invalid for this project. Verify SUPABASE_URL/keys.');
                 }
 
@@ -191,7 +192,8 @@
             e?.preventDefault?.();
             try {
                 if (!supabaseClient) return;
-                await supabaseClient.auth.signOut();
+                // scope:'local' → log out ONLY this device; other devices stay logged in.
+                await supabaseClient.auth.signOut({ scope: 'local' });
                 // Hard reload to clear all cached user data and navigate to home
                 window.location.href = window.location.pathname;
             } catch (err) {
