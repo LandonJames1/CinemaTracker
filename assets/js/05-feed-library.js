@@ -631,7 +631,9 @@
 
         function closeLibraryMovieModal() {
             const overlay = document.getElementById('library-movie-overlay');
-            if (overlay) { overlay.classList.remove('open'); overlay.style.display = 'none'; }
+            if (overlay) { overlay.classList.remove('open'); overlay.style.display = 'none'; overlay.style.zIndex = ''; }
+            const titleEl = document.getElementById('library-movie-title');
+            if (titleEl) titleEl.textContent = 'Diary Entry';
         }
 
         // Tapping a poster in My Movies (esp. grid view on mobile) opens the full
@@ -660,6 +662,20 @@
             }
             if (!it) return;
 
+            const titleEl = document.getElementById('library-movie-title');
+            if (titleEl) titleEl.textContent = 'Diary Entry';
+            body.innerHTML = renderLibraryDiaryBody(it, { showActions: true });
+            overlay.style.display = 'flex';
+            overlay.classList.add('open');
+        }
+
+        // Shared renderer for the Diary Entry modal body — used both for the
+        // current user's own entry (`openLibraryMovieModal`, with Edit/Delete/
+        // Recommend actions) and for another user's review opened from the
+        // profile "Biggest disagreements" chips (`openProfileMovieReview`,
+        // `showActions:false`). `it` is a flattened LIBRARY_ITEMS_VIEW row.
+        function renderLibraryDiaryBody(it, { showActions = true } = {}) {
+            const mid = String(it?.movie_id || '').trim();
             const esc = (s) => escapeHtml(String(s ?? ''));
             const title = String(it?.title || '').trim() || 'Untitled';
             const year = (it?.release_year === null || it?.release_year === undefined) ? '' : String(it.release_year);
@@ -708,7 +724,13 @@
                     ? `<div style="text-align:center; color:rgba(255,255,255,0.55); font-size:0.78rem; margin-bottom:10px;">Last watch: ${esc(mostRecent)}${watchCount > 0 ? ` · ${watchCount} time${watchCount === 1 ? '' : 's'}` : ''}</div>`
                     : '';
                 const titleLine = `${esc(title)}${year ? ` (${esc(year)})` : ''}${imdbWhole !== null ? ` - ${imdbWhole}% IMDb` : ''}`;
-                body.innerHTML = `
+                const actionsHtml = showActions ? `
+                    <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:16px;">
+                        <button type="button" class="btn btn-outline" data-library-action="edit_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" data-tmdb-id="${esc(String(it?.tmdb_id ?? ''))}" data-poster-path="${esc(poster_path)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Edit</button>
+                        <button type="button" class="btn btn-outline" data-library-action="delete_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem; border-color:rgba(239,68,68,0.55); color:rgba(239,68,68,0.95);">Delete</button>
+                        <button type="button" class="btn btn-outline" data-library-action="recommend" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Recommend</button>
+                    </div>` : '';
+                return `
                     ${lastWatchLine}
                     <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
                         ${posterUrl ? `<img src="${posterUrl}" alt="${esc(title)}" style="width:150px; aspect-ratio:2/3; object-fit:cover; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">` : ''}
@@ -724,18 +746,17 @@
                     ${subRatings.length ? `<div style="display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin-top:12px;">${subRatings.map(([k, v]) => `<span class="dash-quote-pill">${esc(k)}: ${esc(v)}</span>`).join('')}</div>` : ''}
                     ${quote ? `<div style="margin-top:14px;"><div style="color:rgba(255,255,255,0.5); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Favorite Quote</div><div style="color:#fff; line-height:1.4;">${esc(quote)}</div></div>` : ''}
                     ${notes ? `<div style="margin-top:14px;"><div style="color:rgba(255,255,255,0.5); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Notes / Review</div><div style="color:rgba(255,255,255,0.9); line-height:1.45;">${esc(notes)}</div></div>` : ''}
-                    <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:16px;">
-                        <button type="button" class="btn btn-outline" data-library-action="edit_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" data-tmdb-id="${esc(String(it?.tmdb_id ?? ''))}" data-poster-path="${esc(poster_path)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Edit</button>
-                        <button type="button" class="btn btn-outline" data-library-action="delete_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem; border-color:rgba(239,68,68,0.55); color:rgba(239,68,68,0.95);">Delete</button>
-                        <button type="button" class="btn btn-outline" data-library-action="recommend" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Recommend</button>
-                    </div>
+                    ${actionsHtml}
                 `;
-                overlay.style.display = 'flex';
-                overlay.classList.add('open');
-                return;
             }
 
-            body.innerHTML = `
+            const actionsHtmlDesktop = showActions ? `
+                <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:16px;">
+                    <button type="button" class="btn btn-outline" data-library-action="edit_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" data-tmdb-id="${esc(String(it?.tmdb_id ?? ''))}" data-poster-path="${esc(poster_path)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Edit</button>
+                    <button type="button" class="btn btn-outline" data-library-action="delete_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem; border-color:rgba(239,68,68,0.55); color:rgba(239,68,68,0.95);">Delete</button>
+                    <button type="button" class="btn btn-outline" data-library-action="recommend" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Recommend</button>
+                </div>` : '';
+            return `
                 <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
                     ${posterUrl ? `<img src="${posterUrl}" alt="${esc(title)}" style="width:150px; aspect-ratio:2/3; object-fit:cover; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">` : ''}
                     <div style="text-align:center;">
@@ -752,14 +773,8 @@
                 ${subRatings.length ? `<div style="display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin-top:12px;">${subRatings.map(([k, v]) => `<span class="dash-quote-pill">${esc(k)}: ${esc(v)}</span>`).join('')}</div>` : ''}
                 ${quote ? `<div style="margin-top:14px;"><div style="color:rgba(255,255,255,0.5); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Favorite Quote</div><div style="color:#fff; line-height:1.4;">${esc(quote)}</div></div>` : ''}
                 ${notes ? `<div style="margin-top:14px;"><div style="color:rgba(255,255,255,0.5); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Notes / Review</div><div style="color:rgba(255,255,255,0.9); line-height:1.45;">${esc(notes)}</div></div>` : ''}
-                <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:16px;">
-                    <button type="button" class="btn btn-outline" data-library-action="edit_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" data-tmdb-id="${esc(String(it?.tmdb_id ?? ''))}" data-poster-path="${esc(poster_path)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Edit</button>
-                    <button type="button" class="btn btn-outline" data-library-action="delete_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem; border-color:rgba(239,68,68,0.55); color:rgba(239,68,68,0.95);">Delete</button>
-                    <button type="button" class="btn btn-outline" data-library-action="recommend" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Recommend</button>
-                </div>
+                ${actionsHtmlDesktop}
             `;
-            overlay.style.display = 'flex';
-            overlay.classList.add('open');
         }
 
         function renderLibraryList() {
@@ -2113,27 +2128,28 @@
                     const meId = String(getActiveUserId() || '').trim();
                     if (meId && meId !== uid) {
                         const { data: myRatingsData } = await supabaseClient
-                            .from('Movie Ratings').select('movie_id, overall_rating').eq('user_id', meId);
+                            .from('Movie Ratings').select('movie_id, overall_rating, tier').eq('user_id', meId);
                         const myByMovie = new Map();
                         for (const r of (Array.isArray(myRatingsData) ? myRatingsData : [])) {
                             const mid = String(r?.movie_id || '').trim();
                             const v = Number(r?.overall_rating);
-                            if (mid && Number.isFinite(v)) myByMovie.set(mid, v);
+                            if (mid && Number.isFinite(v)) myByMovie.set(mid, { overall: v, tier: r?.tier });
                         }
                         const pairs = [];
                         for (const [mid, rr] of ratingByMovieId) {
                             const theirs = Number(rr?.overall_rating);
                             if (!Number.isFinite(theirs) || !myByMovie.has(mid)) continue;
-                            pairs.push({ movie_id: mid, mine: myByMovie.get(mid), theirs });
+                            const me = myByMovie.get(mid);
+                            pairs.push({ movie_id: mid, mine: me.overall, mineTier: me.tier, theirs, theirsTier: rr?.tier });
                         }
                         if (pairs.length) {
                             const avgAbs = pairs.reduce((a, p) => a + Math.abs(p.mine - p.theirs), 0) / pairs.length;
                             const score = Math.max(0, Math.min(100, Math.round(100 - avgAbs)));
                             const byGap = pairs.slice().sort((a, b) => Math.abs(b.mine - b.theirs) - Math.abs(a.mine - a.theirs));
                             const decorate = (p) => ({ ...p, title: String(moviesById.get(p.movie_id)?.title || '').trim() || 'Untitled' });
-                            compat = { score, count: pairs.length, disagreements: byGap.slice(0, 3).map(decorate) };
+                            compat = { score, count: pairs.length, userId: uid, disagreements: byGap.slice(0, 3).map(decorate) };
                         } else {
-                            compat = { score: null, count: 0, disagreements: [] };
+                            compat = { score: null, count: 0, userId: uid, disagreements: [] };
                         }
                     }
                 } catch (_) { compat = null; }
@@ -2166,16 +2182,24 @@
                     ${compat.count === 0 ? `<div class="text-xs text-gray" style="margin-top:0.4rem;">No movies in common yet — rate some of the same films to see your match.</div>` : ''}
                     ${compat.disagreements && compat.disagreements.length ? `
                         <div class="profile-compat-sub">Biggest disagreements</div>
-                        ${compat.disagreements.map(d => `
+                        ${compat.disagreements.map(d => {
+                            const tierStyle = (tierRaw) => {
+                                const letter = dashTierLetterFromLabel(dashNormalizeTierLabel(tierRaw));
+                                return letter ? ` style="color:rgb(var(--tier-${letter.toLowerCase()}-rgb));"` : '';
+                            };
+                            const mid = escapeHtml(String(d.movie_id || ''));
+                            const themUid = escapeHtml(String(compat.userId || ''));
+                            return `
                             <div class="profile-compat-item">
                                 <div class="profile-compat-title">${escapeHtml(d.title)}</div>
                                 <div class="profile-compat-chips">
-                                    <span class="profile-compat-chip">You — <strong>${dashFormatScoreWhole(d.mine)}</strong> Overall</span>
-                                    <span class="profile-compat-chip">${escapeHtml(themShort)} — <strong>${dashFormatScoreWhole(d.theirs)}</strong> Overall</span>
-                                    <span class="profile-compat-gap">${Math.round(Math.abs(d.mine - d.theirs))}% apart</span>
+                                    <span class="profile-compat-chip" role="button" tabindex="0" style="cursor:pointer;" onclick="try{initLibraryPage()}catch(e){}openLibraryMovieModal('${mid}')">You — <strong${tierStyle(d.mineTier)}>${dashFormatScoreWhole(d.mine)}</strong> Overall</span>
+                                    <span class="profile-compat-chip" role="button" tabindex="0" style="cursor:pointer;" onclick="openProfileMovieReview('${themUid}','${mid}')">${escapeHtml(themShort)} — <strong${tierStyle(d.theirsTier)}>${dashFormatScoreWhole(d.theirs)}</strong> Overall</span>
+                                    <span class="profile-compat-gap" style="color:#fff;">${Math.round(Math.abs(d.mine - d.theirs))}% apart</span>
                                 </div>
                             </div>
-                        `).join('')}
+                            `;
+                        }).join('')}
                     ` : ''}
                 </div>
             `;
@@ -2201,6 +2225,49 @@
             `;
         }
 
+        // View another user's diary entry for a specific movie (opened from the
+        // profile modal's "Biggest disagreements" chips). Reuses the EXACT same
+        // Diary Entry modal (#library-movie-overlay) + renderer as your own
+        // entry — just with the other user's LIBRARY_ITEMS_VIEW row, no actions,
+        // and stacked above the open profile modal.
+        async function openProfileMovieReview(userId, movieId) {
+            const uid = String(userId || '').trim();
+            const mid = String(movieId || '').trim();
+            if (!uid || !mid) return;
+            if (!supabaseClient || !cachedIsAuthed) { openAuthModal(); return; }
+
+            const overlay = document.getElementById('library-movie-overlay');
+            const titleEl = document.getElementById('library-movie-title');
+            const body = document.getElementById('library-movie-body');
+            if (!overlay || !body) return;
+            if (titleEl) titleEl.textContent = 'Review';
+            body.innerHTML = `<div class="text-gray" style="padding:1rem;">Loading…</div>`;
+            overlay.style.display = 'flex';
+            overlay.style.zIndex = '210'; // stack above the open profile modal (z-index 200)
+            overlay.classList.add('open');
+
+            try {
+                const [vRes, uRes] = await Promise.all([
+                    supabaseClient.from(LIBRARY_ITEMS_VIEW).select('*').eq('user_id', uid).eq('movie_id', mid).limit(1),
+                    supabaseClient.from('Users').select('username, display_name').eq('id', uid).maybeSingle(),
+                ]);
+                const it = Array.isArray(vRes?.data) && vRes.data.length ? vRes.data[0] : null;
+                const username = String(uRes?.data?.username || '').trim();
+                const name = String(uRes?.data?.display_name || '').trim() || (username ? `@${username}` : 'User');
+
+                if (!it) {
+                    if (titleEl) titleEl.textContent = `${name}'s Review`;
+                    body.innerHTML = `<div class="text-gray" style="padding:1rem;">No review found.</div>`;
+                    return;
+                }
+
+                if (titleEl) titleEl.textContent = `${name}'s Review`;
+                body.innerHTML = renderLibraryDiaryBody(it, { showActions: false });
+            } catch (err) {
+                body.innerHTML = `<div class="text-gray" style="padding:1rem;">Could not load review: ${escapeHtml(String(err?.message || err))}</div>`;
+            }
+        }
+
         function renderProfileMovieCard(it) {
             const title = String(it?.title || '').trim() || 'Untitled';
             const year = (it?.release_year === null || it?.release_year === undefined) ? '' : String(it.release_year);
@@ -2209,8 +2276,8 @@
             const posterUrl = dashBuildPosterUrl(poster_path, 'w342');
             const metricText = dashFormatScore(it?.overall_rating);
             const tierLabel = dashNormalizeTierLabel(it?.tier);
+            const titleLine = `${escapeHtml(title)}${year ? ` (${escapeHtml(year)})` : ''}`;
             const metaHtml = dashJoinHelpParts([
-                year ? escapeHtml(year) : '',
                 metricText ? `${dashRenderHelpScore(metricText)} Overall` : '',
                 tierLabel ? dashRenderHelpTier(tierLabel) : '',
             ]);
@@ -2222,7 +2289,7 @@
                             : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size: 12px;">No poster</div>`
                         }
                     </div>
-                    <div class="text-sm text-white" style="font-weight: 700; line-height: 1.2;">${escapeHtml(title)}</div>
+                    <div class="text-sm text-white" style="font-weight: 700; line-height: 1.2;">${titleLine}</div>
                     <div class="text-xs text-gray tabular-nums">${metaHtml}</div>
                 </div>
             `;

@@ -217,7 +217,7 @@
 
         function closeRecReviewModal() {
             const overlay = document.getElementById('rec-review-overlay');
-            if (overlay) { overlay.style.display = 'none'; overlay.classList.remove('open'); }
+            if (overlay) { overlay.style.display = 'none'; overlay.style.zIndex = ''; overlay.classList.remove('open'); }
         }
 
         // ===== Recs poster viewer (Movie Details + followed users' reviews) =====
