@@ -192,6 +192,8 @@
                     initDashboardGeneralPieControls();
                     initDashboardGeneralPieLegendClicks();
                     initDashboardGeneralPieHover();
+                    initDashboardGeneralPieViewToggle();
+                    initDashboardGeneralPieTap();
                     initDashboardGeneralKpiClicks();
                     initDashKpiTiesModal();
                     initDashGenreOtherModal();
@@ -960,9 +962,6 @@
                     <div class="fade-in">
                         <div class="container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
                         <div class="flex items-center gap-4 mb-8">
-                            <button onclick="router.goBack()" style="color: var(--text-muted); padding: 0.5rem; border-radius: 50%;">
-                                ${icons.arrowLeft}
-                            </button>
                             <div class="glass-panel page-title-card">
                                 <div class="flex items-center gap-2" style="flex-wrap: wrap;">
                                     <h1 class="text-3xl font-bold text-white">${isUpdate ? 'Update Ratings' : 'Log New Entry'}</h1>
@@ -1250,7 +1249,7 @@
                                         <option value="dash-range-this-year">This Year</option>
                                         <option value="dash-range-this-month">This Month</option>
                                     </select>
-                                    <div class="flex dash-ctl-pills" style="gap: 10px; flex-wrap: wrap;">
+                                    <div class="flex dash-ctl-pills dash-seg" style="gap: 10px; flex-wrap: wrap;">
                                         <button type="button" class="btn dash-pill-btn btn-glass" id="dash-range-all-time" data-range="all_time" style="padding: 0.55rem 0.85rem;">All Time</button>
                                         <button type="button" class="btn dash-pill-btn btn-outline" id="dash-range-this-year" data-range="this_year" style="padding: 0.55rem 0.85rem;">This Year</button>
                                         <button type="button" class="btn dash-pill-btn btn-outline" id="dash-range-this-month" data-range="this_month" style="padding: 0.55rem 0.85rem;">This Month</button>
@@ -1263,7 +1262,7 @@
                                         <option value="dash-general-mode-total">Total Watches</option>
                                         <option value="dash-general-mode-unique">Unique Movies</option>
                                     </select>
-                                    <div id="dash-general-mode-wrap" class="flex dash-ctl-pills" style="gap: 10px; flex-wrap: wrap;">
+                                    <div id="dash-general-mode-wrap" class="flex dash-ctl-pills dash-seg" style="gap: 10px; flex-wrap: wrap;">
                                         <button type="button" class="btn dash-pill-btn btn-glass" data-mode="total" id="dash-general-mode-total" style="padding: 0.55rem 0.85rem;">Total Watches</button>
                                         <button type="button" class="btn dash-pill-btn btn-outline" data-mode="unique" id="dash-general-mode-unique" style="padding: 0.55rem 0.85rem;">Unique Movies</button>
                                     </div>
@@ -1301,7 +1300,7 @@
                         <!-- Tab: General -->
                         <div id="dash-pane-general" class="dash-pane-wrap">
                             <div class="dash-gen-top">
-                                <div class="glass-panel dash-kpi-chart dash-general-pie-card">
+                                <div class="glass-panel dash-kpi-chart dash-general-pie-card" data-pie-view="chart">
                                     <div class="dash-kpi-header-row">
                                         <div class="dash-kpi-chart-title" id="dash-general-pie-title">MPA Share</div>
                                         <div class="dash-general-pie-toggle" id="dash-general-pie-toggle">
@@ -1321,24 +1320,17 @@
                                         </div>
                                         <div class="dash-pie-legend" id="dash-general-share-legend"></div>
                                     </div>
+                                    <!-- Mobile-only: tap a pie slice to reveal its data here (drills into My Movies) -->
+                                    <button type="button" id="dash-pie-segment-detail" class="dash-pie-segment-detail"></button>
+                                    <!-- Mobile-only: swap between the wheel and the legend/list -->
+                                    <button type="button" id="dash-pie-view-toggle" class="dash-pie-view-toggle">Show list</button>
                                 </div>
                                 <div class="glass-panel dash-kpi-chart dash-watch-method-card">
-                                    <div class="dash-kpi-chart-title">Watch Method</div>
-                                    <div class="dash-stack-bar" aria-hidden="true">
-                                        <div class="dash-stack-fill is-home" id="dash-general-stack-home"></div>
-                                        <div class="dash-stack-fill is-theater" id="dash-general-stack-theater"></div>
-                                    </div>
-                                    <div class="dash-vertical-labels">
-                                        <div class="dash-kpi-clickable" data-watch-method="At Home" role="button" tabindex="0">
-                                            <div class="dash-highlight-label dash-watch-label dash-watch-home">At home</div>
-                                            <div class="dash-highlight-name tabular-nums dash-watch-value" id="dash-general-at-home-watches">—</div>
-                                            <div class="dash-highlight-count dash-watch-count" id="dash-general-at-home-label">Watch events</div>
-                                        </div>
-                                        <div class="dash-kpi-clickable" data-watch-method="In Theater" role="button" tabindex="0">
-                                            <div class="dash-highlight-label dash-watch-label dash-watch-theater">In theater</div>
-                                            <div class="dash-highlight-name tabular-nums dash-watch-value" id="dash-general-in-theater-watches">—</div>
-                                            <div class="dash-highlight-count dash-watch-count" id="dash-general-in-theater-label">Watch events</div>
-                                        </div>
+                                    <div class="dash-kpi-chart-title">In Theater</div>
+                                    <div class="dash-watch-kpi dash-kpi-clickable" data-watch-method="In Theater" role="button" tabindex="0">
+                                        <div class="dash-watch-kpi-big tabular-nums" id="dash-general-theater-pct">—</div>
+                                        <div class="dash-watch-kpi-sub"><span class="tabular-nums" id="dash-general-theater-count">—</span> of <span class="tabular-nums" id="dash-general-watch-total">—</span> watched in theaters</div>
+                                        <div class="dash-watch-kpi-detail"><span class="tabular-nums" id="dash-general-home-count">—</span> watched at home</div>
                                     </div>
                                 </div>
                             </div>
@@ -1530,7 +1522,7 @@
                                             <div class="text-white font-bold">Following Activity</div>
                                             <div id="feed-meta" class="text-xs text-gray" style="margin-top: 0.25rem;"></div>
                                         </div>
-                                        <div style="display:flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
+                                        <div class="feed-controls-actions" style="display:flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
                                             <button type="button" class="btn btn-outline feed-follows-toggle" onclick="openFeedFollows()" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Follows</button>
                                             <button id="feed-filter-btn" type="button" class="btn btn-outline feed-sort-btn" data-feed-action="open_filter" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Filter</button>
                                             <button id="feed-refresh" type="button" class="btn btn-outline" data-feed-action="refresh" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Refresh</button>
@@ -1955,17 +1947,12 @@
                             <div id="account-profile-status" class="text-xs" style="margin-top: 0.6rem; color: rgba(255,255,255,0.60);"></div>
 
                             <form id="account-profile-form" style="margin-top: 0.85rem; display:grid; gap: 0.75rem;">
-                                <div style="display:flex; align-items:center; gap: 14px; flex-wrap: wrap;">
-                                    <div id="account-icon-preview" class="user-icon" style="width:64px; height:64px; flex:0 0 auto;"></div>
-                                    <div style="min-width: 0;">
-                                        <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Profile photo</label>
-                                        <div style="display:flex; gap: 8px; flex-wrap: wrap;">
-                                            <button type="button" class="btn btn-outline" data-account-action="pick_icon" style="border-radius: 0.85rem;">Change photo</button>
-                                            <button type="button" class="btn btn-outline" data-account-action="remove_icon" style="border-radius: 0.85rem;">Remove</button>
-                                        </div>
-                                        <div class="text-xs text-gray" style="margin-top: 0.35rem;">Use a photo from your camera roll.</div>
-                                        <input id="account-icon-file" type="file" accept="image/*" style="display:none;">
-                                    </div>
+                                <div class="account-icon-wrap">
+                                    <div id="account-icon-preview" class="user-icon account-icon-preview"></div>
+                                    <button type="button" class="account-icon-upload" data-account-action="pick_icon" aria-label="Change photo" title="Change photo">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                    </button>
+                                    <input id="account-icon-file" type="file" accept="image/*" style="display:none;">
                                 </div>
                                 <div>
                                     <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Username</label>

@@ -363,6 +363,22 @@
             const ind = () => document.getElementById('ptr-indicator');
             const root = () => document.getElementById('app-root');
 
+            // True if any modal/sheet overlay is currently visible. While a modal is
+            // open, a downward drag belongs to the modal (scroll or swipe-to-dismiss),
+            // never to the page behind it — so pull-to-refresh must NOT engage.
+            function anyModalOpen() {
+                try {
+                    const ovs = document.querySelectorAll('.auth-overlay, [id$="-overlay"], #more-sheet-overlay');
+                    for (let i = 0; i < ovs.length; i++) {
+                        const ov = ovs[i];
+                        if (ov.id === 'ptr-indicator' || ov.id === 'loading-overlay') continue;
+                        const cs = window.getComputedStyle(ov);
+                        if (cs.display !== 'none' && cs.visibility !== 'hidden') return true;
+                    }
+                } catch (_) {}
+                return false;
+            }
+
             // Move BOTH the spinner and the page content down with the finger.
             function dragTo(pull) {
                 const dist = Math.min(pull * RESIST, MAX_PULL);
@@ -402,7 +418,8 @@
             }
 
             document.addEventListener('touchstart', (e) => {
-                if (refreshing || !pageSupportsPullToRefresh() || window.scrollY > 0 || e.touches.length !== 1) {
+                if (refreshing || !pageSupportsPullToRefresh() || window.scrollY > 0 || e.touches.length !== 1
+                    || anyModalOpen()) {
                     pulling = false; return;
                 }
                 startY = e.touches[0].clientY;
@@ -430,6 +447,189 @@
                 } else {
                     release(false);
                 }
+            }, { passive: true });
+        })();
+
+        // Swipe-to-dismiss for the mobile bottom-sheet modals (the body.app-sheets
+        // ".auth-overlay > .auth-modal" sheets). Drag the sheet down past a threshold and
+        // it animates out + closes via the overlay's own backdrop-close handler (every
+        // sheet overlay closes on a backdrop click); below the threshold it snaps back.
+        // Excludes the same overlays the sheet CSS excludes (auth + the two celebrations).
+        (function initSheetSwipeDismiss() {
+            const CLOSE_THRESHOLD = 110;   // px dragged before release dismisses the sheet
+            // auth + the two celebration popups aren't bottom sheets; the loading
+            // overlay is a blocking spinner that must not be swiped away.
+            const EXCLUDE = new Set(['auth-overlay', 'achievement-earned-overlay', 'achievement-detail-overlay', 'loading-overlay']);
+            let modal = null, overlay = null, startY = 0, dy = 0, dragging = false;
+
+            function sheetsActive() {
+                try { return isMobileViewport() && document.body.classList.contains('app-sheets'); } catch (_) { return false; }
+            }
+            function findSheet(target) {
+                // Covers BOTH the shared `.auth-overlay > .auth-modal` data modals AND
+                // the bottom-tab "More" nav sheet (`.more-sheet-overlay > .more-sheet`).
+                const m = (target && target.closest) ? target.closest('.auth-modal, .more-sheet') : null;
+                if (!m) return null;
+                const ov = m.closest('.auth-overlay, .more-sheet-overlay');
+                if (!ov || EXCLUDE.has(ov.id)) return null;
+                try {
+                    if (ov.classList.contains('more-sheet-overlay')) {
+                        if (!ov.classList.contains('open')) return null;   // toggles a class, not display
+                    } else if (window.getComputedStyle(ov).display === 'none') {
+                        return null;
+                    }
+                } catch (_) {}
+                return { m, ov };
+            }
+            function dismissSheet(ov) {
+                // Every overlay closes on a backdrop click (target === overlay).
+                try { ov.click(); } catch (_) {}
+                try {
+                    if (ov.classList.contains('more-sheet-overlay')) {
+                        // Class-toggled sheet: just ensure it's closed; NEVER inline-hide
+                        // it (an inline display:none would break the next open).
+                        ov.classList.remove('open');
+                    } else if (window.getComputedStyle(ov).display !== 'none') {
+                        // Fallback for any data overlay without a backdrop-close handler.
+                        ov.style.display = 'none';
+                        ov.classList.remove('open');
+                    }
+                } catch (_) {}
+            }
+            function reset(m) {
+                if (!m) return;
+                m.style.transition = '';
+                m.style.transform = '';
+            }
+
+            document.addEventListener('touchstart', (e) => {
+                dragging = false; modal = null; overlay = null;
+                if (!sheetsActive() || e.touches.length !== 1) return;
+                // Don't hijack drags that start on a text/range control.
+                if (e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+                const found = findSheet(e.target);
+                if (!found) return;
+                if (found.m.scrollTop > 0) return;   // let the sheet scroll its own content first
+                modal = found.m; overlay = found.ov;
+                startY = e.touches[0].clientY; dy = 0;
+                dragging = true;
+            }, { passive: true });
+
+            document.addEventListener('touchmove', (e) => {
+                if (!dragging || !modal) return;
+                dy = e.touches[0].clientY - startY;
+                if (modal.scrollTop > 0) { dragging = false; reset(modal); return; }
+                if (dy <= 0) { dy = 0; modal.style.transform = ''; return; }
+                // We're actively dragging the sheet down: consume the gesture so the
+                // page/content BEHIND the modal does not scroll along with it. (Listener
+                // is non-passive specifically so this preventDefault is honored.)
+                if (e.cancelable) e.preventDefault();
+                modal.style.transition = 'none';
+                modal.style.transform = `translateY(${dy}px)`;
+            }, { passive: false });
+
+            document.addEventListener('touchend', () => {
+                if (!dragging || !modal) { modal = null; overlay = null; return; }
+                dragging = false;
+                const m = modal, ov = overlay;
+                modal = null; overlay = null;
+                if (dy > CLOSE_THRESHOLD) {
+                    m.style.transition = 'transform 0.2s ease';
+                    m.style.transform = 'translateY(100%)';
+                    window.setTimeout(() => {
+                        reset(m);
+                        dismissSheet(ov);
+                    }, 200);
+                } else {
+                    m.style.transition = 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)';
+                    m.style.transform = 'translateY(0)';
+                    window.setTimeout(() => reset(m), 260);
+                }
+            }, { passive: true });
+        })();
+
+        // Mobile Data Dash: keep the active tab pill scrolled into view inside the
+        // sticky segmented indicator (the tab row is a horizontal scroller on phones).
+        // Called from setDashboardTab (06) and the swipe handler below.
+        function dashCenterActivePill() {
+            try {
+                if (!isMobileViewport()) return;
+                const row = document.querySelector('.dash-tabs-row');
+                if (!row) return;
+                const active = row.querySelector('.btn-glass');
+                if (active && active.scrollIntoView) {
+                    active.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+                }
+            } catch (_) {}
+        }
+
+        // Mobile Data Dash: swipe left/right anywhere on the page to move between the
+        // six sections (the layout the user picked: bento tiles + swipe nav). The tab
+        // pills double as the position indicator. Horizontal swipes that start inside a
+        // horizontally-scrollable child (the Activity chart) are ignored so that
+        // element keeps its own scroll; mostly-vertical drags fall through to scrolling.
+        (function initDashSwipeNav() {
+            const ORDER = ['general', 'ratings', 'tiers', 'favorites', 'charts', 'quotes'];
+            const H_THRESHOLD = 60;   // min horizontal px to count as a swipe
+            let startX = 0, startY = 0, tracking = false;
+
+            function dashActive() {
+                try { return isMobileViewport() && document.body.dataset.page === 'dashboard'; } catch (_) { return false; }
+            }
+            // True if the gesture started inside an element that can scroll sideways.
+            function startedInHScroller(target) {
+                let el = target;
+                while (el && el !== document.body) {
+                    try {
+                        const ox = getComputedStyle(el).overflowX;
+                        if ((ox === 'auto' || ox === 'scroll') && el.scrollWidth > el.clientWidth + 4) return true;
+                    } catch (_) {}
+                    if (el.classList && el.classList.contains('container')) break;
+                    el = el.parentElement;
+                }
+                return false;
+            }
+            function go(dir) {
+                const cur = (typeof dashboardActiveTab !== 'undefined' && dashboardActiveTab) ? dashboardActiveTab : 'general';
+                let i = ORDER.indexOf(cur);
+                if (i < 0) i = 0;
+                const ni = i + dir;
+                if (ni < 0 || ni >= ORDER.length) return; // no wrap-around at the ends
+                const next = ORDER[ni];
+                const pane = document.getElementById('dash-pane-' + next);
+                try { if (typeof setDashboardTab === 'function') setDashboardTab(next); } catch (_) {}
+                try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
+                if (pane && !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+                    const cls = dir > 0 ? 'dash-pane-in-right' : 'dash-pane-in-left';
+                    pane.classList.remove('dash-pane-in-right', 'dash-pane-in-left');
+                    void pane.offsetWidth; // restart the animation
+                    pane.classList.add(cls);
+                    pane.addEventListener('animationend', () => pane.classList.remove(cls), { once: true });
+                }
+                try { dashCenterActivePill(); } catch (_) {}
+            }
+
+            document.addEventListener('touchstart', (e) => {
+                tracking = false;
+                if (!dashActive() || e.touches.length !== 1) return;
+                const t = e.target;
+                if (t && t.closest && t.closest('input, textarea, select, [contenteditable="true"], .dash-tabs-row')) return;
+                if (startedInHScroller(t)) return;
+                startX = e.touches[0].clientX;
+                startY = e.touches[0].clientY;
+                tracking = true;
+            }, { passive: true });
+
+            document.addEventListener('touchend', (e) => {
+                if (!tracking) return;
+                tracking = false;
+                const touch = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0] : null;
+                if (!touch) return;
+                const dx = touch.clientX - startX;
+                const dy = touch.clientY - startY;
+                if (Math.abs(dx) < H_THRESHOLD) return;
+                if (Math.abs(dx) < Math.abs(dy) * 1.3) return; // mostly vertical → let it scroll
+                go(dx < 0 ? 1 : -1); // swipe left → next section, swipe right → previous
             }, { passive: true });
         })();
 

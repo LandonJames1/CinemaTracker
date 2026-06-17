@@ -756,21 +756,23 @@
             elB.style.height = `${Math.max(bPct > 0 ? minPct : 0, bPct)}%`;
         }
 
+        // Watch method is now a simple KPI ("X% — Y of Z watched in theaters")
+        // instead of the old stacked bar chart.
         function dashSetWatchMethodDisplay(atHome, inTheater) {
-            const elAtHomeWatches = document.getElementById('dash-general-at-home-watches');
-            const elInTheaterWatches = document.getElementById('dash-general-in-theater-watches');
-            const elStackHome = document.getElementById('dash-general-stack-home');
-            const elStackTheater = document.getElementById('dash-general-stack-theater');
-
             const home = Number(atHome) || 0;
             const theater = Number(inTheater) || 0;
             const total = home + theater;
-            const homePct = total > 0 ? ((home / total) * 100) : 0;
             const theaterPct = total > 0 ? ((theater / total) * 100) : 0;
 
-            if (elAtHomeWatches) elAtHomeWatches.textContent = `${homePct.toFixed(1)}% (${home})`;
-            if (elInTheaterWatches) elInTheaterWatches.textContent = `${theaterPct.toFixed(1)}% (${theater})`;
-            dashSetStackBar(elStackHome, elStackTheater, home, theater);
+            const elPct = document.getElementById('dash-general-theater-pct');
+            const elTheaterCount = document.getElementById('dash-general-theater-count');
+            const elTotal = document.getElementById('dash-general-watch-total');
+            const elHomeCount = document.getElementById('dash-general-home-count');
+
+            if (elPct) elPct.textContent = `${theaterPct.toFixed(0)}%`;
+            if (elTheaterCount) elTheaterCount.textContent = String(theater);
+            if (elTotal) elTotal.textContent = String(total);
+            if (elHomeCount) elHomeCount.textContent = String(home);
         }
 
         function dashResetWatchMethodDisplay() {
@@ -1013,6 +1015,9 @@
             }
             elLegend.dataset.compact = mode === 'genre' ? 'true' : 'false';
             elLegend.dataset.pieType = mode;
+            // Reset the mobile tap-to-reveal segment detail when the slice set changes.
+            const elPieDetail = document.getElementById('dash-pie-segment-detail');
+            if (elPieDetail) { elPieDetail.classList.remove('is-shown'); elPieDetail.innerHTML = ''; }
             dashRenderPieChart({
                 el: elPie,
                 legendEl: elLegend,

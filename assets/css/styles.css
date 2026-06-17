@@ -466,10 +466,10 @@
                desktop 64px, which filled the whole bar with no slack and looked like it
                drifted between pages; 34px was too small). */
             .nav-auth-btn.icon-only {
-                width: 44px !important;
-                height: 44px !important;
-                min-width: 44px;
-                flex: 0 0 44px;
+                width: 50px !important;
+                height: 50px !important;
+                min-width: 50px;
+                flex: 0 0 50px;
                 padding: 2px;
                 align-self: center;
             }
@@ -503,7 +503,7 @@
                 border-bottom: none;
                 border-radius: 0;
                 box-shadow: 0 -10px 24px var(--glass-shadow);
-                padding: 6px 4px calc(6px + env(safe-area-inset-bottom)) 4px;
+                padding: 9px 4px calc(9px + env(safe-area-inset-bottom)) 4px;
             }
             .tabbar-btn {
                 position: relative;
@@ -528,11 +528,11 @@
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                width: 26px; height: 26px;
+                width: 29px; height: 29px;
             }
-            .tabbar-icon svg { width: 24px; height: 24px; }
+            .tabbar-icon svg { width: 27px; height: 27px; }
             .tabbar-label {
-                font-size: 0.6rem;
+                font-size: 0.64rem;
                 font-weight: 700;
                 letter-spacing: 0.01em;
                 line-height: 1;
@@ -1420,11 +1420,11 @@
            CSS @keyframes (not transitions) are used so the slide plays even though modals
            are opened by toggling inline display:flex. */
         @media (max-width: 768px) {
-            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay) {
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay) {
                 align-items: flex-end !important;
                 padding: 0 !important;
             }
-            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay) > .auth-modal {
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay) > .auth-modal {
                 width: 100% !important;
                 max-width: 100% !important;
                 max-height: 92dvh !important;
@@ -1433,7 +1433,7 @@
                 padding: 1rem 1.1rem calc(1.25rem + env(safe-area-inset-bottom)) !important;
                 animation: sheetUp 0.32s cubic-bezier(0.16, 1, 0.3, 1);
             }
-            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay) > .auth-modal::before {
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay) > .auth-modal::before {
                 content: "";
                 display: block;
                 width: 40px;
@@ -2060,9 +2060,29 @@
             border-radius: 0.9rem;
             overflow: hidden;
             background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.08);
             box-shadow: 0 10px 24px rgba(0,0,0,0.35);
         }
+        /* Unseen-recs count badge in the top-right corner of the Recs list cover. */
+        .lists-cover-badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            z-index: 3;
+            min-width: 22px;
+            height: 22px;
+            padding: 0 6px;
+            border-radius: 999px;
+            background: #ef4444;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 800;
+            line-height: 22px;
+            text-align: center;
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.35);
+            display: none;
+            pointer-events: none;
+        }
+        .lists-cover-badge.show { display: inline-block; }
         .lists-cover-img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .lists-cover-collage { width: 100%; height: 100%; display: grid; gap: 0; }
         .lists-cover-collage-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
@@ -2180,6 +2200,35 @@
         }
         .lists-edit-remove-link:hover { color: rgba(255,255,255,0.85); }
 
+        /* Profile modal: one large centered avatar with a small corner "upload" button
+           (mirrors the Edit-list cover control). */
+        .account-icon-wrap {
+            position: relative;
+            width: 120px; height: 120px;
+            margin: 0.4rem auto 0.2rem;
+        }
+        .account-icon-preview.user-icon {
+            width: 100%; height: 100%;
+            border-radius: 999px;
+        }
+        .account-icon-preview.user-icon svg { width: 46px; height: 46px; }
+        .account-icon-upload {
+            position: absolute;
+            right: 4px; bottom: 4px;
+            width: 38px; height: 38px;
+            border-radius: 999px;
+            background: var(--brand, #14b8a6);
+            color: #fff;
+            border: 2px solid var(--surface, #18181b);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+            transition: transform 0.12s ease, filter 0.15s ease;
+        }
+        .account-icon-upload:hover { filter: brightness(1.08); }
+        .account-icon-upload:active { transform: scale(0.92); }
+        .account-icon-upload svg { width: 18px; height: 18px; }
+
         /* Add-movie modal results: a normal in-flow list, not the absolute search dropdown. */
         .lists-add-results.lists-add-results {
             position: static;
@@ -2203,6 +2252,8 @@
         .filter-active:hover,
         .btn.filter-active:hover { filter: brightness(1.08); }
         /* Little white "a filter is on" dot at the button's top-right corner. */
+        /* The view-toggle is always highlighted (it's not a filter), so hide the dot. */
+        #library-view-toggle-btn.filter-active::after { display: none; }
         .filter-active::after {
             content: "";
             position: absolute;
@@ -2700,7 +2751,7 @@
                Filters/Sort + Achievements Filter/Sort buttons share the same look so they
                all stay the same size. */
             .feed-follows-toggle, #feed-filter-btn, #feed-refresh,
-            #library-open-filters, #library-open-sort,
+            #library-view-toggle-btn, #library-open-filters, #library-open-sort,
             #account-achievement-filter-btn, #account-achievement-sort-btn {
                 padding: 0.6rem 1rem !important;
                 font-size: 0.95rem !important;
@@ -2738,6 +2789,14 @@
                hidden on mobile (pull-to-refresh), so it doesn't count. */
             .library-controls-row { width: 100%; flex-wrap: nowrap !important; }
             .library-controls-row > button:not(#library-refresh) { flex: 1 1 0; min-width: 0; }
+
+            /* Match that on every page's top button row so each group's buttons are the
+               same relative size: Feed (Follows + Filter) and Achievements (Filter + Sort).
+               My Movies + Lists detail already do this above. */
+            .feed-controls-actions { width: 100%; flex-wrap: nowrap !important; }
+            .feed-controls-actions > button:not(#feed-refresh) { flex: 1 1 0; min-width: 0; }
+            .achievement-filter-wrap { width: 100%; flex-wrap: nowrap !important; }
+            .achievement-filter-wrap > button { flex: 1 1 0; min-width: 0; }
 
             /* AI Picks: the inline 2-column grid overrode the responsive class, so the
                page never stacked and hung off-screen. Force a single column, give the
@@ -2943,6 +3002,402 @@
                and scrolls internally instead of growing taller than the screen. */
             .feed-filter-list { max-height: 46vh; }
             .feed-filter-user-row { min-height: 46px; }
+        }
+
+        /* ============================================================
+           MOBILE DATA DASH OVERHAUL — swipe between sections + bento tiles.
+           Everything here is ≤768px so desktop is untouched. The six tab
+           pills become a sticky horizontal "segmented" position indicator;
+           swiping the page left/right moves between sections (handler:
+           initDashSwipeNav in 09-home-ui.js). Panes are reflowed into a
+           compact bento layout — one hero tile + tighter supporting tiles.
+           No markup changed, so the JS that fills the IDs still works.
+           ============================================================ */
+        @keyframes dashPaneInRight {
+            from { opacity: 0.35; transform: translateX(16px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes dashPaneInLeft {
+            from { opacity: 0.35; transform: translateX(-16px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
+        @media (max-width: 768px) {
+            .dash-pane-in-right { animation: dashPaneInRight 0.26s cubic-bezier(0.16,1,0.3,1); }
+            .dash-pane-in-left  { animation: dashPaneInLeft  0.26s cubic-bezier(0.16,1,0.3,1); }
+
+            /* --- Sticky segmented tab indicator --- */
+            body[data-page="dashboard"] #app-root .dash-dashboard-head {
+                flex-direction: column !important;
+                gap: 0 !important;
+                margin: 0 0 0.5rem !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-dashboard-head > .glass-panel:last-child {
+                position: -webkit-sticky;
+                position: sticky;
+                top: var(--header-height, 64px);
+                z-index: 30;
+                width: 100%;
+                padding: 0.3rem !important;
+                border-radius: 0.85rem;
+                background: rgba(18,18,22,0.94);
+                -webkit-backdrop-filter: blur(10px);
+                backdrop-filter: blur(10px);
+            }
+            /* The active section shows its name; the others collapse to small dots,
+               and the whole cluster is centered — e.g.  General • • • • •  /  • • Tiers • • •  */
+            body[data-page="dashboard"] #app-root .dash-tabs-row {
+                flex-wrap: nowrap !important;
+                justify-content: center !important;
+                align-items: center !important;
+                gap: 2px !important;
+                overflow: visible !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-tabs-row .dash-pill-btn {
+                flex: 0 0 auto;
+                white-space: nowrap;
+                transition: color 0.2s ease, background 0.2s ease, padding 0.2s ease;
+            }
+            /* Inactive section → a forgiving 24px tap area showing an 8px dot. */
+            body[data-page="dashboard"] #app-root .dash-tabs-row .dash-pill-btn.btn-outline {
+                position: relative;
+                width: 24px;
+                height: 24px;
+                min-width: 0 !important;
+                padding: 0 !important;
+                font-size: 0 !important;
+                color: transparent !important;
+                background: transparent !important;
+                border: none !important;
+                overflow: hidden;
+                border-radius: 999px;
+            }
+            body[data-page="dashboard"] #app-root .dash-tabs-row .dash-pill-btn.btn-outline::before {
+                content: '';
+                position: absolute;
+                left: 50%;
+                top: 50%;
+                width: 11px;
+                height: 11px;
+                transform: translate(-50%, -50%);
+                border-radius: 999px;
+                background: rgba(255,255,255,0.34);
+            }
+            /* Active section → the page name as a highlighted pill. */
+            body[data-page="dashboard"] #app-root .dash-tabs-row .dash-pill-btn.btn-glass {
+                padding: 0.4rem 0.95rem !important;
+                font-size: 0.9rem;
+                border-radius: 999px;
+                margin: 0 4px;
+            }
+
+            /* --- Compact control row (Timeframe / Counts / Rank by dropdowns) --- */
+            /* Control bar: Timeframe + Counts become proper connected iOS-style
+               SEGMENTED CONTROLS (a tinted track with equal connected segments and a
+               filled active segment) instead of loose floating pills — clearer,
+               grouped, and compact. Card chrome + captions are dropped; each control
+               is a full-width slim track. (Rank by, 7 options, stays wrapping pills.) */
+            body[data-page="dashboard"] #app-root .dash-dashboard-row {
+                flex-direction: row !important;
+                flex-wrap: wrap !important;
+                gap: 6px !important;
+                margin-bottom: 0.6rem !important;
+                align-items: stretch !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-dashboard-row > div {
+                width: 100%;
+                flex: 1 1 100%;
+                min-width: 0;
+                gap: 6px !important;
+                flex-wrap: wrap !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-dashboard-row .glass-panel {
+                background: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+                border-radius: 0 !important;
+                flex: 1 1 100%;
+                width: 100%;
+                min-width: 0;
+            }
+            /* Hide the captions ("Timeframe" / "Counts" / "Rank by") to save space */
+            body[data-page="dashboard"] #app-root .dash-dashboard-row .text-xs { display: none !important; }
+            body[data-page="dashboard"] #app-root .dash-ctl-select { display: none !important; }
+
+            /* Segmented control: Timeframe + Counts (`.dash-ctl-pills.dash-seg`) */
+            body[data-page="dashboard"] #app-root .dash-ctl-pills.dash-seg {
+                display: flex !important;
+                flex-wrap: nowrap;
+                gap: 3px !important;
+                width: 100%;
+                padding: 3px;
+                border-radius: 999px;
+                background: rgba(255,255,255,0.06);
+                border: 1px solid rgba(255,255,255,0.1);
+            }
+            body[data-page="dashboard"] #app-root .dash-ctl-pills.dash-seg .dash-pill-btn {
+                flex: 1 1 0;
+                min-width: 0;
+                white-space: nowrap;
+                padding: 0.42rem 0.35rem !important;
+                font-size: 0.78rem;
+                border: none !important;
+                border-radius: 999px !important;
+                background: transparent !important;
+                color: rgba(255,255,255,0.7) !important;
+                box-shadow: none !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-ctl-pills.dash-seg .dash-pill-btn.btn-glass {
+                background: linear-gradient(135deg, var(--brand, #14b8a6), var(--brand-2, #a855f7)) !important;
+                color: #fff !important;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+            }
+
+            /* Rank by (Favorites) stays wrapping rounded pills */
+            body[data-page="dashboard"] #app-root .dash-ctl-pills:not(.dash-seg) {
+                display: flex !important;
+                flex-wrap: wrap;
+                gap: 6px !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-ctl-pills:not(.dash-seg) .dash-pill-btn {
+                flex: 0 0 auto;
+                white-space: nowrap;
+                padding: 0.38rem 0.7rem !important;
+                font-size: 0.78rem;
+                border-radius: 999px;
+            }
+
+            /* --- Bento panes: vertical stack, tighter cards + titles --- */
+            body[data-page="dashboard"] #app-root .dash-pane-wrap {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            body[data-page="dashboard"] #app-root .dash-pane-wrap .dash-kpi-chart,
+            body[data-page="dashboard"] #app-root .dash-pane-wrap > .glass-panel {
+                padding: 0.85rem !important;
+                border-radius: 0.95rem;
+                margin-bottom: 0 !important;
+                gap: 8px;
+            }
+            body[data-page="dashboard"] #app-root .dash-kpi-chart-title { font-size: 0.9rem; }
+
+            /* General — stacking order: full-width share wheel, then the colorful
+               watch-method KPI banner, then the three Most-Watched tiles.
+               `.dash-gen-top` is unwrapped with display:contents so its two cards
+               become flex items of the pane and can be ordered alongside
+               `.dash-gen-bottom`. */
+            body[data-page="dashboard"] #app-root .dash-gen-top { display: contents !important; }
+            body[data-page="dashboard"] #app-root .dash-general-pie-card { order: 1; }
+            body[data-page="dashboard"] #app-root .dash-watch-method-card { order: 2; }
+            body[data-page="dashboard"] #app-root .dash-gen-bottom { order: 3; margin: 0 !important; }
+
+            /* Watch-method KPI: vibrant gradient banner (brand → accent) laid out
+               as a horizontal hero — big % on the left, supporting counts on the
+               right — instead of a plain bordered card. */
+            body[data-page="dashboard"] #app-root .dash-watch-method-card {
+                background: linear-gradient(135deg, var(--brand, #14b8a6), var(--brand-2, #a855f7)) !important;
+                border: none !important;
+                box-shadow: 0 10px 26px color-mix(in srgb, var(--brand, #14b8a6) 35%, transparent) !important;
+                overflow: hidden;
+                position: relative;
+            }
+            body[data-page="dashboard"] #app-root .dash-watch-method-card::after {
+                content: "";
+                position: absolute;
+                top: -40%;
+                right: -10%;
+                width: 160px;
+                height: 160px;
+                background: radial-gradient(circle, rgba(255,255,255,0.28), transparent 70%);
+                pointer-events: none;
+            }
+            body[data-page="dashboard"] #app-root .dash-watch-method-card .dash-kpi-chart-title {
+                color: rgba(255,255,255,0.9) !important;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                font-size: 0.72rem !important;
+                position: relative;
+            }
+            body[data-page="dashboard"] #app-root .dash-watch-method-card .dash-watch-kpi {
+                display: grid !important;
+                grid-template-columns: auto minmax(0,1fr);
+                grid-template-rows: auto auto;
+                column-gap: 14px;
+                row-gap: 2px;
+                align-items: center !important;
+                position: relative;
+            }
+            body[data-page="dashboard"] #app-root .dash-watch-method-card .dash-watch-kpi-big {
+                grid-row: 1 / span 2;
+                font-size: 2.6rem !important;
+                color: #fff !important;
+                text-shadow: 0 2px 10px rgba(0,0,0,0.25);
+            }
+            body[data-page="dashboard"] #app-root .dash-watch-method-card .dash-watch-kpi-sub { align-self: end; }
+            body[data-page="dashboard"] #app-root .dash-watch-method-card .dash-watch-kpi-detail { align-self: start; }
+            body[data-page="dashboard"] #app-root .dash-watch-method-card .dash-watch-kpi-sub {
+                color: #fff !important;
+                font-weight: 600;
+            }
+            body[data-page="dashboard"] #app-root .dash-watch-method-card .dash-watch-kpi-detail {
+                color: rgba(255,255,255,0.82) !important;
+            }
+            /* Share wheel card: on mobile the wheel and the legend/list are two
+               SEPARATE views toggled by the "Show list/chart" button — never both at
+               once. `.dash-pie-row` becomes a single centered column. */
+            body[data-page="dashboard"] #app-root .dash-general-pie-card .dash-pie-row {
+                display: flex !important;
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-pie {
+                width: 200px !important; height: 200px !important;
+                margin: 2px auto 0;
+            }
+            body[data-page="dashboard"] #app-root .dash-pie-value { font-size: 1.5rem; }
+
+            /* The view-toggle button (mobile-only) — a centered pill under the card. */
+            body[data-page="dashboard"] #app-root .dash-pie-view-toggle {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                justify-self: center;
+                gap: 6px;
+                margin-top: 2px;
+                padding: 0.42rem 1rem;
+                font-size: 0.78rem;
+                font-weight: 700;
+                color: #fff;
+                border-radius: 999px;
+                border: 1px solid rgba(255,255,255,0.14);
+                background: rgba(255,255,255,0.07);
+            }
+
+            /* Tap-to-reveal segment readout (shown only in chart view, once a slice
+               is tapped) — a full-width brand-tinted chip that drills into My Movies. */
+            body[data-page="dashboard"] #app-root .dash-pie-segment-detail { display: none; }
+            body[data-page="dashboard"] #app-root .dash-general-pie-card[data-pie-view="chart"] .dash-pie-segment-detail.is-shown {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 4px 12px;
+                width: 100%;
+                text-align: left;
+                padding: 0.55rem 0.8rem;
+                border-radius: 0.8rem;
+                border: 1px solid color-mix(in srgb, var(--brand, #14b8a6) 40%, transparent);
+                background: color-mix(in srgb, var(--brand, #14b8a6) 14%, #18181c);
+                color: #fff;
+            }
+            body[data-page="dashboard"] #app-root .dash-pie-segment-detail .dash-pie-seg-name {
+                display: inline-flex; align-items: center; gap: 7px;
+                font-weight: 700; font-size: 0.92rem;
+            }
+            body[data-page="dashboard"] #app-root .dash-pie-segment-detail .dash-pie-seg-stat {
+                color: rgba(255,255,255,0.82); font-size: 0.82rem;
+            }
+            body[data-page="dashboard"] #app-root .dash-pie-segment-detail .dash-pie-seg-go {
+                margin-left: auto; font-size: 0.8rem; font-weight: 700;
+                color: color-mix(in srgb, var(--brand, #14b8a6) 60%, #fff);
+            }
+
+            /* Chart view (default): show the wheel + (tapped) readout, hide the list. */
+            body[data-page="dashboard"] #app-root .dash-general-pie-card[data-pie-view="chart"] .dash-pie-legend { display: none !important; }
+            /* List view: hide the wheel + readout, show the legend as a clean full-width list. */
+            body[data-page="dashboard"] #app-root .dash-general-pie-card[data-pie-view="list"] .dash-pie { display: none !important; }
+            body[data-page="dashboard"] #app-root .dash-general-pie-card[data-pie-view="list"] .dash-pie-segment-detail { display: none !important; }
+            body[data-page="dashboard"] #app-root .dash-general-pie-card[data-pie-view="list"] .dash-pie-legend {
+                display: grid !important;
+                grid-template-columns: 1fr !important;
+                gap: 2px !important;
+            }
+            /* Drop the boxed chrome around each MPA/Decade/Genre chip — they stay
+               aligned in the legend list, just without the bordered container. The
+               selected (.is-active) chip keeps its highlight box for feedback. */
+            body[data-page="dashboard"] #app-root .dash-general-pie-card .dash-pie-legend-item {
+                gap: 6px !important;
+                border-radius: 0.55rem !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-general-pie-card .dash-pie-legend-item:not(.is-active) {
+                padding: 0.4rem 0.2rem !important;
+                background: transparent !important;
+                border-color: transparent !important;
+                border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+            }
+
+            /* General — Most Watched: each of the three tiles (Director / Movie /
+               Actor) becomes the SAME compact horizontal row — a fixed poster on
+               the left that fully fills its box, and a left-aligned text column
+               (name → count → rating) on the right. Explicit grid-template-areas
+               override the default source order so all three line up identically. */
+            body[data-page="dashboard"] #app-root .dash-highlight-combined { --mw-poster-size: 76px; }
+            body[data-page="dashboard"] #app-root .dash-highlight-combined-grid {
+                grid-template-columns: 1fr !important;
+                gap: 8px !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-highlight-card { padding: 0.7rem !important; gap: 8px !important; }
+
+            /* Director + Actor person cards */
+            body[data-page="dashboard"] #app-root .dash-person-card {
+                grid-template-columns: 76px minmax(0,1fr) !important;
+                grid-template-areas:
+                    "poster name"
+                    "poster count"
+                    "poster avg" !important;
+                column-gap: 12px !important;
+                row-gap: 2px !important;
+                align-content: center;
+                justify-items: start !important;
+                align-items: center;
+                text-align: left !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-person-card .dash-person-poster { grid-area: poster; align-self: center; }
+            body[data-page="dashboard"] #app-root .dash-person-card .dash-person-name { grid-area: name; align-self: end; font-size: 0.95rem; }
+            body[data-page="dashboard"] #app-root .dash-person-card .dash-kpi-top-count { grid-area: count; text-align: left !important; }
+            body[data-page="dashboard"] #app-root .dash-person-card .dash-person-count { grid-area: avg; align-self: start; }
+            body[data-page="dashboard"] #app-root .dash-highlight-card > .dash-kpi-more {
+                width: auto !important;
+                justify-content: flex-start !important;
+                text-align: left !important;
+            }
+
+            /* Most-Watched Movie card — same horizontal row shape */
+            body[data-page="dashboard"] #app-root .dash-most-movie-grid {
+                grid-template-columns: 1fr !important;
+                gap: 8px !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-most-movie-card {
+                max-width: none !important;
+                display: grid !important;
+                grid-template-columns: 76px minmax(0,1fr) !important;
+                grid-template-areas:
+                    "poster title"
+                    "poster meta"
+                    "poster count"
+                    "poster more" !important;
+                column-gap: 12px !important;
+                row-gap: 2px !important;
+                align-content: center;
+            }
+            body[data-page="dashboard"] #app-root .dash-most-movie-card .dash-most-movie-poster { grid-area: poster; width: 76px; align-self: center; }
+            body[data-page="dashboard"] #app-root .dash-most-movie-card .dash-most-movie-title { grid-area: title; align-self: end; }
+            body[data-page="dashboard"] #app-root .dash-most-movie-card .dash-most-movie-meta { grid-area: meta; }
+            body[data-page="dashboard"] #app-root .dash-most-movie-card .dash-kpi-top-count { grid-area: count; text-align: left !important; }
+            body[data-page="dashboard"] #app-root .dash-most-movie-card .dash-kpi-more {
+                grid-area: more;
+                width: auto !important;
+                justify-content: flex-start !important;
+                text-align: left !important;
+                margin-top: 4px !important;
+            }
+
+            /* Ratings — highest/lowest director side by side */
+            body[data-page="dashboard"] #app-root .dash-ratings-directors-grid {
+                grid-template-columns: 1fr 1fr !important;
+                gap: 8px !important;
+            }
         }
 
         @media (max-width: 520px) {
@@ -3223,6 +3678,9 @@
             place-items: center;
             box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
         }
+        /* Mobile-only chart/list swap + tap-to-reveal segment readout (hidden on desktop). */
+        .dash-pie-view-toggle,
+        .dash-pie-segment-detail { display: none; }
         .dash-pie::after {
             content: '';
             width: 62%;
@@ -3297,6 +3755,27 @@
         }
         .dash-vertical-labels .dash-highlight-count {
             color: #fff;
+        }
+        /* Watch-method KPI (replaces the old stacked bar chart). */
+        .dash-watch-kpi {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            align-items: flex-start;
+        }
+        .dash-watch-kpi-big {
+            font-size: 2rem;
+            font-weight: 800;
+            line-height: 1;
+            color: #fff;
+        }
+        .dash-watch-kpi-sub {
+            font-size: 0.9rem;
+            color: rgba(255,255,255,0.82);
+        }
+        .dash-watch-kpi-detail {
+            font-size: 0.78rem;
+            color: var(--text-muted);
         }
         .dash-highlight-list {
             display: grid;

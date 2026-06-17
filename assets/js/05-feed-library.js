@@ -331,6 +331,9 @@
             if (!btn) return;
             // The button shows the view you'll switch TO when you tap it.
             btn.textContent = libraryViewMode === 'grid' ? 'List View' : 'Grid View';
+            // Always keep the theme-color highlight on this control (not a filter,
+            // so the "filter is on" dot is suppressed via CSS).
+            btn.classList.add('filter-active');
         }
 
         function getLibraryWatchCountRangeEls() {
@@ -681,8 +684,12 @@
             const directorVal = normalizeMovieFieldValue(it?.director);
             const genreVal = normalizeMovieFieldValue(it?.genre);
             const imdbVal = (() => { const raw = (it?.imdb_rating_pct ?? it?.imdb_pct ?? it?.imdb_rating ?? it?.imdb); const n2 = parsePercentLike(raw, { imdb: true }); return (n2 !== null && n2 !== undefined) ? formatPctForDisplay(n2) : ''; })();
+            // Whole-number IMDb (no decimals) for the mobile title line, e.g. "88% IMDb".
+            const imdbWhole = (() => { const raw = (it?.imdb_rating_pct ?? it?.imdb_pct ?? it?.imdb_rating ?? it?.imdb); const n2 = parsePercentLike(raw, { imdb: true }); return (n2 !== null && n2 !== undefined && Number.isFinite(Number(n2))) ? Math.round(Number(n2)) : null; })();
             const watchCount = Number(it?.watch_count ?? 0);
             const metaBits = [year, directorVal, mpaVal, runtimeVal, genreVal].filter(Boolean).map(esc).join(' · ');
+            // On mobile the year + IMDb move up to the title line, so drop them from the meta row.
+            const metaBitsNoYear = [directorVal, mpaVal, runtimeVal, genreVal].filter(Boolean).map(esc).join(' · ');
 
             const subRatings = [
                 ['Sound', dashFormatScoreWhole(it?.sound_rating)],
@@ -692,6 +699,41 @@
                 ['Plot', dashFormatScoreWhole(it?.plot_rating)],
                 ['Dialogue', dashFormatScoreWhole(it?.dialogue_rating)],
             ].filter(x => String(x[1] || '').trim());
+
+            if (isMobileViewport()) {
+                // Color-coded tier pill: background + text tinted to the movie's tier color.
+                const tierLetter = dashTierLetterFromLabel(tierLabel);
+                const tierRgb = tierLetter ? `var(--tier-${tierLetter.toLowerCase()}-rgb)` : '107, 114, 128';
+                const lastWatchLine = mostRecent
+                    ? `<div style="text-align:center; color:rgba(255,255,255,0.55); font-size:0.78rem; margin-bottom:10px;">Last watch: ${esc(mostRecent)}${watchCount > 0 ? ` · ${watchCount} time${watchCount === 1 ? '' : 's'}` : ''}</div>`
+                    : '';
+                const titleLine = `${esc(title)}${year ? ` (${esc(year)})` : ''}${imdbWhole !== null ? ` - ${imdbWhole}% IMDb` : ''}`;
+                body.innerHTML = `
+                    ${lastWatchLine}
+                    <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
+                        ${posterUrl ? `<img src="${posterUrl}" alt="${esc(title)}" style="width:150px; aspect-ratio:2/3; object-fit:cover; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">` : ''}
+                        <div style="text-align:center;">
+                            <div style="color:#fff; font-weight:800; font-size:1.15rem; line-height:1.2;">${titleLine}</div>
+                            ${metaBitsNoYear ? `<div style="color:rgba(255,255,255,0.6); font-size:0.82rem; margin-top:4px;">${metaBitsNoYear}</div>` : ''}
+                        </div>
+                    </div>
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:center; margin-top:12px;">
+                        ${overall ? `<span class="dash-quote-pill" style="color:var(--brand); border-color:color-mix(in srgb, var(--brand) 45%, transparent); font-weight:900;">Overall ${esc(overall)}</span>` : ''}
+                        ${tierLabel ? `<span class="dash-quote-pill" style="background:rgba(${tierRgb}, 0.22); border-color:rgba(${tierRgb}, 0.5); color:rgb(${tierRgb}); font-weight:900;">${esc(tierLabel)}</span>` : ''}
+                    </div>
+                    ${subRatings.length ? `<div style="display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin-top:12px;">${subRatings.map(([k, v]) => `<span class="dash-quote-pill">${esc(k)}: ${esc(v)}</span>`).join('')}</div>` : ''}
+                    ${quote ? `<div style="margin-top:14px;"><div style="color:rgba(255,255,255,0.5); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Favorite Quote</div><div style="color:#fff; line-height:1.4;">${esc(quote)}</div></div>` : ''}
+                    ${notes ? `<div style="margin-top:14px;"><div style="color:rgba(255,255,255,0.5); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Notes / Review</div><div style="color:rgba(255,255,255,0.9); line-height:1.45;">${esc(notes)}</div></div>` : ''}
+                    <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:16px;">
+                        <button type="button" class="btn btn-outline" data-library-action="edit_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" data-tmdb-id="${esc(String(it?.tmdb_id ?? ''))}" data-poster-path="${esc(poster_path)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Edit</button>
+                        <button type="button" class="btn btn-outline" data-library-action="delete_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem; border-color:rgba(239,68,68,0.55); color:rgba(239,68,68,0.95);">Delete</button>
+                        <button type="button" class="btn btn-outline" data-library-action="recommend" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Recommend</button>
+                    </div>
+                `;
+                overlay.style.display = 'flex';
+                overlay.classList.add('open');
+                return;
+            }
 
             body.innerHTML = `
                 <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
@@ -1808,6 +1850,14 @@
                 } else {
                     el.textContent = '';
                     el.classList.remove('show');
+                }
+            }
+            // The Lists badge also drives the Recs cover badge on the Lists overview.
+            if (elId === 'nav-badge-lists') {
+                const cov = document.getElementById('lists-cover-badge-recs');
+                if (cov) {
+                    if (n > 0) { cov.textContent = n > 99 ? '99+' : String(n); cov.classList.add('show'); }
+                    else { cov.textContent = ''; cov.classList.remove('show'); }
                 }
             }
         }

@@ -445,25 +445,8 @@
                 }
                 if (!label) label = String(item?.dataset?.dashPieLabel || '').trim();
                 const type = String(legend.dataset.pieType || '').trim().toLowerCase();
-                if (!label || !type) return;
-
-                if (type === 'genre') {
-                    const isOther = String(item?.dataset?.dashPieOther || '') === 'true' || String(label || '').trim().toLowerCase() === 'other';
-                    if (isOther) {
-                        openDashGenreOther();
-                        return;
-                    }
-                    applyLibraryFiltersFromDashboard({ genre: dashGenreFilterValue(label) });
-                    return;
-                }
-                if (type === 'mpa') {
-                    applyLibraryFiltersFromDashboard({ mpa: label });
-                    return;
-                }
-                if (type === 'decade') {
-                    applyLibraryFiltersFromDashboard({ decade: normalizeLibraryDecadeLabel(label) });
-                    return;
-                }
+                const isOther = String(item?.dataset?.dashPieOther || '') === 'true' || String(label || '').trim().toLowerCase() === 'other';
+                dashNavigateToPieSegment(type, label, isOther);
             };
 
             legend.addEventListener('click', (e) => {
@@ -526,6 +509,85 @@
                 dashSetPieHighlight(pie, legend, -1);
                 dashResetWatchMethodDisplay();
             });
+        }
+
+        // Shared drill-in: from a pie segment (legend row OR a tapped slice / the
+        // tapped-segment detail readout) jump to My Movies filtered by that slice.
+        function dashNavigateToPieSegment(type, label, isOther) {
+            const t = String(type || '').trim().toLowerCase();
+            const l = String(label || '').trim();
+            if (!l || !t) return;
+            if (t === 'genre') {
+                if (isOther || l.toLowerCase() === 'other') { openDashGenreOther(); return; }
+                applyLibraryFiltersFromDashboard({ genre: dashGenreFilterValue(l) });
+                return;
+            }
+            if (t === 'mpa') { applyLibraryFiltersFromDashboard({ mpa: l }); return; }
+            if (t === 'decade') { applyLibraryFiltersFromDashboard({ decade: normalizeLibraryDecadeLabel(l) }); return; }
+        }
+
+        // Mobile: swap the share-wheel card between the WHEEL and the LEGEND/LIST so
+        // they don't both crowd the card at once (desktop still shows both).
+        function initDashboardGeneralPieViewToggle() {
+            const btn = document.getElementById('dash-pie-view-toggle');
+            const card = document.querySelector('.dash-general-pie-card');
+            if (!btn || !card) return;
+            if (btn.dataset.boundClicks) return;
+            btn.dataset.boundClicks = 'true';
+            const sync = () => {
+                const isList = card.getAttribute('data-pie-view') === 'list';
+                btn.textContent = isList ? 'Show chart' : 'Show list';
+            };
+            btn.addEventListener('click', () => {
+                const isList = card.getAttribute('data-pie-view') === 'list';
+                card.setAttribute('data-pie-view', isList ? 'chart' : 'list');
+                sync();
+            });
+            sync();
+        }
+
+        // Mobile: tapping a pie slice highlights it + reveals that slice's data in
+        // the detail readout (label / share% / count); tapping the readout drills
+        // into My Movies filtered by the slice.
+        function initDashboardGeneralPieTap() {
+            const pie = document.getElementById('dash-general-share-pie');
+            const legend = document.getElementById('dash-general-share-legend');
+            const detail = document.getElementById('dash-pie-segment-detail');
+            if (!pie || !legend) return;
+            if (pie.dataset.boundPieTap) return;
+            pie.dataset.boundPieTap = 'true';
+
+            pie.addEventListener('click', (e) => {
+                const angle = dashAngleFromEvent(pie, e);
+                if (angle === null) return;
+                const idx = dashFindPieIndex(pie, angle);
+                if (!Number.isFinite(idx) || idx < 0) return;
+                const item = pie?._pieItems?.[idx];
+                if (!item) return;
+                dashSetPieHighlight(pie, legend, idx);
+                if (!detail) return;
+                const label = String(item.label || '').trim();
+                const type = String(legend.dataset.pieType || '').trim().toLowerCase();
+                const total = Number(pie._pieTotal) || 0;
+                const val = Number(item.value) || 0;
+                const pct = total > 0 ? (val / total * 100) : 0;
+                const isOther = String(label || '').trim().toLowerCase() === 'other';
+                detail.dataset.segType = type;
+                detail.dataset.segLabel = label;
+                detail.dataset.segOther = isOther ? 'true' : 'false';
+                detail.innerHTML = `
+                    <span class="dash-pie-seg-name"><span class="dash-legend-dot" style="background:${(pie._pieColors && pie._pieColors[idx]) || 'var(--brand)'}"></span>${escapeHtml(label)}</span>
+                    <span class="dash-pie-seg-stat tabular-nums">${pct.toFixed(1)}% · ${escapeHtml(String(val))}</span>
+                    <span class="dash-pie-seg-go">View movies ›</span>`;
+                detail.classList.add('is-shown');
+            });
+
+            if (detail && !detail.dataset.boundClicks) {
+                detail.dataset.boundClicks = 'true';
+                detail.addEventListener('click', () => {
+                    dashNavigateToPieSegment(detail.dataset.segType, detail.dataset.segLabel, detail.dataset.segOther === 'true');
+                });
+            }
         }
 
         function initDashboardRatingsChartControls() {
@@ -825,6 +887,8 @@
             }
 
             syncDashboardTimeframeUI();
+            // Keep the active pill centered in the mobile sticky tab indicator.
+            try { if (typeof dashCenterActivePill === 'function') dashCenterActivePill(); } catch (_) {}
             if (t === 'general') {
                 syncDashboardGeneralModeUI();
                 syncDashboardGeneralPieUI();

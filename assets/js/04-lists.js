@@ -802,6 +802,10 @@
             if (renameSec) renameSec.style.display = special ? 'none' : '';
             if (deleteSec) deleteSec.style.display = special ? 'none' : '';
 
+            // Recs / Bucket List use a fixed branded cover — no upload control.
+            const coverUploadBtn = document.getElementById('lists-edit-cover-upload');
+            if (coverUploadBtn) coverUploadBtn.style.display = specialListCoverUrl(listsActiveListName) ? 'none' : '';
+
             const titleEl = document.getElementById('lists-rename-title');
             if (titleEl) titleEl.textContent = listsActiveListName ? `Edit “${listsActiveListName}”` : 'Edit List';
 
@@ -819,15 +823,17 @@
         function refreshListsEditCoverPreview() {
             const lid = String(listsActiveListId || '').trim();
             const row = (cachedLists || []).find(l => String(l.id) === lid);
+            const fixed = specialListCoverUrl(row?.list_name || listsActiveListName);
             const cover = String(row?.cover || '').trim();
             const prev = document.getElementById('lists-edit-cover-preview');
             const removeBtn = document.getElementById('lists-edit-remove-cover');
             if (prev) {
-                prev.innerHTML = cover
-                    ? `<img src="${escapeHtml(cover)}" alt="Cover">`
+                prev.innerHTML = (fixed || cover)
+                    ? `<img src="${fixed || escapeHtml(cover)}" alt="Cover">`
                     : `<span class="lists-edit-cover-empty">${icons.film}</span>`;
             }
-            if (removeBtn) removeBtn.style.display = cover ? '' : 'none';
+            // Fixed-cover special lists can't be customized/removed.
+            if (removeBtn) removeBtn.style.display = (!fixed && cover) ? '' : 'none';
         }
 
         async function removeListCover() {
@@ -2711,7 +2717,20 @@
 
         // The visible art for one list card: an uploaded cover, else a poster
         // collage of its movies, else a colored fallback tile with an icon.
+        // The two auto-managed lists always use their fixed branded cover art,
+        // for every user, regardless of any uploaded cover. Returns '' otherwise.
+        function specialListCoverUrl(list_name) {
+            const n = String(list_name || '').trim().toLowerCase();
+            if (n === 'recs') return 'assets/icons/Recs%20List%20Cover.png';
+            if (n === 'bucket list') return 'assets/icons/Bucket%20List%20Cover.png';
+            return '';
+        }
+
         function renderListCoverArt(list, info) {
+            const fixed = specialListCoverUrl(list?.list_name);
+            if (fixed) {
+                return `<img class="lists-cover-img" src="${fixed}" alt="" loading="lazy" decoding="async">`;
+            }
             const cover = String(list?.cover || '').trim();
             if (cover) {
                 return `<img class="lists-cover-img" src="${escapeHtml(cover)}" alt="" loading="lazy" decoding="async">`;
@@ -2801,17 +2820,26 @@
                     if (!id) return '';
                     const info = infoByList.get(id) || { count: 0, posters: [] };
                     const countLabel = `${info.count} movie${info.count === 1 ? '' : 's'}`;
+                    // The Recs cover carries an unseen-recs badge (mirrors the nav/tab-bar
+                    // Lists badge); refreshNavBadges/setNavBadge keep it in sync live.
+                    const isRecs = name.toLowerCase() === 'recs';
+                    const recsUnseen = (typeof lastRecsUnseen === 'number') ? lastRecsUnseen : 0;
+                    const recsBadge = isRecs
+                        ? `<span id="lists-cover-badge-recs" class="lists-cover-badge${recsUnseen > 0 ? ' show' : ''}">${recsUnseen > 99 ? '99+' : recsUnseen}</span>`
+                        : '';
                     return `
                         <button type="button" class="lists-cover-card" onclick="openListFromOverview('${escapeHtml(id)}')">
                             <span class="lists-cover-art">
                                 ${renderListCoverArt(l, info)}
-                                <span class="lists-cover-edit" title="Change cover" onclick="event.stopPropagation(); triggerListCoverPick('${escapeHtml(id)}')">${icons.edit3}</span>
+                                ${recsBadge}
                             </span>
                             <span class="lists-cover-name">${escapeHtml(name)}</span>
                             <span class="lists-cover-count">${escapeHtml(countLabel)}</span>
                         </button>
                     `;
                 }).filter(Boolean).join('');
+                // Reconcile the Recs cover badge against the live unseen-recs count.
+                try { refreshNavBadges(); } catch (_) {}
             } catch (err) {
                 grid.innerHTML = `<div class="text-gray">Couldn’t load your lists.</div>`;
                 emitLog?.(`Lists overview failed: ${err?.message || err}`, 'error');
