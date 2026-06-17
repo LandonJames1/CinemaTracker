@@ -396,10 +396,11 @@
                     const poster_path = dashNormalizePosterPath(ensured || String(r?.poster_path ?? '').trim());
                     const posterUrl = dashBuildPosterUrl(poster_path, 'w342');
 
-                    const metaParts = [
-                        year ? escapeHtml(year) : '',
-                        overall ? `${dashRenderHelpScore(overall)} Overall` : '',
-                    ].filter(Boolean);
+                    const titleWithYear = year ? `${escapeHtml(title)} (${escapeHtml(year)})` : escapeHtml(title);
+                    const tierLabelForScore = dashNormalizeTierLabel(r?.tier);
+                    const overallHtml = overall
+                        ? `<span class="dash-tier-score tabular-nums" data-tier="${escapeHtml(tierLabelForScore)}">${escapeHtml(overall)}</span> Overall`
+                        : '';
 
                     return `
                         <div style="display:flex; flex-direction: column; gap: 8px;">
@@ -418,8 +419,8 @@
                                     : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size: 12px;">No poster</div>`
                                 }
                             </div>
-                            <div class="text-sm text-white" style="font-weight: 700; line-height: 1.2;">${escapeHtml(title)}</div>
-                            <div class="text-xs text-gray tabular-nums">${metaParts.join(' • ')}</div>
+                            <div class="text-sm text-white" style="font-weight: 700; line-height: 1.2;">${titleWithYear}</div>
+                            <div class="text-xs text-white tabular-nums">${overallHtml}</div>
                         </div>
                     `;
                 };
@@ -1233,18 +1234,20 @@
 
                 safeHtml(elTopMovieGrid, `
                     <div class="dash-most-movie-card">
-                        ${watchCountText ? `<div class="dash-kpi-top-count tabular-nums">${escapeHtml(watchCountText)}</div>` : ''}
                         <div class="dash-most-movie-poster">
                             ${posterUrl
                                 ? `<img src="${escapeHtml(posterUrl)}" alt="${escapeHtml(title)}" loading="lazy">`
                                 : `<div class="dash-most-movie-placeholder text-gray">No poster</div>`}
                         </div>
-                        <div class="dash-most-movie-title">${escapeHtml(label)}</div>
-                        <div class="dash-most-movie-meta">
-                            <span class="dash-most-movie-rating">${escapeHtml(ratingLabel)}</span>
-                            ${tierHtml}
+                        <div class="dash-most-movie-text">
+                            <div class="dash-most-movie-title">${escapeHtml(label)}</div>
+                            <div class="dash-most-movie-meta">
+                                <span class="dash-most-movie-rating">${escapeHtml(ratingLabel)}</span>
+                                ${tierHtml}
+                            </div>
+                            ${watchCountText ? `<div class="dash-kpi-top-count tabular-nums">${escapeHtml(watchCountText)}</div>` : ''}
+                            ${moreHtml}
                         </div>
-                        ${moreHtml}
                     </div>
                 `);
             };

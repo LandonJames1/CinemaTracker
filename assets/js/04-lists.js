@@ -804,7 +804,7 @@
 
             // Recs / Bucket List use a fixed branded cover — no upload control.
             const coverUploadBtn = document.getElementById('lists-edit-cover-upload');
-            if (coverUploadBtn) coverUploadBtn.style.display = specialListCoverUrl(listsActiveListName) ? 'none' : '';
+            if (coverUploadBtn) coverUploadBtn.style.display = special ? 'none' : '';
 
             const titleEl = document.getElementById('lists-rename-title');
             if (titleEl) titleEl.textContent = listsActiveListName ? `Edit “${listsActiveListName}”` : 'Edit List';
@@ -823,17 +823,17 @@
         function refreshListsEditCoverPreview() {
             const lid = String(listsActiveListId || '').trim();
             const row = (cachedLists || []).find(l => String(l.id) === lid);
-            const fixed = specialListCoverUrl(row?.list_name || listsActiveListName);
+            const special = isSpecialAutoList(lid, row?.list_name || listsActiveListName);
             const cover = String(row?.cover || '').trim();
             const prev = document.getElementById('lists-edit-cover-preview');
             const removeBtn = document.getElementById('lists-edit-remove-cover');
             if (prev) {
-                prev.innerHTML = (fixed || cover)
-                    ? `<img src="${fixed || escapeHtml(cover)}" alt="Cover">`
+                prev.innerHTML = cover
+                    ? `<img src="${escapeHtml(cover)}" alt="Cover">`
                     : `<span class="lists-edit-cover-empty">${icons.film}</span>`;
             }
-            // Fixed-cover special lists can't be customized/removed.
-            if (removeBtn) removeBtn.style.display = (!fixed && cover) ? '' : 'none';
+            // The auto-managed lists keep their branded cover — can't be removed.
+            if (removeBtn) removeBtn.style.display = (!special && cover) ? '' : 'none';
         }
 
         async function removeListCover() {
@@ -2715,22 +2715,11 @@
             return `https://image.tmdb.org/t/p/w342${raw.startsWith('/') ? raw : `/${raw}`}`;
         }
 
-        // The visible art for one list card: an uploaded cover, else a poster
-        // collage of its movies, else a colored fallback tile with an icon.
-        // The two auto-managed lists always use their fixed branded cover art,
-        // for every user, regardless of any uploaded cover. Returns '' otherwise.
-        function specialListCoverUrl(list_name) {
-            const n = String(list_name || '').trim().toLowerCase();
-            if (n === 'recs') return 'assets/icons/Recs%20List%20Cover.png';
-            if (n === 'bucket list') return 'assets/icons/Bucket%20List%20Cover.png';
-            return '';
-        }
-
+        // The visible art for one list card: the saved cover (an inline data URL,
+        // including the branded covers the DB stores for the auto-managed Recs /
+        // Bucket List — see lists_branded_covers.sql), else a poster collage of its
+        // movies, else a colored fallback tile with an icon.
         function renderListCoverArt(list, info) {
-            const fixed = specialListCoverUrl(list?.list_name);
-            if (fixed) {
-                return `<img class="lists-cover-img" src="${fixed}" alt="" loading="lazy" decoding="async">`;
-            }
             const cover = String(list?.cover || '').trim();
             if (cover) {
                 return `<img class="lists-cover-img" src="${escapeHtml(cover)}" alt="" loading="lazy" decoding="async">`;
@@ -2870,9 +2859,16 @@
             if (fab) fab.style.display = show ? 'flex' : 'none';
         }
         function updateListsFab() {
-            if (listsViewMode !== 'detail') { setListsFabVisible(true); return; }
+            const inDetail = listsViewMode === 'detail';
             const isRecs = String(listsActiveListName || '').trim().toLowerCase() === 'recs';
-            setListsFabVisible(!isRecs);
+            // Mobile FAB (CSS hides it on desktop): visible everywhere except inside Recs.
+            setListsFabVisible(!(inDetail && isRecs));
+            // Desktop buttons (CSS hides these on mobile): "New List" on the overview,
+            // "Add Movie" inside a non-Recs list.
+            const newBtn = document.getElementById('lists-new-list-btn');
+            if (newBtn) newBtn.style.display = inDetail ? 'none' : '';
+            const addBtn = document.getElementById('lists-add-movie-btn');
+            if (addBtn) addBtn.style.display = (inDetail && !isRecs) ? '' : 'none';
         }
         function listsFabAction() {
             if (listsViewMode === 'detail') openListsAddModal();
@@ -2922,7 +2918,7 @@
             const dt = document.getElementById('lists-detail');
             if (ov) ov.style.display = '';
             if (dt) dt.style.display = 'none';
-            setListsFabVisible(true);
+            updateListsFab();
             loadListsOverview().catch(() => null);
         }
 

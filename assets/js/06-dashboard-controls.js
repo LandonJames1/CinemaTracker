@@ -1021,8 +1021,9 @@
                                 role="button"
                                 tabindex="0"
                                 aria-label="Update Ratings for ${escapeHtml(title)}"
-                                style="width: 100%; aspect-ratio: 2/3; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.06); cursor: pointer;"
+                                style="position: relative; width: 100%; aspect-ratio: 2/3; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.06); cursor: pointer;"
                             >
+                                <div class="dash-fav-rank">${idx + 1}</div>
                                 ${posterUrl
                                     ? `<img src="${posterUrl}" loading="lazy" decoding="async" alt="${escapeHtml(title)}" style="width: 100%; height: 100%; object-fit: cover; display:block;" onerror="this.closest('div')?.remove?.()">`
                                     : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size: 12px;">No poster</div>`
@@ -1338,17 +1339,35 @@
                 html: `
                     <div class="dash-activity-chart">
                         <div class="dash-activity-stats">
-                            <div class="dash-activity-stat">
-                                <div class="dash-activity-stat-label">Total</div>
-                                <div class="dash-activity-stat-value">${dashFormatCompactNumber(total)} movies</div>
+                            <div class="dash-activity-stat dash-activity-stat--hero">
+                                <span class="dash-activity-stat-glow" aria-hidden="true"></span>
+                                <span class="dash-activity-stat-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.5"/><path d="M7 2v20M17 2v20M2 12h20M2 7h5M2 17h5M17 7h5M17 17h5"/></svg>
+                                </span>
+                                <div class="dash-activity-stat-main">
+                                    <div class="dash-activity-stat-label">Total Watched</div>
+                                    <div class="dash-activity-stat-value">${dashFormatCompactNumber(total)}<span class="dash-activity-stat-unit">movies</span></div>
+                                </div>
                             </div>
                             <div class="dash-activity-stat">
-                                <div class="dash-activity-stat-label">Peak</div>
-                                <div class="dash-activity-stat-value">${dashFormatCompactNumber(peak)} movies</div>
+                                <span class="dash-activity-stat-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 7-7"/><path d="M14 7h6v6"/></svg>
+                                </span>
+                                <div class="dash-activity-stat-main">
+                                    <div class="dash-activity-stat-label">Peak</div>
+                                    <div class="dash-activity-stat-value">${dashFormatCompactNumber(peak)}<span class="dash-activity-stat-unit">movies</span></div>
+                                    <div class="dash-activity-stat-sub">best ${avgSuffix.replace(/^per /, '')}</div>
+                                </div>
                             </div>
                             <div class="dash-activity-stat">
-                                <div class="dash-activity-stat-label">Average</div>
-                                <div class="dash-activity-stat-value">${average.toFixed(1)} movies ${avgSuffix}</div>
+                                <span class="dash-activity-stat-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2.5 7 5-14 2.5 7H21"/></svg>
+                                </span>
+                                <div class="dash-activity-stat-main">
+                                    <div class="dash-activity-stat-label">Average</div>
+                                    <div class="dash-activity-stat-value">${average.toFixed(1)}<span class="dash-activity-stat-unit">movies</span></div>
+                                    <div class="dash-activity-stat-sub">${avgSuffix}</div>
+                                </div>
                             </div>
                         </div>
                         <div class="dash-activity-scroll">
@@ -1369,9 +1388,7 @@
 
         function dashRatingsChartTitleForTab(tab) {
             const t = String(tab || '').trim().toLowerCase();
-            if (t === 'decade') return 'Average Rating by Decade';
-            if (t === 'mpa') return 'Average Rating by MPA';
-            return 'Average Rating by Genre';
+            return 'Avg Rating';
         }
 
         function renderDashboardChartsFromData(data) {

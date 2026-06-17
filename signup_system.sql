@@ -39,6 +39,16 @@ alter table public."Users"
 create unique index if not exists lists_user_name_unique
   on public."Lists" (user_id, list_name);
 
+-- Branded covers for the auto-managed lists live in this lookup table (the data
+-- URLs are populated by lists_branded_covers.sql). Created empty-safe here so the
+-- provisioning below can reference it even before that script runs (lookup → NULL
+-- → list created with no cover, the old behavior). Run lists_branded_covers.sql
+-- to fill it and backfill existing rows.
+create table if not exists public.list_cover_defaults (
+  list_name text primary key,
+  cover     text not null
+);
+
 -- ---------------------------------------------------------------------------
 -- 1) The provisioning function (runs as owner → bypasses RLS).
 -- ---------------------------------------------------------------------------
@@ -96,10 +106,13 @@ begin
     (new.id, v_username, coalesce(v_display, v_username), 'public', v_start_tier, 0)
   on conflict (id) do nothing;
 
-  -- 1b) Default lists — immediate access to Bucket List + Recs.
-  insert into public."Lists" (user_id, list_name)
-  values (new.id, 'Bucket List'),
-         (new.id, 'Recs')
+  -- 1b) Default lists — immediate access to Bucket List + Recs, each with its
+  --     branded cover (from list_cover_defaults; NULL if not yet populated).
+  insert into public."Lists" (user_id, list_name, cover)
+  select new.id, v.list_name,
+         (select d.cover from public.list_cover_defaults d
+          where lower(d.list_name) = lower(v.list_name))
+  from (values ('Bucket List'), ('Recs')) as v(list_name)
   on conflict (user_id, list_name) do nothing;
 
   return new;
@@ -173,9 +186,11 @@ from auth.users au
 left join public."Users" u on u.id = au.id
 where u.id is null;
 
--- 4b) Missing Bucket List / Recs for any existing profile.
-insert into public."Lists" (user_id, list_name)
-select u.id, v.list_name
+-- 4b) Missing Bucket List / Recs for any existing profile (with branded cover).
+insert into public."Lists" (user_id, list_name, cover)
+select u.id, v.list_name,
+       (select d.cover from public.list_cover_defaults d
+        where lower(d.list_name) = lower(v.list_name))
 from public."Users" u
 cross join (values ('Bucket List'), ('Recs')) as v(list_name)
 on conflict (user_id, list_name) do nothing;

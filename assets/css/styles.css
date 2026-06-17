@@ -1110,14 +1110,36 @@
             gap: 10px;
         }
         .dash-activity-stat {
+            position: relative;
             border: 1px solid rgba(255, 255, 255, 0.12);
             background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.04));
             border-radius: 12px;
             padding: 10px 12px;
             min-height: 62px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            overflow: hidden;
+        }
+        .dash-activity-stat-icon {
+            flex: 0 0 auto;
+            display: grid;
+            place-items: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            color: var(--brand, #7ad0c0);
+            background: color-mix(in srgb, var(--brand, #7ad0c0) 16%, transparent);
+        }
+        .dash-activity-stat-icon svg {
+            width: 18px;
+            height: 18px;
+        }
+        .dash-activity-stat-main {
             display: grid;
             align-content: center;
-            gap: 2px;
+            gap: 3px;
+            min-width: 0;
         }
         .dash-activity-stat-label {
             font-size: 10px;
@@ -1133,7 +1155,23 @@
             line-height: 1;
             color: var(--text-main);
             font-variant-numeric: tabular-nums;
+            display: flex;
+            align-items: baseline;
+            gap: 5px;
         }
+        .dash-activity-stat-unit {
+            font-size: 11px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.55);
+            letter-spacing: 0.01em;
+        }
+        .dash-activity-stat-sub {
+            font-size: 10px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.45);
+            text-transform: capitalize;
+        }
+        .dash-activity-stat-glow { display: none; }
         .dash-activity-yaxis {
             position: sticky;
             left: 0;
@@ -2150,11 +2188,17 @@
         .lists-fab:active { transform: scale(0.92); }
         .lists-fab svg { width: 28px; height: 28px; }
         /* The FAB lives at body level (always visible/fixed). Only show it on the Lists
-           page; setListsFabVisible() further hides it within the detail view. */
+           page; setListsFabVisible() further hides it within the detail view. The FAB
+           is MOBILE-ONLY — desktop uses the inline "New List" / "Add Movie" buttons. */
         body:not([data-page="lists"]) #lists-fab { display: none !important; }
+        @media (min-width: 769px) {
+            #lists-fab { display: none !important; }
+        }
+        /* Inline list-action buttons are DESKTOP-ONLY (mobile uses the FAB instead). */
         @media (max-width: 768px) {
             /* Float above the bottom tab bar + the iOS home-indicator safe area. */
             .lists-fab { right: 1rem; bottom: calc(80px + env(safe-area-inset-bottom)); width: 54px; height: 54px; }
+            .lists-desktop-action { display: none !important; }
         }
 
         /* Edit-modal cover: a large centered preview + a small upload-icon button. */
@@ -2986,8 +3030,75 @@
             .dash-dashboard-row { gap: 8px !important; margin-bottom: 0.6rem !important; }
             .dash-dashboard-row > div { gap: 8px !important; }
 
-            /* Activity: stack the 3 KPIs; make the chart scroll inside its box. */
-            .dash-activity-stats { grid-template-columns: 1fr !important; }
+            /* Activity KPIs (mobile): bento — full-width gradient "Total" hero
+               over two compact Peak/Average cards. */
+            .dash-activity-stats {
+                grid-template-columns: 1fr 1fr !important;
+                gap: 10px !important;
+            }
+            .dash-activity-stat {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+                padding: 14px;
+                min-height: 96px;
+                justify-content: center;
+                border-radius: 16px;
+                background: linear-gradient(165deg, rgba(255,255,255,0.07), rgba(255,255,255,0.025));
+            }
+            .dash-activity-stat-icon {
+                width: 40px;
+                height: 40px;
+                border-radius: 12px;
+            }
+            .dash-activity-stat-icon svg { width: 21px; height: 21px; }
+            .dash-activity-stat-value {
+                font-size: 26px !important;
+                flex-wrap: wrap;
+            }
+            .dash-activity-stat-sub { font-size: 11px; }
+
+            /* Hero "Total" spans the full row with a brand→accent gradient. */
+            .dash-activity-stat--hero {
+                grid-column: 1 / -1;
+                flex-direction: row;
+                align-items: center;
+                gap: 16px;
+                min-height: 88px;
+                padding: 18px 20px;
+                border: 1px solid color-mix(in srgb, var(--brand, #7ad0c0) 38%, transparent);
+                background:
+                    radial-gradient(120% 160% at 100% 0%, color-mix(in srgb, var(--brand-2, var(--brand, #7ad0c0)) 30%, transparent), transparent 60%),
+                    linear-gradient(135deg, color-mix(in srgb, var(--brand, #7ad0c0) 40%, #15171b), color-mix(in srgb, var(--brand-2, var(--brand, #7ad0c0)) 22%, #15171b));
+                box-shadow: 0 10px 26px -14px color-mix(in srgb, var(--brand, #7ad0c0) 70%, transparent);
+            }
+            .dash-activity-stat--hero .dash-activity-stat-glow {
+                display: block;
+                position: absolute;
+                top: -40%;
+                right: -10%;
+                width: 180px;
+                height: 180px;
+                border-radius: 50%;
+                background: radial-gradient(circle, color-mix(in srgb, var(--brand, #7ad0c0) 55%, transparent), transparent 65%);
+                pointer-events: none;
+            }
+            .dash-activity-stat--hero .dash-activity-stat-icon {
+                width: 50px;
+                height: 50px;
+                border-radius: 14px;
+                color: #fff;
+                background: rgba(255,255,255,0.18);
+                backdrop-filter: blur(4px);
+            }
+            .dash-activity-stat--hero .dash-activity-stat-icon svg { width: 26px; height: 26px; }
+            .dash-activity-stat--hero .dash-activity-stat-label { color: rgba(255,255,255,0.78); }
+            .dash-activity-stat--hero .dash-activity-stat-value {
+                font-size: 34px !important;
+                color: #fff;
+            }
+            .dash-activity-stat--hero .dash-activity-stat-unit { color: rgba(255,255,255,0.72); }
+
             .dash-activity-canvas-wrap { min-width: 640px; }
             /* Dash controls: swap pill rows for compact dropdowns. */
             .dash-ctl-pills { display: none !important; }
@@ -3167,6 +3278,55 @@
                 border-radius: 999px;
             }
 
+            /* Ratings tab header: identical to the General tab — title left,
+               content-width Genre/Decade/MPA pills in one row on the right. The pills
+               get NO special sizing (so they're byte-for-byte the General pills); we
+               just hide the grey meta line + keep the title short so it never wraps. */
+            body[data-page="dashboard"] #app-root .dash-genre-full .dash-kpi-header-row {
+                align-items: center !important;
+            }
+            body[data-page="dashboard"] #app-root #dash-ratings-genre-meta {
+                display: none !important;
+            }
+            body[data-page="dashboard"] #app-root #dash-ratings-chart-tab-wrap {
+                flex-wrap: nowrap !important;
+            }
+
+            /* Favorites "Rank by": 7 options won't fit in one row of pills. Instead of
+               a scrolling row (cramped) or a dropdown (ugly), lay them out as a clean,
+               BALANCED equal-width grid — 4 pills on top, 3 centered below. Every pill
+               is the same width and all 7 are visible at once. The active pill gets the
+               brand→accent gradient fill, matching the Timeframe/Counts segmented
+               controls so the whole control bar reads as one cohesive surface. */
+            body[data-page="dashboard"] #app-root #dash-fav-metric-wrap {
+                display: flex !important;
+                flex-wrap: wrap !important;
+                justify-content: center !important;
+                gap: 6px !important;
+                width: 100%;
+                overflow: visible !important;
+            }
+            body[data-page="dashboard"] #app-root #dash-fav-metric-wrap .dash-pill-btn {
+                flex: 0 0 calc(25% - 6px) !important;   /* exactly 4 across; row 2 (3 pills) centers */
+                min-width: 0;
+                padding: 0.5rem 0.3rem !important;
+                font-size: 0.72rem !important;
+                font-weight: 600;
+                text-align: center;
+                white-space: nowrap;
+                border-radius: 12px !important;
+                background: rgba(255,255,255,0.06) !important;
+                border: 1px solid rgba(255,255,255,0.10) !important;
+                color: rgba(255,255,255,0.72) !important;
+                box-shadow: none !important;
+            }
+            body[data-page="dashboard"] #app-root #dash-fav-metric-wrap .dash-pill-btn.btn-glass {
+                background: linear-gradient(135deg, var(--brand, #14b8a6), var(--brand-2, #a855f7)) !important;
+                border-color: transparent !important;
+                color: #fff !important;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.30);
+            }
+
             /* --- Bento panes: vertical stack, tighter cards + titles --- */
             body[data-page="dashboard"] #app-root .dash-pane-wrap {
                 display: flex;
@@ -3221,11 +3381,12 @@
             }
             body[data-page="dashboard"] #app-root .dash-watch-method-card .dash-watch-kpi {
                 display: grid !important;
-                grid-template-columns: auto minmax(0,1fr);
+                grid-template-columns: auto minmax(0, max-content);
                 grid-template-rows: auto auto;
                 column-gap: 14px;
                 row-gap: 2px;
                 align-items: center !important;
+                justify-content: center !important;
                 position: relative;
             }
             body[data-page="dashboard"] #app-root .dash-watch-method-card .dash-watch-kpi-big {
@@ -3332,65 +3493,81 @@
                the left that fully fills its box, and a left-aligned text column
                (name → count → rating) on the right. Explicit grid-template-areas
                override the default source order so all three line up identically. */
-            body[data-page="dashboard"] #app-root .dash-highlight-combined { --mw-poster-size: 76px; }
+            /* Every highlight (Director / Movie / Actor) is the SAME tidy list row:
+               a fixed-width poster flush-left + a left-aligned, vertically-centered
+               text column that fills the rest of the card. The `.dash-*-text`
+               wrapper (display:contents on desktop) becomes a single flex column
+               here so all three rows line up identically — no more centered
+               clusters drifting to different x-positions. */
+            body[data-page="dashboard"] #app-root .dash-highlight-combined { --mw-poster-size: 72px; }
             body[data-page="dashboard"] #app-root .dash-highlight-combined-grid {
                 grid-template-columns: 1fr !important;
+                gap: 10px !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-highlight-card {
+                padding: 0.7rem 0.85rem !important;
                 gap: 8px !important;
             }
-            body[data-page="dashboard"] #app-root .dash-highlight-card { padding: 0.7rem !important; gap: 8px !important; }
-
-            /* Director + Actor person cards */
-            body[data-page="dashboard"] #app-root .dash-person-card {
-                grid-template-columns: 76px minmax(0,1fr) !important;
-                grid-template-areas:
-                    "poster name"
-                    "poster count"
-                    "poster avg" !important;
-                column-gap: 12px !important;
-                row-gap: 2px !important;
-                align-content: center;
-                justify-items: start !important;
-                align-items: center;
-                text-align: left !important;
-            }
-            body[data-page="dashboard"] #app-root .dash-person-card .dash-person-poster { grid-area: poster; align-self: center; }
-            body[data-page="dashboard"] #app-root .dash-person-card .dash-person-name { grid-area: name; align-self: end; font-size: 0.95rem; }
-            body[data-page="dashboard"] #app-root .dash-person-card .dash-kpi-top-count { grid-area: count; text-align: left !important; }
-            body[data-page="dashboard"] #app-root .dash-person-card .dash-person-count { grid-area: avg; align-self: start; }
-            body[data-page="dashboard"] #app-root .dash-highlight-card > .dash-kpi-more {
-                width: auto !important;
-                justify-content: flex-start !important;
-                text-align: left !important;
+            body[data-page="dashboard"] #app-root .dash-highlight-card-title {
+                font-size: 0.68rem !important;
             }
 
-            /* Most-Watched Movie card — same horizontal row shape */
             body[data-page="dashboard"] #app-root .dash-most-movie-grid {
                 grid-template-columns: 1fr !important;
                 gap: 8px !important;
             }
+            body[data-page="dashboard"] #app-root .dash-person-card,
             body[data-page="dashboard"] #app-root .dash-most-movie-card {
-                max-width: none !important;
                 display: grid !important;
-                grid-template-columns: 76px minmax(0,1fr) !important;
-                grid-template-areas:
-                    "poster title"
-                    "poster meta"
-                    "poster count"
-                    "poster more" !important;
-                column-gap: 12px !important;
-                row-gap: 2px !important;
-                align-content: center;
+                grid-template-columns: var(--mw-poster-size) minmax(0, 1fr) !important;
+                grid-template-areas: none !important;
+                column-gap: 14px !important;
+                row-gap: 0 !important;
+                align-items: center !important;
+                justify-items: stretch !important;
+                justify-content: stretch !important;
+                text-align: left !important;
+                max-width: none !important;
+                width: 100% !important;
             }
-            body[data-page="dashboard"] #app-root .dash-most-movie-card .dash-most-movie-poster { grid-area: poster; width: 76px; align-self: center; }
-            body[data-page="dashboard"] #app-root .dash-most-movie-card .dash-most-movie-title { grid-area: title; align-self: end; }
-            body[data-page="dashboard"] #app-root .dash-most-movie-card .dash-most-movie-meta { grid-area: meta; }
-            body[data-page="dashboard"] #app-root .dash-most-movie-card .dash-kpi-top-count { grid-area: count; text-align: left !important; }
-            body[data-page="dashboard"] #app-root .dash-most-movie-card .dash-kpi-more {
-                grid-area: more;
+            body[data-page="dashboard"] #app-root .dash-person-poster,
+            body[data-page="dashboard"] #app-root .dash-most-movie-poster {
+                width: var(--mw-poster-size) !important;
+                align-self: center !important;
+                margin: 0 !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-person-text,
+            body[data-page="dashboard"] #app-root .dash-most-movie-text {
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                justify-content: center !important;
+                gap: 3px !important;
+                min-width: 0 !important;
+                text-align: left !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-person-text > *,
+            body[data-page="dashboard"] #app-root .dash-most-movie-text > * {
+                width: 100% !important;
+                text-align: left !important;
+                margin: 0 !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-person-name,
+            body[data-page="dashboard"] #app-root .dash-most-movie-title {
+                font-size: 1rem !important;
+                line-height: 1.2 !important;
+            }
+            body[data-page="dashboard"] #app-root .dash-most-movie-meta {
+                justify-content: flex-start !important;
+            }
+            /* "+N more" sits left-aligned under the row (person card: sibling of the
+               card; movie card: last child of the text column). */
+            body[data-page="dashboard"] #app-root .dash-highlight-card > .dash-kpi-more,
+            body[data-page="dashboard"] #app-root .dash-most-movie-text .dash-kpi-more {
                 width: auto !important;
                 justify-content: flex-start !important;
                 text-align: left !important;
-                margin-top: 4px !important;
+                margin-top: 2px !important;
             }
 
             /* Ratings — highest/lowest director side by side */
@@ -3943,6 +4120,13 @@
             gap: 8px;
             flex-wrap: wrap;
         }
+        /* Text wrappers are transparent to layout on desktop (children participate
+           in the card grid/flex exactly as before); the mobile block turns them into
+           a single left-aligned, vertically-centered flex column. */
+        .dash-person-text,
+        .dash-most-movie-text {
+            display: contents;
+        }
         .dash-most-movie-more,
         .dash-kpi-more {
             font-size: 0.85rem;
@@ -4041,13 +4225,16 @@
         }
         .dash-tier-pill {
             --tier-rgb: 255, 255, 255;
-            padding: 0.2rem 0.45rem;
+            display: inline-flex;
+            align-items: center;
+            padding: 0.08rem 0.4rem;
             border-radius: 999px;
-            font-size: 0.7rem;
+            font-size: 0.65rem;
+            line-height: 1.25;
             font-weight: 700;
             border: 1px solid rgba(var(--tier-rgb), 0.55);
-            background: rgba(var(--tier-rgb), 0.2);
-            color: #fff;
+            background: rgba(var(--tier-rgb), 0.18);
+            color: rgb(var(--tier-rgb));
         }
         .dash-tier-pill[data-tier="S-Tier"] { --tier-rgb: var(--tier-s-rgb); }
         .dash-tier-pill[data-tier="A-Tier"] { --tier-rgb: var(--tier-a-rgb); }
@@ -4055,6 +4242,18 @@
         .dash-tier-pill[data-tier="C-Tier"] { --tier-rgb: var(--tier-c-rgb); }
         .dash-tier-pill[data-tier="D-Tier"] { --tier-rgb: var(--tier-d-rgb); }
         .dash-tier-pill[data-tier="F-Tier"] { --tier-rgb: var(--tier-f-rgb); }
+        /* Tier-colored "X% Overall" under each Tiers-tab poster (red for S, etc.). */
+        .dash-tier-score {
+            --tier-rgb: 255, 255, 255;
+            color: rgb(var(--tier-rgb));
+            font-weight: 700;
+        }
+        .dash-tier-score[data-tier="S-Tier"] { --tier-rgb: var(--tier-s-rgb); }
+        .dash-tier-score[data-tier="A-Tier"] { --tier-rgb: var(--tier-a-rgb); }
+        .dash-tier-score[data-tier="B-Tier"] { --tier-rgb: var(--tier-b-rgb); }
+        .dash-tier-score[data-tier="C-Tier"] { --tier-rgb: var(--tier-c-rgb); }
+        .dash-tier-score[data-tier="D-Tier"] { --tier-rgb: var(--tier-d-rgb); }
+        .dash-tier-score[data-tier="F-Tier"] { --tier-rgb: var(--tier-f-rgb); }
         .dash-ratings-avg-grid {
             display: grid;
             gap: 12px;
@@ -4378,7 +4577,7 @@
         .dash-fav-grid {
             display: grid;
             gap: 10px;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+            grid-template-columns: repeat(3, minmax(0, 1fr));
         }
         @media (min-width: 640px) {
             .dash-fav-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -4389,8 +4588,39 @@
         @media (min-width: 1200px) {
             .dash-fav-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
         }
+        /* Rank badge in the top-left corner of each Favorites poster (#1, #2, …).
+           Circular, solid black (NOT theme-matching) with a subtle ring + shadow so
+           the number stays legible on top of a busy poster. */
+        .dash-fav-rank {
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            z-index: 2;
+            min-width: 24px;
+            height: 24px;
+            padding: 0 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: #000;
+            color: #fff;
+            font-size: 0.74rem;
+            font-weight: 800;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+            border: 1.5px solid rgba(255,255,255,0.35);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+            pointer-events: none;
+        }
+        .dash-fav-rank::before { content: "#"; opacity: 0.85; margin-right: 1px; }
         .dash-tier-grid {
             gap: 8px;
+        }
+        /* Smaller posters: 3 per row on mobile (favorites grid is now also 3 — see
+           base .dash-fav-grid). Scoped to max-width so the ≥640 breakpoints apply. */
+        @media (max-width: 639px) {
+            .dash-tier-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         }
         @media (min-width: 1200px) {
             .dash-tier-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }

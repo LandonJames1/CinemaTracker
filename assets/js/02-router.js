@@ -772,9 +772,19 @@
                                     <h1 class="text-3xl font-bold text-white">Lists</h1>
                                     <p class="text-gray mt-2">Organize your movies into custom lists.</p>
                                 </div>
+                                <!-- DESKTOP: a clearly-labelled "New List" button next to the header
+                                     (mobile uses the floating "+" FAB instead). Shown only on the
+                                     overview via updateListsFab(). -->
+                                <button
+                                    type="button"
+                                    id="lists-new-list-btn"
+                                    class="btn btn-primary lists-desktop-action"
+                                    onclick="openListsCreateModal()"
+                                    style="border-radius: 0.75rem; height: 40px; padding: 0.5rem 1rem; font-weight: 600; display:inline-flex; align-items:center; gap:0.4rem;"
+                                >${icons.plus || '+'} New List</button>
                                 <!-- Legacy list <select>: kept (hidden) so loadListsPage + its change
                                      handler keep working; navigation is now the cover grid below.
-                                     New List moved to the floating "+" FAB; Refresh → pull-to-refresh. -->
+                                     Refresh → pull-to-refresh. -->
                                 <div id="lists-list" style="display:none;">
                                     <select id="lists-select"><option value="">Loading…</option></select>
                                 </div>
@@ -815,6 +825,15 @@
                                             style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.65rem; font-size: 0.85rem;"
                                             disabled
                                         >Edit</button>
+                                        <!-- DESKTOP: clearly-labelled "Add Movie" button (mobile uses the
+                                             "+" FAB). Hidden on the auto-managed Recs list via updateListsFab(). -->
+                                        <button
+                                            id="lists-add-movie-btn"
+                                            type="button"
+                                            class="btn btn-primary lists-desktop-action"
+                                            onclick="openListsAddModal()"
+                                            style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.7rem; font-size: 0.85rem; display:inline-flex; align-items:center; gap:0.35rem;"
+                                        >${icons.plus || '+'} Add Movie</button>
                                     </div>
 
                                     <div class="lists-active-heading" style="margin-top: 0.85rem;">
@@ -1342,12 +1361,14 @@
                                         <div class="dash-highlight-card dash-kpi-clickable" data-general-kpi="most_watched_director">
                                             <div class="dash-highlight-card-title">Director(s)</div>
                                             <div class="dash-person-card">
-                                                <div class="dash-kpi-top-count tabular-nums" id="dash-general-top-director-events-count">&nbsp;</div>
                                                 <div class="dash-person-poster is-empty">
                                                     <img id="dash-general-top-director-avatar" alt="Top director" loading="lazy" onerror="this.removeAttribute('src'); this.closest('.dash-person-poster')?.classList.add('is-empty');">
                                                 </div>
-                                                <div class="dash-person-name" id="dash-general-top-director-events">—</div>
-                                                <div class="dash-person-count tabular-nums" id="dash-general-top-director-avg">&nbsp;</div>
+                                                <div class="dash-person-text">
+                                                    <div class="dash-person-name" id="dash-general-top-director-events">—</div>
+                                                    <div class="dash-kpi-top-count tabular-nums" id="dash-general-top-director-events-count">&nbsp;</div>
+                                                    <div class="dash-person-count tabular-nums" id="dash-general-top-director-avg">&nbsp;</div>
+                                                </div>
                                             </div>
                                             <div class="dash-kpi-more" id="dash-general-top-director-more"></div>
                                         </div>
@@ -1360,12 +1381,14 @@
                                         <div class="dash-highlight-card dash-kpi-clickable" data-general-kpi="most_watched_actor">
                                             <div class="dash-highlight-card-title">Actor(s)</div>
                                             <div class="dash-person-card">
-                                                <div class="dash-kpi-top-count tabular-nums" id="dash-general-top-actor-events-count">&nbsp;</div>
                                                 <div class="dash-person-poster is-empty">
                                                     <img id="dash-general-top-actor-avatar" alt="Top actor" loading="lazy" onerror="this.removeAttribute('src'); this.closest('.dash-person-poster')?.classList.add('is-empty');">
                                                 </div>
-                                                <div class="dash-person-name" id="dash-general-top-actor-events">—</div>
-                                                <div class="dash-person-count tabular-nums" id="dash-general-top-actor-avg">&nbsp;</div>
+                                                <div class="dash-person-text">
+                                                    <div class="dash-person-name" id="dash-general-top-actor-events">—</div>
+                                                    <div class="dash-kpi-top-count tabular-nums" id="dash-general-top-actor-events-count">&nbsp;</div>
+                                                    <div class="dash-person-count tabular-nums" id="dash-general-top-actor-avg">&nbsp;</div>
+                                                </div>
                                             </div>
                                             <div class="dash-kpi-more" id="dash-general-top-actor-more"></div>
                                         </div>
@@ -1380,7 +1403,7 @@
                             <div class="glass-panel dash-kpi-chart dash-genre-full" style="margin-bottom: 1rem;">
                                 <div class="dash-kpi-header-row" style="align-items: flex-start;">
                                     <div>
-                                        <div class="dash-kpi-chart-title" id="dash-ratings-chart-title">Average Rating by Genre</div>
+                                        <div class="dash-kpi-chart-title" id="dash-ratings-chart-title">Avg Rating</div>
                                         <div class="text-xs text-gray" id="dash-ratings-genre-meta"></div>
                                     </div>
                                     <select class="select-field dash-ctl-select" style="margin-bottom:0.5rem;" onchange="document.getElementById(this.value)?.click()">
@@ -1388,7 +1411,7 @@
                                         <option value="dash-ratings-tab-decade">Decade</option>
                                         <option value="dash-ratings-tab-mpa">MPA</option>
                                     </select>
-                                    <div id="dash-ratings-chart-tab-wrap" class="flex dash-ctl-pills" style="gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
+                                    <div id="dash-ratings-chart-tab-wrap" class="dash-general-pie-toggle">
                                         <button type="button" class="btn dash-pill-btn btn-glass" data-chart="genre" id="dash-ratings-tab-genre" style="padding: 0.45rem 0.7rem;">Genre</button>
                                         <button type="button" class="btn dash-pill-btn btn-outline" data-chart="decade" id="dash-ratings-tab-decade" style="padding: 0.45rem 0.7rem;">Decade</button>
                                         <button type="button" class="btn dash-pill-btn btn-outline" data-chart="mpa" id="dash-ratings-tab-mpa" style="padding: 0.45rem 0.7rem;">MPA</button>
