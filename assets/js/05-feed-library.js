@@ -2143,8 +2143,35 @@
                             pairs.push({ movie_id: mid, mine: me.overall, mineTier: me.tier, theirs, theirsTier: rr?.tier });
                         }
                         if (pairs.length) {
-                            const avgAbs = pairs.reduce((a, p) => a + Math.abs(p.mine - p.theirs), 0) / pairs.length;
-                            const score = Math.max(0, Math.min(100, Math.round(100 - avgAbs)));
+                            // Taste Match = how similarly you two RANK shared movies, not how
+                            // close the raw numbers are. Absolute-gap clustered everyone at
+                            // 90–100% because most ratings sit in a narrow band; Pearson
+                            // correlation removes each rater's offset + scale, so a random
+                            // pair sits near 50%, aligned taste high, opposite taste low.
+                            const n = pairs.length;
+                            const K = 4; // confidence: shrink toward 50% until ~4 shared movies
+                            const shrinkToNeutral = (rawPct) => (n * rawPct + K * 50) / (n + K);
+
+                            const meanMine = pairs.reduce((a, p) => a + p.mine, 0) / n;
+                            const meanTheirs = pairs.reduce((a, p) => a + p.theirs, 0) / n;
+                            let cov = 0, varMine = 0, varTheirs = 0;
+                            for (const p of pairs) {
+                                const dm = p.mine - meanMine, dt = p.theirs - meanTheirs;
+                                cov += dm * dt; varMine += dm * dm; varTheirs += dt * dt;
+                            }
+
+                            let rawPct;
+                            if (n >= 3 && varMine > 0 && varTheirs > 0) {
+                                const r = cov / Math.sqrt(varMine * varTheirs); // -1..1
+                                rawPct = ((r + 1) / 2) * 100;                    // 0..100
+                            } else {
+                                // Too few shared movies, or no rating spread to correlate
+                                // → fall back to simple closeness (still shrunk for confidence).
+                                const avgAbs = pairs.reduce((a, p) => a + Math.abs(p.mine - p.theirs), 0) / n;
+                                rawPct = Math.max(0, 100 - avgAbs);
+                            }
+                            const score = Math.max(0, Math.min(100, Math.round(shrinkToNeutral(rawPct))));
+
                             const byGap = pairs.slice().sort((a, b) => Math.abs(b.mine - b.theirs) - Math.abs(a.mine - a.theirs));
                             const decorate = (p) => ({ ...p, title: String(moviesById.get(p.movie_id)?.title || '').trim() || 'Untitled' });
                             compat = { score, count: pairs.length, userId: uid, disagreements: byGap.slice(0, 3).map(decorate) };
