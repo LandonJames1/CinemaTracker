@@ -375,6 +375,10 @@
                         const cs = window.getComputedStyle(ov);
                         if (cs.display !== 'none' && cs.visibility !== 'hidden') return true;
                     }
+                    // Bespoke `.open`-toggled bottom sheets that aren't `*-overlay` ids
+                    // (e.g. the Feed "Follows" panel + its backdrop). Without this, a
+                    // downward drag on one of these refreshes the page behind it.
+                    if (document.querySelector('.feed-follows-panel.open, .more-sheet-overlay.open')) return true;
                 } catch (_) {}
                 return false;
             }
@@ -450,25 +454,40 @@
             }, { passive: true });
         })();
 
-        // Swipe-to-dismiss for the mobile bottom-sheet modals (the body.app-sheets
-        // ".auth-overlay > .auth-modal" sheets). Drag the sheet down past a threshold and
-        // it animates out + closes via the overlay's own backdrop-close handler (every
-        // sheet overlay closes on a backdrop click); below the threshold it snaps back.
-        // Excludes the same overlays the sheet CSS excludes (auth + the two celebrations).
+        // Swipe-to-dismiss for EVERY mobile modal (the shared ".auth-overlay >
+        // .auth-modal" pattern + the bottom-tab "More" nav sheet). Drag the modal down
+        // past a threshold and it animates out + closes via the overlay's own
+        // backdrop-close handler (every overlay closes on a backdrop click); below the
+        // threshold it snaps back. This intentionally covers ALL pop-ups now — including
+        // the auth/login modal and the two achievement celebration popups, even though
+        // those aren't docked as bottom-sheets by the sheet CSS (they still slide down
+        // with the finger and dismiss). The drag also calls preventDefault while pulling
+        // down so the content BEHIND the modal never scrolls along with the gesture.
         (function initSheetSwipeDismiss() {
             const CLOSE_THRESHOLD = 110;   // px dragged before release dismisses the sheet
-            // auth + the two celebration popups aren't bottom sheets; the loading
-            // overlay is a blocking spinner that must not be swiped away.
-            const EXCLUDE = new Set(['auth-overlay', 'achievement-earned-overlay', 'achievement-detail-overlay', 'loading-overlay']);
-            let modal = null, overlay = null, startY = 0, dy = 0, dragging = false;
+            // ONLY the loading overlay is excluded: it's a blocking spinner with no close
+            // handler, so "dismissing" it would hide the spinner while the operation runs.
+            const EXCLUDE = new Set(['loading-overlay']);
+            let modal = null, overlay = null, closeFn = null, startY = 0, dy = 0, dragging = false;
 
             function sheetsActive() {
                 try { return isMobileViewport() && document.body.classList.contains('app-sheets'); } catch (_) { return false; }
             }
             function findSheet(target) {
+                if (!target || !target.closest) return null;
+                // Bespoke bottom-sheets that AREN'T the shared `.auth-overlay > .auth-modal`
+                // pattern — they have their own `.open` class + a dedicated close fn (the
+                // sheet IS the draggable element; no overlay wrapper). The Feed "Follows"
+                // panel is one of these. Returning a `close` callback routes dismissSheet
+                // through the right teardown (which also re-homes the moved DOM node).
+                const follows = target.closest('.feed-follows-panel');
+                if (follows) {
+                    if (!follows.classList.contains('open')) return null;
+                    return { m: follows, ov: follows, close: (typeof closeFeedFollows === 'function') ? closeFeedFollows : null };
+                }
                 // Covers BOTH the shared `.auth-overlay > .auth-modal` data modals AND
                 // the bottom-tab "More" nav sheet (`.more-sheet-overlay > .more-sheet`).
-                const m = (target && target.closest) ? target.closest('.auth-modal, .more-sheet') : null;
+                const m = target.closest('.auth-modal, .more-sheet');
                 if (!m) return null;
                 const ov = m.closest('.auth-overlay, .more-sheet-overlay');
                 if (!ov || EXCLUDE.has(ov.id)) return null;
@@ -479,9 +498,12 @@
                         return null;
                     }
                 } catch (_) {}
-                return { m, ov };
+                return { m, ov, close: null };
             }
-            function dismissSheet(ov) {
+            function dismissSheet(ov, close) {
+                // Bespoke sheets close through their own teardown fn (re-homes the DOM
+                // node + hides its backdrop); for these, that's all that's needed.
+                if (typeof close === 'function') { try { close(); } catch (_) {} return; }
                 // Every overlay closes on a backdrop click (target === overlay).
                 try { ov.click(); } catch (_) {}
                 try {
@@ -503,14 +525,14 @@
             }
 
             document.addEventListener('touchstart', (e) => {
-                dragging = false; modal = null; overlay = null;
+                dragging = false; modal = null; overlay = null; closeFn = null;
                 if (!sheetsActive() || e.touches.length !== 1) return;
                 // Don't hijack drags that start on a text/range control.
                 if (e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
                 const found = findSheet(e.target);
                 if (!found) return;
                 if (found.m.scrollTop > 0) return;   // let the sheet scroll its own content first
-                modal = found.m; overlay = found.ov;
+                modal = found.m; overlay = found.ov; closeFn = found.close || null;
                 startY = e.touches[0].clientY; dy = 0;
                 dragging = true;
             }, { passive: true });
@@ -529,16 +551,16 @@
             }, { passive: false });
 
             document.addEventListener('touchend', () => {
-                if (!dragging || !modal) { modal = null; overlay = null; return; }
+                if (!dragging || !modal) { modal = null; overlay = null; closeFn = null; return; }
                 dragging = false;
-                const m = modal, ov = overlay;
-                modal = null; overlay = null;
+                const m = modal, ov = overlay, cf = closeFn;
+                modal = null; overlay = null; closeFn = null;
                 if (dy > CLOSE_THRESHOLD) {
                     m.style.transition = 'transform 0.2s ease';
                     m.style.transform = 'translateY(100%)';
                     window.setTimeout(() => {
                         reset(m);
-                        dismissSheet(ov);
+                        dismissSheet(ov, cf);
                     }, 200);
                 } else {
                     m.style.transition = 'transform 0.25s cubic-bezier(0.16, 1, 0.3, 1)';

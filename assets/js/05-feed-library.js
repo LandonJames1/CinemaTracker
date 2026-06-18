@@ -1974,8 +1974,10 @@
         // Computes the user's KPIs client-side and reuses the Data Dash card markup +
         // helpers so the posters/ratings/tiers look IDENTICAL to the dashboard.
         let profileMode = 'recent'; // 'recent' | 'top'
-        let profileTop5 = [];
-        let profileRecent5 = [];
+        let profileViewUserId = ''; // the user whose profile is open (for poster taps)
+        let profileTopMetric = 'overall_rating'; // which rating drives the Top Rated grid
+        let profileRatedItems = []; // all rated movies (sorted/sliced per metric in render)
+        let profileRecent10 = [];
 
         async function openUserProfile(userId) {
             const uid = String(userId || '').trim();
@@ -1991,8 +1993,10 @@
             if (titleEl) titleEl.textContent = 'Profile';
             body.innerHTML = `<div class="text-gray" style="padding:1rem;">Loading…</div>`;
             profileMode = 'recent';
-            profileTop5 = [];
-            profileRecent5 = [];
+            profileViewUserId = uid;
+            profileTopMetric = 'overall_rating';
+            profileRatedItems = [];
+            profileRecent10 = [];
 
             try {
                 // The user
@@ -2013,7 +2017,7 @@
                 // Their ratings
                 const { data: ratingsData, error: rErr } = await supabaseClient
                     .from('Movie Ratings')
-                    .select('movie_id, overall_rating, tier, watch_date')
+                    .select('movie_id, overall_rating, acting_rating, pacing_rating, sound_rating, imagery_rating, plot_rating, dialogue_rating, tier, watch_date')
                     .eq('user_id', uid);
                 if (rErr) throw rErr;
                 const ratings = Array.isArray(ratingsData) ? ratingsData : [];
@@ -2065,21 +2069,25 @@
                         tmdb_id: m?.tmdb_id ?? null,
                         poster_path: String(m?.poster_path || '').trim(),
                         overall_rating: rr?.overall_rating ?? null,
+                        acting_rating: rr?.acting_rating ?? null,
+                        pacing_rating: rr?.pacing_rating ?? null,
+                        sound_rating: rr?.sound_rating ?? null,
+                        imagery_rating: rr?.imagery_rating ?? null,
+                        plot_rating: rr?.plot_rating ?? null,
+                        dialogue_rating: rr?.dialogue_rating ?? null,
                         tier: String(rr?.tier || '').trim(),
                     };
                 };
 
-                // Top 5 by overall rating.
-                profileTop5 = ratings
-                    .filter(r => Number.isFinite(Number(r?.overall_rating)))
-                    .sort((a, b) => Number(b.overall_rating) - Number(a.overall_rating))
-                    .slice(0, 5)
+                // All rated movies (full item incl. sub-ratings) — the Top Rated grid
+                // sorts/slices this client-side by the selected metric (see renderProfileGrid).
+                profileRatedItems = ratings
                     .map(r => toItem(r.movie_id));
 
-                // 5 most recently watched (latest Watch Log date), matching My Movies order.
-                profileRecent5 = Array.from(latestByMovie.entries())
+                // 10 most recently watched (latest Watch Log date), matching My Movies order.
+                profileRecent10 = Array.from(latestByMovie.entries())
                     .sort((a, b) => b[1].localeCompare(a[1]))
-                    .slice(0, 5)
+                    .slice(0, 10)
                     .map(([mid]) => toItem(mid));
 
                 // Highest-rated director (avg overall, min 2 movies, round 1) — matches the dashboard RPC.
@@ -2247,6 +2255,9 @@
                 <div class="profile-toggle">
                     <button type="button" class="nav-link profile-toggle-btn" data-profile-mode="recent" onclick="setProfileMode('recent')">Recent</button>
                     <button type="button" class="nav-link profile-toggle-btn" data-profile-mode="top" onclick="setProfileMode('top')">Top Rated</button>
+                    <select id="profile-top-metric" class="select-field" onchange="setProfileTopMetric(this.value)" style="display:none;">
+                        ${PROFILE_TOP_METRICS.map(m => `<option value="${m.key}"${m.key === profileTopMetric ? ' selected' : ''}>${escapeHtml(m.label)}</option>`).join('')}
+                    </select>
                 </div>
                 <div id="profile-grid"></div>
             `;
@@ -2295,21 +2306,45 @@
             }
         }
 
-        function renderProfileMovieCard(it) {
+        // The rating types the Top Rated grid can sort by (column → display label).
+        const PROFILE_TOP_METRICS = [
+            { key: 'overall_rating', label: 'Overall' },
+            { key: 'acting_rating', label: 'Acting' },
+            { key: 'imagery_rating', label: 'Cinematography' },
+            { key: 'plot_rating', label: 'Plot' },
+            { key: 'pacing_rating', label: 'Pacing' },
+            { key: 'dialogue_rating', label: 'Dialogue' },
+            { key: 'sound_rating', label: 'Sound' },
+        ];
+        function profileMetricLabel(key) {
+            const m = PROFILE_TOP_METRICS.find(x => x.key === key);
+            return m ? m.label : 'Overall';
+        }
+
+        function renderProfileMovieCard(it, metricKey) {
+            const key = metricKey || 'overall_rating';
             const title = String(it?.title || '').trim() || 'Untitled';
             const year = (it?.release_year === null || it?.release_year === undefined) ? '' : String(it.release_year);
             const tmdb_id = Number(it?.tmdb_id);
             const poster_path = dashNormalizePosterPath(String(it?.poster_path || '').trim() || (Number.isFinite(tmdb_id) ? (dashPosterCacheByTmdbId.get(tmdb_id) || '') : ''));
             const posterUrl = dashBuildPosterUrl(poster_path, 'w342');
-            const metricText = dashFormatScore(it?.overall_rating);
+            const metricText = dashFormatScore(it?.[key]);
+            const metricLabel = profileMetricLabel(key);
             const tierLabel = dashNormalizeTierLabel(it?.tier);
             const titleLine = `${escapeHtml(title)}${year ? ` (${escapeHtml(year)})` : ''}`;
             const metaHtml = dashJoinHelpParts([
-                metricText ? `${dashRenderHelpScore(metricText)} Overall` : '',
+                metricText ? `${dashRenderHelpScore(metricText)} ${escapeHtml(metricLabel)}` : '',
+                // Tier reflects the movie's overall standing — always show its colored
+                // badge regardless of which metric the grid is sorted by.
                 tierLabel ? dashRenderHelpTier(tierLabel) : '',
             ]);
+            const movieId = String(it?.movie_id || '').trim();
+            const clickable = movieId && profileViewUserId;
+            const clickAttrs = clickable
+                ? ` role="button" tabindex="0" onclick="openProfileMovieReview('${profileViewUserId}','${movieId}')"`
+                : '';
             return `
-                <div style="display:flex; flex-direction: column; gap: 8px;">
+                <div${clickAttrs} style="display:flex; flex-direction: column; gap: 8px;${clickable ? ' cursor:pointer;' : ''}">
                     <div style="width: 100%; aspect-ratio: 2/3; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.06);">
                         ${posterUrl
                             ? `<img src="${posterUrl}" loading="lazy" decoding="async" alt="${escapeHtml(title)}" style="width: 100%; height: 100%; object-fit: cover; display:block;">`
@@ -2328,14 +2363,33 @@
             document.querySelectorAll('.profile-toggle-btn').forEach(b => {
                 b.classList.toggle('active', String(b.dataset.profileMode || '') === profileMode);
             });
-            const items = profileMode === 'top' ? profileTop5 : profileRecent5;
+            // The Top Rated metric dropdown only applies to the Top Rated view.
+            const metricSel = document.getElementById('profile-top-metric');
+            if (metricSel) {
+                metricSel.style.display = (profileMode === 'top') ? '' : 'none';
+                metricSel.value = profileTopMetric;
+            }
+            const isTop = profileMode === 'top';
+            const metricKey = isTop ? profileTopMetric : 'overall_rating';
+            const items = isTop
+                ? profileRatedItems
+                    .filter(it => Number.isFinite(Number(it?.[metricKey])))
+                    .sort((a, b) => Number(b[metricKey]) - Number(a[metricKey]))
+                    .slice(0, 10)
+                : profileRecent10;
             grid.innerHTML = items.length
-                ? `<div class="dash-fav-grid">${items.map(renderProfileMovieCard).join('')}</div>`
+                ? `<div class="dash-fav-grid">${items.map(it => renderProfileMovieCard(it, metricKey)).join('')}</div>`
                 : `<div class="text-gray" style="padding:0.5rem;">No rated movies yet.</div>`;
         }
 
         function setProfileMode(mode) {
             profileMode = (mode === 'top') ? 'top' : 'recent';
+            renderProfileGrid();
+        }
+
+        function setProfileTopMetric(key) {
+            const valid = PROFILE_TOP_METRICS.some(m => m.key === key);
+            profileTopMetric = valid ? key : 'overall_rating';
             renderProfileGrid();
         }
 

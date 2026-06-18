@@ -327,9 +327,18 @@
         .profile-toggle {
             display: flex;
             gap: 8px;
+            align-items: center;
             margin: 1.1rem 0 0.85rem;
         }
         .profile-toggle-btn { font-size: 0.85rem; padding: 0.4rem 0.9rem; }
+        /* Top Rated metric dropdown — sits inline next to the buttons, sized to content. */
+        #profile-top-metric {
+            width: auto;
+            min-width: 140px;
+            flex: 1 1 auto;
+            font-size: 0.85rem;
+            padding: 0.4rem 2.25rem 0.4rem 0.85rem;
+        }
         @media (max-width: 520px) {
             .profile-kpis { grid-template-columns: 1fr; }
         }

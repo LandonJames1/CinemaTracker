@@ -165,7 +165,7 @@
     </div>
 
     <!-- New-user push-notification opt-in prompt (shown on first authenticated boot after signup) -->
-    <div id="push-prompt-overlay" class="auth-overlay" style="display:none;">
+    <div id="push-prompt-overlay" class="auth-overlay" onclick="if(event.target === this) closePushPromptModal();" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="push-prompt-title" style="max-width: 460px;">
             <div class="auth-modal-header">
                 <div class="auth-modal-title" id="push-prompt-title">Enable Notifications?</div>
@@ -746,7 +746,7 @@
         </div>
     </div>
 
-    <div id="library-sortfilter-overlay" class="auth-overlay" style="display:none;">
+    <div id="library-sortfilter-overlay" class="auth-overlay" onclick="if(event.target === this) closeLibrarySortFilterModal({ restoreDraft: true });" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="library-sortfilter-title" style="max-width: 560px;">
             <div class="auth-modal-header">
                 <div class="auth-modal-title" id="library-sortfilter-title">Filters & Sort</div>
@@ -1011,7 +1011,7 @@
         </div>
     </div>
 
-    <div id="prior-watches-overlay" class="auth-overlay" style="display:none;">
+    <div id="prior-watches-overlay" class="auth-overlay" onclick="if(event.target === this) closePriorWatchesModal();" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="prior-watches-title">
             <div class="auth-modal-header">
                 <div class="auth-modal-title" id="prior-watches-title">Add Previous Watches</div>
