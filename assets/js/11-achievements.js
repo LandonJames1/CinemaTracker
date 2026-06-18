@@ -371,6 +371,17 @@
             syncAchievementFilterOptions();
             syncAchievementFilterButtons();
 
+            // Mobile section header: "X / Y earned" progress chip.
+            const countEl = document.getElementById('account-achievements-count');
+            if (countEl) {
+                const totalCount = achievementsList.length;
+                const earnedCount = achievementsList.reduce(
+                    (n, r) => n + (userAchievementIds.has(String(r?.id || '').trim()) ? 1 : 0), 0);
+                countEl.innerHTML = (cachedIsAuthed && totalCount)
+                    ? `<span class="ac-title">Your Badges</span><span class="ac-pill">${earnedCount} / ${totalCount} earned</span>`
+                    : '';
+            }
+
             if (!cachedIsAuthed) {
                 list.innerHTML = '<div class="text-xs text-gray">Log in to view your achievements.</div>';
                 return;
@@ -387,6 +398,10 @@
                 return;
             }
 
+            // Corner status badges (shown only on the mobile trophy-case redesign).
+            const STATUS_EARNED_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+            const STATUS_LOCKED_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+
             list.innerHTML = filtered.map((row) => {
                 const id = String(row?.id || '').trim();
                 const name = String(row?.name || '').trim() || 'Achievement';
@@ -400,7 +415,8 @@
                 const tierLabel = tier || 'Achievement';
 
                 return `
-                    <div class="achievement-card ${earned ? '' : 'locked'}" data-tier="${escapeHtml(tierLabel)}" data-type="${escapeHtml(type)}" data-achievement-id="${escapeHtml(id)}">
+                    <div class="achievement-card ${earned ? '' : 'locked'}" data-tier="${escapeHtml(tierLabel)}" data-type="${escapeHtml(type)}" data-earned="${earned ? 'true' : 'false'}" data-achievement-id="${escapeHtml(id)}">
+                        <div class="achievement-status" aria-hidden="true">${earned ? STATUS_EARNED_SVG : STATUS_LOCKED_SVG}</div>
                         <div class="achievement-header">
                             <div class="achievement-icon">
                                 ${iconUrl ? `<img src="${iconUrl}" alt="${escapeHtml(name)}">` : '<span class="text-xs text-gray">?</span>'}

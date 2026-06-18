@@ -1863,6 +1863,7 @@
                                         <div class="tier-summary-progress" id="account-tier-progress"></div>
                                     </div>
                                 </div>
+                                <div id="account-achievements-count" class="achievements-count"></div>
                                 <div id="account-achievements-list" class="achievement-grid">
                                     <div class="text-xs text-gray">Loading achievements…</div>
                                 </div>
