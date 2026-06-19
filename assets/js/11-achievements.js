@@ -46,7 +46,48 @@
             const target = ADMIN_EMAIL.toLowerCase();
             const isAdmin = Boolean(current && current === target);
             panel.style.display = isAdmin ? 'block' : 'none';
-            if (isAdmin) syncAdminSignupToggleUI();
+            if (isAdmin) { syncAdminSignupToggleUI(); syncAdminHideLogsToggleUI(); }
+        }
+
+        // ─── Admin: show/hide the bottom-left debug "Logs" button (per-device) ───
+        const LOG_FAB_HIDDEN_KEY = 'ct_hide_log_fab';
+
+        function isLogFabHidden() {
+            try { return localStorage.getItem(LOG_FAB_HIDDEN_KEY) === '1'; } catch (_) { return false; }
+        }
+
+        // Apply visibility: shown only for the admin AND only if not hidden.
+        function applyLogFabVisibility() {
+            try {
+                const fab = document.getElementById('log-fab');
+                if (!fab) return;
+                const email = String(cachedAuthUser?.email || '').trim().toLowerCase();
+                const isAdmin = !!email && email === String(ADMIN_EMAIL || '').trim().toLowerCase();
+                const show = isAdmin && !isLogFabHidden();
+                fab.style.display = show ? '' : 'none';
+                if (!show) {
+                    const panel = document.getElementById('log-panel');
+                    if (panel) panel.classList.remove('open');
+                }
+            } catch (_) {}
+        }
+
+        function handleAdminHideLogsToggle(checked) {
+            // The toggle reads "Show debug logs button": checked = visible.
+            try { localStorage.setItem(LOG_FAB_HIDDEN_KEY, checked ? '0' : '1'); } catch (_) {}
+            applyLogFabVisibility();
+            syncAdminHideLogsToggleUI();
+        }
+
+        function syncAdminHideLogsToggleUI() {
+            const toggle = document.getElementById('admin-hide-logs-toggle');
+            const slider = document.getElementById('admin-hide-logs-slider');
+            const knob = document.getElementById('admin-hide-logs-knob');
+            if (!toggle) return;
+            const show = !isLogFabHidden();
+            toggle.checked = show;
+            if (slider) slider.style.background = show ? 'var(--brand)' : 'rgba(255,255,255,0.15)';
+            if (knob) knob.style.transform = show ? 'translateX(22px)' : 'translateX(0)';
         }
 
         function syncAdminSignupToggleUI() {

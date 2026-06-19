@@ -1957,6 +1957,17 @@
                                 <div id="admin-signup-status" class="text-xs" style="margin-top:0.4rem; color:var(--text-muted);"></div>
                                 <div style="margin-top: 0.75rem; display:flex; align-items:center; justify-content:space-between; gap:0.75rem; padding:0.65rem 0.75rem; border-radius:0.75rem; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.04);">
                                     <div>
+                                        <div class="text-sm text-white font-bold">Show debug logs button</div>
+                                        <div class="text-xs text-gray" style="margin-top:0.2rem;">The “Logs” button in the bottom-left corner (this device only).</div>
+                                    </div>
+                                    <label style="position:relative; display:inline-block; width:48px; height:26px; flex-shrink:0; cursor:pointer;">
+                                        <input type="checkbox" id="admin-hide-logs-toggle" onchange="handleAdminHideLogsToggle(this.checked)" style="opacity:0; width:0; height:0;">
+                                        <span id="admin-hide-logs-slider" style="position:absolute; inset:0; border-radius:999px; background:rgba(255,255,255,0.15); transition:background 0.25s;"></span>
+                                        <span id="admin-hide-logs-knob" style="position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:50%; background:#fff; transition:transform 0.25s; box-shadow:0 2px 6px rgba(0,0,0,0.3);"></span>
+                                    </label>
+                                </div>
+                                <div style="margin-top: 0.75rem; display:flex; align-items:center; justify-content:space-between; gap:0.75rem; padding:0.65rem 0.75rem; border-radius:0.75rem; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.04);">
+                                    <div>
                                         <div class="text-sm text-white font-bold">Achievement Builder</div>
                                         <div class="text-xs text-gray" style="margin-top:0.2rem;">Generate a new achievement + custom icon from a prompt.</div>
                                     </div>
