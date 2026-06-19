@@ -1644,6 +1644,39 @@
             display: block;
             transform: translateY(6px);
         }
+        /* Tier color when data-tier sits on the icon itself (Achievement Builder
+           previews). On real cards the color inherits from .achievement-card. */
+        .achievement-icon[data-tier="Bronze"] { --tier-rgb: 206, 137, 70; }
+        .achievement-icon[data-tier="Silver"] { --tier-rgb: 196, 196, 196; }
+        .achievement-icon[data-tier="Gold"] { --tier-rgb: 239, 191, 4; }
+        .achievement-icon[data-tier="Platinum"] { --tier-rgb: 164, 200, 225; }
+        .achievement-icon[data-tier="Diamond"] { --tier-rgb: 15, 82, 186; }
+        .achievement-icon[data-tier="Emerald"] { --tier-rgb: 80, 200, 120; }
+        .achievement-icon[data-tier="Ruby"] { --tier-rgb: 224, 17, 95; }
+        /* SVG badge: one base icon per achievement/family; the tier color is
+           applied here as an automatic frame (no per-tier art needed). */
+        .achievement-icon.is-svg {
+            background:
+                radial-gradient(circle at 50% 30%, rgba(var(--tier-rgb), 0.34), rgba(255,255,255,0.04) 72%),
+                rgba(0,0,0,0.25);
+            border: 1px solid rgba(var(--tier-rgb), 0.55);
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,0.18),
+                inset 0 0 12px rgba(var(--tier-rgb), 0.20),
+                0 4px 10px rgba(0,0,0,0.35);
+        }
+        .achievement-icon .ach-icon-art--svg {
+            width: 78%;
+            height: 78%;
+            object-fit: contain;
+            object-position: center;
+            transform: none;
+            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
+        }
+        .achievement-card.locked .achievement-icon.is-svg .ach-icon-art--svg {
+            filter: grayscale(1) drop-shadow(0 1px 2px rgba(0,0,0,0.45));
+            opacity: 0.55;
+        }
         .achievement-badge {
             font-size: 0.72rem;
             font-weight: 800;

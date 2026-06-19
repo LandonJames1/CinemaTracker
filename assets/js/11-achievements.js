@@ -95,11 +95,40 @@
             return `Rated ${count} Movies`;
         }
 
+        // ─── Achievement badge rendering (icon + automatic tier frame) ───
+        // Each achievement (or family of tiers) needs only ONE base icon; the
+        // tier color is applied as a frame by CSS via --tier-rgb, so there's no
+        // per-tier art to make. icon_url may be: raw inline "<svg…>" markup, a
+        // data: URL, or an http(s) URL. SVG icons render as a framed medallion;
+        // legacy raster (Canva) icons keep their original full-bleed look.
+
+        function achievementIconIsSvg(iconUrl) {
+            const s = String(iconUrl || '').trim();
+            if (!s) return false;
+            return s.startsWith('<svg') || s.startsWith('data:image/svg') || /\.svg(\?|#|$)/i.test(s);
+        }
+
+        // Turn raw "<svg …>…</svg>" markup into an inline data URL so it renders
+        // safely inside an <img> (no innerHTML injection of stored content).
+        function achievementIconToSrc(iconUrl) {
+            const s = String(iconUrl || '').trim();
+            if (!s) return '';
+            if (s.startsWith('<svg')) return 'data:image/svg+xml;utf8,' + encodeURIComponent(s);
+            return s;
+        }
+
+        function renderAchievementIconHtml(iconUrl, name) {
+            const src = achievementIconToSrc(iconUrl);
+            if (!src) return '<span class="text-xs text-gray">?</span>';
+            const cls = achievementIconIsSvg(iconUrl) ? 'ach-icon-art ach-icon-art--svg' : 'ach-icon-art';
+            return `<img class="${cls}" src="${escapeHtml(src)}" alt="${escapeHtml(String(name || ''))}">`;
+        }
+
         async function loadAchievementsDefinitions() {
             if (!supabaseClient) return;
             const { data, error } = await supabaseClient
                 .from('Achievements')
-                .select('id, name, description, icon_url, tier, type, points, is_active')
+                .select('id, name, description, icon_url, tier, type, points, is_active, rule, family')
                 .order('points', { ascending: true });
             if (error || !Array.isArray(data)) return;
 
@@ -166,6 +195,628 @@
                 nextTier,
                 progress,
             };
+        }
+
+        // ─── Admin: Achievement Builder (AI-generated icon + rule) ───
+        let achBuilderIcons = [];
+        let achBuilderSelectedIcon = -1;
+        let achBuilderResolvedMovies = [];
+        let achBuilderKeywords = [];
+        let achBuilderMode = 'create'; // 'create' | 'edit'
+        let achBuilderEditId = '';     // id of the achievement being edited in place
+        let achBuilderLadder = [];     // proposed additional sibling tiers to create together
+        let achBuilderManualFilms = [];        // {tmdb_id,title,year,poster_path} for a manual movie_set
+        let achBuilderManualSearchResults = []; // last "add movie" search results
+
+        function openAchievementBuilder() {
+            const overlay = document.getElementById('ach-builder-overlay');
+            if (!overlay) return;
+            const promptEl = document.getElementById('ach-builder-prompt');
+            const resultEl = document.getElementById('ach-builder-result');
+            const statusEl = document.getElementById('ach-builder-status');
+            const regenBtn = document.getElementById('ach-builder-regen-icons');
+            if (promptEl) promptEl.value = '';
+            if (resultEl) resultEl.style.display = 'none';
+            if (statusEl) statusEl.textContent = '';
+            if (regenBtn) regenBtn.style.display = 'none';
+            achBuilderIcons = [];
+            achBuilderSelectedIcon = -1;
+            achBuilderResolvedMovies = [];
+            achBuilderKeywords = [];
+            achBuilderEditId = '';
+            achBuilderLadder = [];
+            achBuilderManualFilms = [];
+            achBuilderManualSearchResults = [];
+            renderAchBuilderLadder();
+            const applyFam = document.getElementById('ach-builder-apply-family');
+            if (applyFam) applyFam.checked = false;
+            setAchBuilderMode('create');
+            overlay.style.display = 'flex';
+        }
+
+        function setAchBuilderMode(mode) {
+            achBuilderMode = mode === 'edit' ? 'edit' : 'create';
+            const createBtn = document.getElementById('ach-builder-mode-create');
+            const editBtn = document.getElementById('ach-builder-mode-edit');
+            const createRow = document.getElementById('ach-builder-create-row');
+            const editRow = document.getElementById('ach-builder-edit-row');
+            const resultEl = document.getElementById('ach-builder-result');
+            const regenBtn = document.getElementById('ach-builder-regen-icons');
+            const saveBtn = document.getElementById('ach-builder-save');
+            if (createBtn) createBtn.className = achBuilderMode === 'create' ? 'btn-glass' : 'btn-outline';
+            if (editBtn) editBtn.className = achBuilderMode === 'edit' ? 'btn-glass' : 'btn-outline';
+            if (createRow) createRow.style.display = achBuilderMode === 'create' ? 'block' : 'none';
+            if (editRow) editRow.style.display = achBuilderMode === 'edit' ? 'block' : 'none';
+            if (saveBtn) saveBtn.textContent = achBuilderMode === 'edit' ? 'Save Changes' : 'Create Achievement';
+            // Reset the working draft when switching modes.
+            achBuilderEditId = '';
+            achBuilderLadder = [];
+            renderAchBuilderLadder();
+            if (resultEl) resultEl.style.display = 'none';
+            if (regenBtn) regenBtn.style.display = 'none';
+            setAchBuilderStatus('');
+            if (achBuilderMode === 'edit') {
+                if (Array.isArray(achievementsList) && achievementsList.length) {
+                    syncAchBuilderEditOptions();
+                } else {
+                    setAchBuilderStatus('Loading achievements…');
+                    Promise.resolve(loadAchievementsDefinitions()).then(() => {
+                        syncAchBuilderEditOptions();
+                        setAchBuilderStatus('');
+                    });
+                }
+            }
+        }
+
+        function syncAchBuilderEditOptions() {
+            const select = document.getElementById('ach-builder-edit-select');
+            if (!select) return;
+            if (!Array.isArray(achievementsList) || !achievementsList.length) {
+                select.innerHTML = '<option value="">No achievements loaded</option>';
+                return;
+            }
+            const opts = ['<option value="">Select an achievement…</option>'];
+            achievementsList.forEach((row) => {
+                const id = String(row?.id || '').trim();
+                const name = String(row?.name || '').trim();
+                const tier = String(row?.tier || '').trim();
+                if (!id || !name) return;
+                opts.push(`<option value="${escapeHtml(id)}">${escapeHtml(name)}${tier ? ` (${escapeHtml(tier)})` : ''}</option>`);
+            });
+            select.innerHTML = opts.join('');
+        }
+
+        function loadAchievementIntoBuilder(id) {
+            const achId = String(id || '').trim();
+            if (!achId) return;
+            const row = achievementsList.find((r) => String(r?.id || '').trim() === achId);
+            if (!row) return;
+            achBuilderEditId = achId;
+
+            document.getElementById('ach-builder-result').style.display = 'block';
+            document.getElementById('ach-builder-regen-icons').style.display = 'inline-flex';
+            document.getElementById('ach-builder-name').value = String(row?.name || '');
+            document.getElementById('ach-builder-family').value = String(row?.family || '');
+            document.getElementById('ach-builder-desc').value = String(row?.description || '');
+            document.getElementById('ach-builder-tier').value = String(row?.tier || 'Bronze');
+            document.getElementById('ach-builder-points').value = Number(row?.points || 0) || 0;
+            document.getElementById('ach-builder-rule').value = row?.rule ? JSON.stringify(row.rule, null, 0) : '';
+            // Show the movie_set source panel (prefilled) — "Find on TMDB" refreshes it.
+            syncAchBuilderSourcePanel(row?.rule || {}, null, null);
+
+            // Seed keywords from the family/name so "Search" finds replacement icons.
+            achBuilderKeywords = String(row?.family || row?.name || '').split(/[_\s]+/).filter(Boolean);
+            const kwField = document.getElementById('ach-builder-keywords');
+            if (kwField) kwField.value = achBuilderKeywords.join(', ');
+
+            // Show the current icon as the pre-selected option; "Search" adds more.
+            const cur = String(row?.icon_url || '').trim();
+            achBuilderIcons = cur ? [cur] : [];
+            achBuilderSelectedIcon = cur ? 0 : -1;
+            achBuilderResolvedMovies = [];
+            const moviesEl = document.getElementById('ach-builder-movies');
+            if (moviesEl) moviesEl.innerHTML = '';
+            renderAchBuilderIcons();
+            setAchBuilderStatus('Editing in place — replace the icon (Search) or edit fields, then Save Changes.');
+        }
+
+        function closeAchievementBuilder() {
+            const overlay = document.getElementById('ach-builder-overlay');
+            if (overlay) overlay.style.display = 'none';
+        }
+
+        function setAchBuilderStatus(msg) {
+            const el = document.getElementById('ach-builder-status');
+            if (el) el.textContent = String(msg || '');
+        }
+
+        function renderAchBuilderIcons() {
+            const wrap = document.getElementById('ach-builder-icons');
+            if (!wrap) return;
+            const tier = String(document.getElementById('ach-builder-tier')?.value || '').trim();
+            if (!achBuilderIcons.length) {
+                wrap.innerHTML = '<div class="text-xs text-gray">No icons returned. Try “More icon options”.</div>';
+                return;
+            }
+            wrap.innerHTML = achBuilderIcons.map((svg, i) => {
+                const selected = i === achBuilderSelectedIcon;
+                const src = achievementIconToSrc(svg);
+                const isSvg = achievementIconIsSvg(svg);
+                return `
+                    <button type="button" onclick="selectAchBuilderIcon(${i})"
+                        class="achievement-icon ${isSvg ? 'is-svg' : ''}" data-tier="${escapeHtml(tier)}"
+                        style="width:72px; height:72px; cursor:pointer; outline:${selected ? '3px solid var(--brand)' : 'none'}; outline-offset:2px;">
+                        <img class="ach-icon-art ${isSvg ? 'ach-icon-art--svg' : ''}" src="${escapeHtml(src)}" alt="icon ${i + 1}">
+                    </button>`;
+            }).join('');
+        }
+
+        function selectAchBuilderIcon(idx) {
+            achBuilderSelectedIcon = Number(idx);
+            renderAchBuilderIcons();
+        }
+
+        // Human label for the threshold column, based on the achievement's rule type
+        // (so e.g. rating_count reads "Movies", daily_streak reads "Days").
+        function achBuilderThresholdUnit() {
+            let type = '';
+            try { type = String((JSON.parse(String(document.getElementById('ach-builder-rule')?.value || '{}')) || {}).type || ''); } catch (_) { type = ''; }
+            const map = {
+                rating_count: 'Movies',
+                rewatch_count: 'Rewatches',
+                genre_count: 'Genres',
+                decade_count: 'Decades',
+                daily_count: 'Per day',
+                rolling_week_count: 'Per week',
+                daily_streak: 'Days',
+                weekly_streak: 'Weeks',
+                recommend_count: 'Recs',
+                follow_count: 'Following',
+                follower_count: 'Followers',
+                list_count: 'Lists',
+                theater_count: 'In theaters',
+                actor_count: 'Same actor',
+                quote_count: 'Quotes',
+                series_count: 'Series',
+                runtime_hours: 'Hours',
+                high_rating_count: 'Movies',
+            };
+            return map[type] || 'Goal';
+        }
+
+        // Tier-ladder: render the AI-proposed additional sibling tiers as editable
+        // rows. They share the primary's family + chosen icon when created together.
+        function renderAchBuilderLadder() {
+            const wrap = document.getElementById('ach-builder-ladder-wrap');
+            const rowsEl = document.getElementById('ach-builder-ladder-rows');
+            if (!wrap || !rowsEl) return;
+            // Ladders only apply when creating new achievements.
+            if (achBuilderMode !== 'create' || !achBuilderLadder.length) {
+                wrap.style.display = 'none';
+                rowsEl.innerHTML = '';
+                updateAchBuilderSaveLabel();
+                return;
+            }
+            wrap.style.display = 'block';
+            const tiers = ['Bronze', 'Silver', 'Gold', 'Platinum', 'Diamond', 'Emerald', 'Ruby'];
+            const inp = 'padding:0.35rem 0.4rem; border-radius:0.4rem; border:1px solid rgba(255,255,255,0.14); background:#202024; color:#fff; width:100%;';
+            const cols = 'grid-template-columns: auto 1fr 96px 1fr 72px;';
+            const unit = achBuilderThresholdUnit();
+            const hdr = 'font-size:0.62rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; font-weight:700;';
+            const headerHtml = `
+                <div style="display:grid; ${cols} gap:0.4rem; align-items:center; padding:0 0.1rem;">
+                    <span></span>
+                    <span style="${hdr}">Name</span>
+                    <span style="${hdr}" title="How many ${escapeHtml(unit.toLowerCase())} are needed to earn it">${escapeHtml(unit)}</span>
+                    <span style="${hdr}">Tier</span>
+                    <span style="${hdr}" title="Achievement points awarded">Points</span>
+                </div>`;
+            rowsEl.innerHTML = headerHtml + achBuilderLadder.map((e, i) => `
+                <div style="display:grid; ${cols} gap:0.4rem; align-items:center;">
+                    <input type="checkbox" ${e._on ? 'checked' : ''} onchange="achBuilderLadder[${i}]._on=this.checked; updateAchBuilderSaveLabel();">
+                    <input type="text" value="${escapeHtml(String(e.name || ''))}" oninput="achBuilderLadder[${i}].name=this.value" placeholder="Name" style="${inp}">
+                    <input type="number" value="${Number(e.threshold) || 0}" oninput="achBuilderLadder[${i}].threshold=Number(this.value)||0" title="${escapeHtml(unit)} needed" style="${inp}">
+                    <select onchange="achBuilderLadder[${i}].tier=this.value" style="${inp}">${tiers.map((t) => `<option ${t === e.tier ? 'selected' : ''}>${t}</option>`).join('')}</select>
+                    <input type="number" value="${Number(e.points) || 0}" oninput="achBuilderLadder[${i}].points=Number(this.value)||0" title="Points awarded" style="${inp}">
+                </div>`).join('');
+            updateAchBuilderSaveLabel();
+        }
+
+        function updateAchBuilderSaveLabel() {
+            const saveBtn = document.getElementById('ach-builder-save');
+            if (!saveBtn) return;
+            if (achBuilderMode === 'edit') { saveBtn.textContent = 'Save Changes'; return; }
+            const extra = achBuilderLadder.filter((e) => e && e._on && e.name).length;
+            saveBtn.textContent = extra ? `Create ${extra + 1} achievements` : 'Create Achievement';
+        }
+
+        // ── movie_set source confirmation (person / collection / manual) ──
+        function setAchBuilderSourceStatus(msg, ok) {
+            const el = document.getElementById('ach-builder-source-status');
+            if (!el) return;
+            el.textContent = String(msg || '');
+            el.style.color = ok ? '#5fcf80' : 'var(--text-muted)';
+        }
+
+        function renderAchBuilderSourceFilms(films) {
+            const el = document.getElementById('ach-builder-source-films');
+            if (!el) return;
+            const list = Array.isArray(films) ? films : [];
+            el.innerHTML = list.length
+                ? list.map((f) => `${escapeHtml(String(f.title || ''))}${f.year ? ` (${escapeHtml(String(f.year))})` : ''}`).join('&nbsp; · &nbsp;')
+                : '';
+        }
+
+        // Show + prefill the source panel for a movie_set achievement (hidden otherwise).
+        function syncAchBuilderSourcePanel(rule, setSource, films) {
+            const panel = document.getElementById('ach-builder-source');
+            if (!panel) return;
+            const isSet = rule && String(rule.type || '') === 'movie_set';
+            panel.style.display = isSet ? 'block' : 'none';
+            if (!isSet) return;
+
+            const kindSel = document.getElementById('ach-builder-source-kind');
+            const queryEl = document.getElementById('ach-builder-source-query');
+            const kind = String((setSource && setSource.kind) || rule.source_kind || 'manual');
+            const role = String((setSource && setSource.role) || rule.person_role || 'Director');
+            if (kindSel) {
+                kindSel.value = kind === 'person'
+                    ? (role === 'Actor' ? 'person:Actor' : 'person:Director')
+                    : (kind === 'collection' ? 'collection' : 'manual');
+            }
+            if (queryEl) queryEl.value = String((setSource && setSource.name) || rule.source_name || '');
+
+            // Toggle auto (person/collection) vs manual editor sub-panels.
+            const autoEl = document.getElementById('ach-builder-source-auto');
+            const manualEl = document.getElementById('ach-builder-manual');
+            const filmsEl = document.getElementById('ach-builder-source-films');
+            const isManual = kind === 'manual';
+            if (autoEl) autoEl.style.display = isManual ? 'none' : 'block';
+            if (manualEl) manualEl.style.display = isManual ? 'block' : 'none';
+            if (filmsEl) filmsEl.style.display = isManual ? 'none' : 'block';
+
+            if (isManual) {
+                // Editable hand-curated list: seed from the resolved films (generate)
+                // or resolve stored ids (edit), then let the admin add/remove.
+                const resultsEl = document.getElementById('ach-builder-manual-results');
+                if (resultsEl) resultsEl.innerHTML = '';
+                if (Array.isArray(films) && films.length) {
+                    achBuilderManualFilms = films.filter((f) => f.tmdb_id).map((f) => ({ tmdb_id: Number(f.tmdb_id), title: String(f.title || ''), year: String(f.year || ''), poster_path: f.poster_path || null }));
+                    syncManualRuleIds();
+                    renderAchBuilderManualFilms();
+                    setAchBuilderSourceStatus(`${achBuilderManualFilms.length} movies — add/remove below.`, false);
+                } else if (Array.isArray(rule.tmdb_ids) && rule.tmdb_ids.length) {
+                    loadManualFilmsFromIds(rule.tmdb_ids);
+                } else {
+                    achBuilderManualFilms = [];
+                    renderAchBuilderManualFilms();
+                    setAchBuilderSourceStatus('Manual list — search to add movies, × to remove.', false);
+                }
+                return;
+            }
+
+            if (Array.isArray(films) && films.length) {
+                renderAchBuilderSourceFilms(films);
+                setAchBuilderSourceStatus(`✅ ${(setSource && setSource.name) || rule.source_name || 'Set'} — ${films.length} films.`, true);
+            } else {
+                renderAchBuilderSourceFilms([]);
+                const ids = Array.isArray(rule.tmdb_ids) ? rule.tmdb_ids.length : 0;
+                setAchBuilderSourceStatus(`Stored: ${ids} films. Click “Find on TMDB” to confirm / refresh the list.`, false);
+            }
+        }
+
+        // ── Manual (hand-curated) movie set: add/remove individual films ──
+        function getAchBuilderRuleObj() {
+            const ruleField = document.getElementById('ach-builder-rule');
+            let rule = {};
+            try { rule = JSON.parse(String(ruleField?.value || '{}')) || {}; } catch (_) { rule = {}; }
+            return rule;
+        }
+
+        // Write the current manual film list back into the Rule JSON (source of truth on Save).
+        function syncManualRuleIds() {
+            const ruleField = document.getElementById('ach-builder-rule');
+            const rule = getAchBuilderRuleObj();
+            rule.type = 'movie_set';
+            rule.source_kind = 'manual';
+            ['person_tmdb_id', 'collection_tmdb_id', 'person_role', 'source_name', 'movies'].forEach((k) => delete rule[k]);
+            rule.tmdb_ids = achBuilderManualFilms.map((f) => f.tmdb_id).filter(Boolean);
+            rule.require_count = rule.tmdb_ids.length;
+            if (ruleField) ruleField.value = JSON.stringify(rule, null, 0);
+        }
+
+        function renderAchBuilderManualFilms() {
+            const el = document.getElementById('ach-builder-manual-films');
+            if (!el) return;
+            if (!achBuilderManualFilms.length) {
+                el.innerHTML = '<span class="text-xs text-gray">No movies yet — search above to add some.</span>';
+                return;
+            }
+            el.innerHTML = achBuilderManualFilms.map((f, i) => `
+                <span style="display:inline-flex; align-items:center; gap:0.35rem; padding:0.25rem 0.5rem; border-radius:999px; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.14); font-size:0.72rem; color:#fff;">
+                    ${escapeHtml(String(f.title || ''))}${f.year ? ` <span style="color:rgba(255,255,255,0.6);">(${escapeHtml(String(f.year))})</span>` : ''}
+                    <button type="button" onclick="removeAchBuilderManualFilm(${i})" title="Remove" style="background:none; border:none; color:rgba(255,255,255,0.7); cursor:pointer; font-size:0.85rem; line-height:1; padding:0;">×</button>
+                </span>`).join('');
+        }
+
+        function addAchBuilderManualFilm(film) {
+            const id = Number(film?.tmdb_id);
+            if (!id || achBuilderManualFilms.some((f) => f.tmdb_id === id)) return;
+            achBuilderManualFilms.push({ tmdb_id: id, title: String(film?.title || ''), year: String(film?.year || ''), poster_path: film?.poster_path || null });
+            syncManualRuleIds();
+            renderAchBuilderManualFilms();
+            setAchBuilderSourceStatus(`${achBuilderManualFilms.length} movies in the list.`, true);
+        }
+
+        function removeAchBuilderManualFilm(idx) {
+            achBuilderManualFilms.splice(Number(idx), 1);
+            syncManualRuleIds();
+            renderAchBuilderManualFilms();
+            setAchBuilderSourceStatus(`${achBuilderManualFilms.length} movies in the list.`, false);
+        }
+
+        function addManualFromSearchIdx(i) {
+            const film = achBuilderManualSearchResults[Number(i)];
+            if (film) addAchBuilderManualFilm(film);
+        }
+
+        async function searchAchBuilderManual() {
+            const q = String(document.getElementById('ach-builder-manual-search')?.value || '').trim();
+            const resultsEl = document.getElementById('ach-builder-manual-results');
+            if (!q) { if (resultsEl) resultsEl.innerHTML = ''; return; }
+            if (resultsEl) resultsEl.innerHTML = '<span class="text-xs text-gray">Searching…</span>';
+            try {
+                const data = await callSwiftApiPublic({ action: 'search', query: q, limit: 8 });
+                const items = Array.isArray(data?.results) ? data.results : [];
+                achBuilderManualSearchResults = items.map((m) => ({ tmdb_id: Number(m.tmdb_id || m.id), title: String(m.title || ''), year: m.year ? String(m.year) : '', poster_path: m.poster_path || null })).filter((m) => m.tmdb_id);
+                if (resultsEl) {
+                    resultsEl.innerHTML = achBuilderManualSearchResults.length
+                        ? achBuilderManualSearchResults.map((m, i) => {
+                            const already = achBuilderManualFilms.some((f) => f.tmdb_id === m.tmdb_id);
+                            return `<button type="button" ${already ? 'disabled' : `onclick="addManualFromSearchIdx(${i})"`} style="text-align:left; padding:0.35rem 0.5rem; border-radius:0.4rem; border:1px solid rgba(255,255,255,0.12); background:${already ? 'rgba(255,255,255,0.03)' : '#202024'}; color:${already ? 'rgba(255,255,255,0.4)' : '#fff'}; cursor:${already ? 'default' : 'pointer'}; font-size:0.74rem;">${already ? '✓ ' : '+ '}${escapeHtml(m.title)}${m.year ? ` (${escapeHtml(m.year)})` : ''}</button>`;
+                        }).join('')
+                        : '<span class="text-xs text-gray">No movies found.</span>';
+                }
+            } catch (err) {
+                if (resultsEl) resultsEl.innerHTML = `<span class="text-xs text-gray">Search failed: ${escapeHtml(String(err?.message || err))}</span>`;
+            }
+        }
+
+        // Edit mode: resolve a stored manual set's tmdb_ids into titles so they show as chips.
+        async function loadManualFilmsFromIds(ids) {
+            const list = (Array.isArray(ids) ? ids : []).map(Number).filter(Boolean);
+            if (!list.length) { achBuilderManualFilms = []; renderAchBuilderManualFilms(); return; }
+            setAchBuilderSourceStatus('Loading current movies…', false);
+            try {
+                const { accessToken } = await requireAuthOrThrow();
+                const res = await callSwiftApi({ action: 'tmdb_lookup', tmdb_ids: list }, accessToken);
+                achBuilderManualFilms = (Array.isArray(res?.films) ? res.films : []).map((f) => ({ tmdb_id: Number(f.tmdb_id), title: String(f.title || ''), year: String(f.year || ''), poster_path: f.poster_path || null }));
+            } catch (_) {
+                achBuilderManualFilms = list.map((id) => ({ tmdb_id: id, title: `TMDB #${id}`, year: '', poster_path: null }));
+            }
+            renderAchBuilderManualFilms();
+            setAchBuilderSourceStatus(`${achBuilderManualFilms.length} movies in the list — add/remove below.`, false);
+        }
+
+        // Toggle the auto (person/collection) vs manual editor based on the Type dropdown.
+        function onAchBuilderSourceKindChange() {
+            const kindSel = String(document.getElementById('ach-builder-source-kind')?.value || 'manual');
+            const isManual = kindSel === 'manual';
+            const autoEl = document.getElementById('ach-builder-source-auto');
+            const manualEl = document.getElementById('ach-builder-manual');
+            const filmsEl = document.getElementById('ach-builder-source-films');
+            if (autoEl) autoEl.style.display = isManual ? 'none' : 'block';
+            if (manualEl) manualEl.style.display = isManual ? 'block' : 'none';
+            if (filmsEl) filmsEl.style.display = isManual ? 'none' : 'block';
+            if (isManual) {
+                syncManualRuleIds();
+                renderAchBuilderManualFilms();
+                setAchBuilderSourceStatus('Manual list — search to add movies, × to remove.', false);
+            } else {
+                setAchBuilderSourceStatus('Pick the type + name, then “Find on TMDB”.', false);
+            }
+        }
+
+        // Re-resolve the source against TMDB and merge the result into the Rule JSON
+        // (which is the single source of truth used on Save). Doubles as the refresh
+        // action in Edit mode when a new film has released.
+        async function resolveAchBuilderSource() {
+            const kindSel = String(document.getElementById('ach-builder-source-kind')?.value || 'manual');
+            const query = String(document.getElementById('ach-builder-source-query')?.value || '').trim();
+            let kind = kindSel;
+            let role = 'Director';
+            if (kindSel.indexOf('person:') === 0) { kind = 'person'; role = kindSel.split(':')[1] || 'Director'; }
+
+            const ruleField = document.getElementById('ach-builder-rule');
+            let rule = {};
+            try { rule = JSON.parse(String(ruleField?.value || '{}')) || {}; } catch (_) { rule = {}; }
+            rule.type = 'movie_set';
+            ['person_tmdb_id', 'collection_tmdb_id', 'person_role', 'source_name'].forEach((k) => delete rule[k]);
+
+            if (kind === 'manual') {
+                rule.source_kind = 'manual';
+                if (ruleField) ruleField.value = JSON.stringify(rule, null, 0);
+                setAchBuilderSourceStatus('Manual mode — set the films via the Rule JSON tmdb_ids array.', false);
+                renderAchBuilderSourceFilms([]);
+                return;
+            }
+            if (!query) { setAchBuilderSourceStatus('Enter a name to search.', false); return; }
+
+            setAchBuilderSourceStatus('Searching TMDB…', false);
+            try {
+                const { accessToken } = await requireAuthOrThrow();
+                const res = await callSwiftApi({ action: 'resolve_movie_source', set_source: { kind, query, role } }, accessToken);
+                if (!res?.ok) throw new Error(res?.message || 'Resolve failed.');
+                const source = res.source || {};
+                const films = Array.isArray(res.resolved_movies) ? res.resolved_movies : [];
+                if (!res.found || !films.length) {
+                    renderAchBuilderSourceFilms(films);
+                    setAchBuilderSourceStatus(`No match on TMDB for “${query}”. Try a different spelling or type.`, false);
+                    return;
+                }
+                rule.source_kind = kind;
+                if (source.person_tmdb_id) { rule.person_tmdb_id = source.person_tmdb_id; rule.person_role = source.role || role; }
+                if (source.collection_tmdb_id) rule.collection_tmdb_id = source.collection_tmdb_id;
+                if (source.name) rule.source_name = source.name;
+                rule.tmdb_ids = films.map((f) => f.tmdb_id).filter(Boolean);
+                rule.require_count = rule.tmdb_ids.length;
+                delete rule.movies;
+                if (ruleField) ruleField.value = JSON.stringify(rule, null, 0);
+
+                renderAchBuilderSourceFilms(films);
+                const idLabel = source.collection_tmdb_id ? `collection ${source.collection_tmdb_id}` : `person ${source.person_tmdb_id}`;
+                setAchBuilderSourceStatus(`✅ ${source.name} (TMDB ${idLabel}) — ${films.length} films. Confirmed.`, true);
+            } catch (err) {
+                setAchBuilderSourceStatus(`Error: ${String(err?.message || err)}`, false);
+            }
+        }
+
+        async function runAchievementBuilderGenerate(iconsOnly) {
+            const promptEl = document.getElementById('ach-builder-prompt');
+            const prompt = String(promptEl?.value || '').trim();
+            // Full generate needs a prompt; icon-only search can fall back to the
+            // name/keywords (so it works in Edit mode where the prompt is hidden).
+            const iconConcept = String(document.getElementById('ach-builder-name')?.value || '').trim();
+            if (!iconsOnly && !prompt) { setAchBuilderStatus('Enter a description first.'); return; }
+            if (iconsOnly && !prompt && !iconConcept
+                && !String(document.getElementById('ach-builder-keywords')?.value || '').trim()) {
+                setAchBuilderStatus('Add some icon search terms first.');
+                return;
+            }
+
+            const genBtn = document.getElementById('ach-builder-generate');
+            if (genBtn) genBtn.disabled = true;
+            setAchBuilderStatus(iconsOnly ? 'Finding icons…' : 'Generating achievement + icons…');
+
+            try {
+                const { accessToken } = await requireAuthOrThrow();
+                const body = { action: 'generate_achievement', prompt: prompt || iconConcept, icon_count: 4 };
+                if (iconsOnly) {
+                    body.icons_only = true;
+                    body.icon_concept = iconConcept || prompt;
+                    // Use the (possibly admin-edited) search terms field, else the stored keywords.
+                    const edited = String(document.getElementById('ach-builder-keywords')?.value || '')
+                        .split(',').map((s) => s.trim()).filter(Boolean);
+                    const kw = edited.length ? edited : achBuilderKeywords;
+                    if (kw.length) body.keywords = kw;
+                }
+                const res = await callSwiftApi(body, accessToken);
+                if (!res?.ok) throw new Error(res?.message || 'Generation failed.');
+
+                if (iconsOnly) {
+                    // REPLACE the grid with results for the current search terms
+                    // (so editing the terms doesn't leave stale icons behind).
+                    achBuilderIcons = Array.isArray(res.icons) ? res.icons : [];
+                    achBuilderSelectedIcon = achBuilderIcons.length ? 0 : -1;
+                    renderAchBuilderIcons();
+                    setAchBuilderStatus(achBuilderIcons.length
+                        ? `${achBuilderIcons.length} icons for: ${(Array.isArray(res.keywords) ? res.keywords : []).join(', ')}`
+                        : 'No icons matched those terms — try different words.');
+                    return;
+                }
+
+                const d = res.draft || {};
+                document.getElementById('ach-builder-result').style.display = 'block';
+                document.getElementById('ach-builder-regen-icons').style.display = 'inline-flex';
+                document.getElementById('ach-builder-name').value = d.name || '';
+                document.getElementById('ach-builder-family').value = d.family || '';
+                document.getElementById('ach-builder-desc').value = d.description || '';
+                document.getElementById('ach-builder-tier').value = d.tier || 'Bronze';
+                document.getElementById('ach-builder-points').value = d.points || 0;
+                document.getElementById('ach-builder-rule').value = JSON.stringify(d.rule || {}, null, 0);
+
+                achBuilderResolvedMovies = Array.isArray(res.resolved_movies) ? res.resolved_movies : [];
+                const moviesEl = document.getElementById('ach-builder-movies');
+                if (moviesEl) moviesEl.innerHTML = '';
+                // Movie-set source confirmation panel (person/collection auto-update).
+                syncAchBuilderSourcePanel(d.rule || {}, res.set_source, achBuilderResolvedMovies);
+
+                // Proposed additional sibling tiers (the "ladder"), checked by default.
+                achBuilderLadder = (Array.isArray(res.ladder) ? res.ladder : []).map((e) => ({ ...e, _on: true }));
+                renderAchBuilderLadder();
+
+                achBuilderKeywords = Array.isArray(res.keywords) ? res.keywords : [];
+                const kwField = document.getElementById('ach-builder-keywords');
+                if (kwField) kwField.value = achBuilderKeywords.join(', ');
+                achBuilderIcons = Array.isArray(res.icons) ? res.icons : [];
+                achBuilderSelectedIcon = achBuilderIcons.length ? 0 : -1;
+                renderAchBuilderIcons();
+                setAchBuilderStatus(achBuilderIcons.length ? 'Review/edit the fields, pick an icon, then save.' : 'No icons found — try “More icon options” or tweak the prompt.');
+            } catch (err) {
+                setAchBuilderStatus(`Error: ${String(err?.message || err)}`);
+            } finally {
+                if (genBtn) genBtn.disabled = false;
+            }
+        }
+
+        async function saveAchievementFromBuilder() {
+            const saveBtn = document.getElementById('ach-builder-save');
+            try {
+                if (achBuilderSelectedIcon < 0 || !achBuilderIcons[achBuilderSelectedIcon]) {
+                    setAchBuilderStatus('Pick an icon first.');
+                    return;
+                }
+                let rule = null;
+                const ruleRaw = String(document.getElementById('ach-builder-rule')?.value || '').trim();
+                if (ruleRaw) {
+                    try { rule = JSON.parse(ruleRaw); }
+                    catch (_) { setAchBuilderStatus('Rule JSON is invalid.'); return; }
+                }
+                const achievement = {
+                    name: String(document.getElementById('ach-builder-name')?.value || '').trim(),
+                    description: String(document.getElementById('ach-builder-desc')?.value || '').trim(),
+                    family: String(document.getElementById('ach-builder-family')?.value || '').trim(),
+                    tier: String(document.getElementById('ach-builder-tier')?.value || '').trim(),
+                    points: Number(document.getElementById('ach-builder-points')?.value) || 0,
+                    rule,
+                    icon_url: achBuilderIcons[achBuilderSelectedIcon],
+                };
+                if (!achievement.name) { setAchBuilderStatus('Name is required.'); return; }
+                // Edit mode: include the id so the row is UPDATED in place (no duplicate).
+                if (achBuilderMode === 'edit' && achBuilderEditId) achievement.id = achBuilderEditId;
+                const applyFamily = Boolean(document.getElementById('ach-builder-apply-family')?.checked);
+
+                // Build the full list to create: the primary + (create mode only) any
+                // checked ladder tiers — all sharing the family, icon and base rule.
+                const toCreate = [achievement];
+                if (achBuilderMode === 'create') {
+                    const baseRule = rule && typeof rule === 'object' ? rule : {};
+                    achBuilderLadder.filter((e) => e && e._on && String(e.name || '').trim()).forEach((e) => {
+                        toCreate.push({
+                            name: String(e.name).trim(),
+                            description: String(e.description || achievement.description || '').trim(),
+                            family: achievement.family,
+                            tier: String(e.tier || '').trim() || achievement.tier,
+                            points: Number(e.points) || 0,
+                            rule: { ...baseRule, threshold: Number(e.threshold) || 0 },
+                            icon_url: achievement.icon_url,
+                        });
+                    });
+                }
+
+                if (saveBtn) saveBtn.disabled = true;
+                const { accessToken } = await requireAuthOrThrow();
+                let savedCount = 0;
+                for (const ach of toCreate) {
+                    setAchBuilderStatus(`Saving ${savedCount + 1} of ${toCreate.length}…`);
+                    const res = await callSwiftApi({
+                        action: 'save_achievement',
+                        achievement: ach,
+                        apply_icon_to_family: applyFamily && ach === achievement,
+                    }, accessToken);
+                    if (!res?.ok) throw new Error(res?.message || `Save failed on "${ach.name}".`);
+                    savedCount += 1;
+                }
+
+                setAchBuilderStatus(savedCount > 1 ? `Created ${savedCount} achievements! ✅` : (applyFamily ? 'Saved + applied to family! ✅' : 'Saved! ✅'));
+                await loadAchievementsDefinitions();
+                renderAccountAchievements();
+                setTimeout(closeAchievementBuilder, 800);
+            } catch (err) {
+                setAchBuilderStatus(`Error: ${String(err?.message || err)}`);
+            } finally {
+                if (saveBtn) saveBtn.disabled = false;
+            }
         }
 
         function updateTestAchievementVisibility(email) {
@@ -418,8 +1069,8 @@
                     <div class="achievement-card ${earned ? '' : 'locked'}" data-tier="${escapeHtml(tierLabel)}" data-type="${escapeHtml(type)}" data-earned="${earned ? 'true' : 'false'}" data-achievement-id="${escapeHtml(id)}">
                         <div class="achievement-status" aria-hidden="true">${earned ? STATUS_EARNED_SVG : STATUS_LOCKED_SVG}</div>
                         <div class="achievement-header">
-                            <div class="achievement-icon">
-                                ${iconUrl ? `<img src="${iconUrl}" alt="${escapeHtml(name)}">` : '<span class="text-xs text-gray">?</span>'}
+                            <div class="achievement-icon ${achievementIconIsSvg(iconUrl) ? 'is-svg' : ''}">
+                                ${renderAchievementIconHtml(iconUrl, name)}
                             </div>
                             <div class="achievement-badge">${escapeHtml(tierLabel)}</div>
                         </div>
@@ -1331,9 +1982,8 @@
             const tier = normalizeAchievementTier(next?.tier);
             nameEl.textContent = name;
             descEl.textContent = desc;
-            iconEl.innerHTML = iconUrl
-                ? `<img src="${iconUrl}" alt="${escapeHtml(name)}">`
-                : '<span class="text-xs text-gray">?</span>';
+            iconEl.classList.toggle('is-svg', achievementIconIsSvg(iconUrl));
+            iconEl.innerHTML = renderAchievementIconHtml(iconUrl, name);
             bodyEl.setAttribute('data-tier', tier || '');
             modalEl.setAttribute('data-tier', tier || '');
             overlay.setAttribute('data-tier', tier || '');
@@ -1402,6 +2052,44 @@
             }
 
             gsap.delayedCall(0.25 * ACHIEVEMENT_ANIM_SLOWDOWN, finalize);
+        }
+
+        // Read the set of achievement ids a user currently has earned (the
+        // "before" snapshot taken just before a diary save).
+        async function captureEarnedAchievementIds(userId) {
+            if (!supabaseClient || !userId) return new Set();
+            const { data, error } = await supabaseClient
+                .from('User Achievements')
+                .select('achievement_id')
+                .eq('user_id', userId);
+            if (error || !Array.isArray(data)) return new Set();
+            return new Set(data.map((r) => String(r?.achievement_id || '')).filter(Boolean));
+        }
+
+        // After a diary save: the DB triggers (award_achievements_for_user) have
+        // already granted any newly-qualified achievements of ANY type. Diff the
+        // current earned set against the pre-save snapshot and celebrate only the
+        // brand-new ones — so retroactive/admin-added grants never animate.
+        async function popNewlyEarnedAchievements(userId, beforeSet) {
+            if (!supabaseClient || !cachedIsAuthed || !userId) return;
+            const before = beforeSet instanceof Set ? beforeSet : new Set();
+            await loadAchievementsDefinitions(); // ensure popup has names/icons
+            await loadUserAchievements(userId);  // refresh userAchievementIds (the "after")
+
+            const newlyIds = new Set();
+            userAchievementIds.forEach((id) => {
+                const key = String(id || '').trim();
+                if (key && !before.has(key)) newlyIds.add(key);
+            });
+
+            if (newlyIds.size) {
+                // achievementsList is ordered by points asc, so lower tiers pop first.
+                achievementsList.forEach((def) => {
+                    const id = String(def?.id || '').trim();
+                    if (id && newlyIds.has(id)) enqueueAchievementPopup(def);
+                });
+            }
+            renderAccountAchievements();
         }
 
         async function checkAndAwardRatingMilestones() {

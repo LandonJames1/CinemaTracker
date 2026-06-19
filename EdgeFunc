@@ -312,7 +312,7 @@ function inferGenresFromPrompt(prompt) {
 }
 
 
-async function callAnthropicJson({ apiKey, model, schemaName, schema, system, user }) {
+async function callAnthropicJson({ apiKey, model, schemaName, schema, system, user, maxTokens }) {
   if (!apiKey) throw new Error("Missing ANTHROPIC_API_KEY");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -323,7 +323,7 @@ async function callAnthropicJson({ apiKey, model, schemaName, schema, system, us
     },
     body: JSON.stringify({
       model,
-      max_tokens: 4096,
+      max_tokens: maxTokens || 4096,
       system,
       messages: [{ role: "user", content: user }],
       tools: [{
@@ -393,6 +393,249 @@ async function callAnthropicJsonWithSearch({ apiKey, model, schemaName, schema, 
     messages.push({ role: "assistant", content });
   }
   throw new Error("Anthropic did not return structured output after web search.");
+}
+
+// ─── Iconify icon library (achievement badge art) ───
+// We don't have the LLM draw SVGs (it produces crude geometry). Instead the LLM
+// proposes concrete object keywords, and we pull real, professional SVG icons
+// from Iconify — preferring game-icons.net (a large, badge-style set). Returned
+// icons are monochrome, recolored light so they read inside the tinted medallion
+// frame (the tier color comes from the frame, not the icon).
+// Preferred icon sets (game-icons rarely shows in search, but keep it first in
+// case it does; the rest are clean, well-stocked sets that DO appear in search).
+const ICONIFY_BADGE_PREFIXES = [
+  "game-icons", "ph", "material-symbols", "mdi", "solar",
+  "tabler", "fluent", "mingcute", "lucide", "ri", "fa6-solid",
+];
+const ICONIFY_ICON_COLOR = "#f4f4f6";
+
+// Solid/filled icons read better as badge emblems than thin outlines.
+function iconifyScore(id) {
+  const s = String(id || "");
+  const prefix = s.split(":")[0];
+  let score = ICONIFY_BADGE_PREFIXES.indexOf(prefix);
+  score = score === -1 ? 50 : score;
+  if (/fill|filled|bold|solid|duotone/i.test(s)) score -= 3; // prefer filled
+  if (/outline|thin|light|line|two-tone/i.test(s)) score += 3; // de-prefer outline
+  return score;
+}
+
+// Iconify search is LITERAL (no fuzzy): "lightsaber" -> 0, but "light-saber",
+// "light saber" and the head noun "saber" all match. So expand every keyword
+// into spelling/format variants before searching, broadest matches included.
+// strict=true (admin typed the term): only format variants of the EXACT phrase
+// (space/hyphen/concat + plural). strict=false (auto AI keywords): also broaden
+// to the bare head noun ("light saber" -> "saber") to cast a wider net.
+function expandKeywordVariants(kw, strict) {
+  const base = String(kw || "").trim().toLowerCase().replace(/[^a-z0-9\s-]/g, " ").replace(/\s+/g, " ").trim();
+  if (!base) return [];
+  const tokens = base.split(/[\s-]+/).filter(Boolean);
+  const out = [];
+  const add = (s) => {
+    const v = String(s || "").trim();
+    if (v && v.length >= 2 && !out.includes(v)) out.push(v);
+  };
+  if (tokens.length > 1) {
+    add(tokens.join(" "));   // "light saber"
+    add(tokens.join("-"));   // "light-saber"
+    add(tokens.join(""));    // "lightsaber"
+    if (!strict) add(tokens[tokens.length - 1]); // head noun: "saber" (broad only)
+  } else {
+    add(base);
+  }
+  // singular/plural toggle on each form (catches "saber" vs "sabers").
+  out.slice().forEach((f) => {
+    if (/s$/.test(f)) add(f.replace(/s$/, ""));
+    else add(f + "s");
+  });
+  return out;
+}
+
+async function iconifySearchRaw(query, limit) {
+  const q = String(query || "").trim();
+  if (!q) return [];
+  try {
+    const url = new URL("https://api.iconify.design/search");
+    url.searchParams.set("query", q);
+    url.searchParams.set("limit", String(limit || 32));
+    const res = await fetch(url.toString());
+    if (!res.ok) return [];
+    const json = await res.json().catch(() => null);
+    return Array.isArray(json?.icons) ? json.icons : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+// Search ONE keyword across its spelling variants until it yields icons.
+async function iconifySearch(query, limit, strict) {
+  const variants = expandKeywordVariants(query, strict);
+  const found = [];
+  let searches = 0;
+  for (const v of variants) {
+    if (searches >= 4) break; // cap per-keyword fan-out
+    searches += 1;
+    const ids = await iconifySearchRaw(v, limit);
+    for (const id of ids) if (!found.includes(id)) found.push(id);
+    if (found.length >= 12) break; // enough from this keyword
+  }
+  // Fallback for a GLUED compound the LLM didn't separate ("lightsaber"): the
+  // expander can't know where to split, so probe hyphen positions until one hits
+  // ("light-saber" -> game-icons:light-sabers). Broad mode only — in strict mode
+  // we respect exactly what the admin typed.
+  if (!found.length && !strict) {
+    const tok = String(query || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+    const hadSeparator = /[\s-]/.test(String(query || ""));
+    if (!hadSeparator && tok.length >= 7) {
+      for (let i = 3; i <= tok.length - 3 && searches < 10; i++) {
+        searches += 1;
+        const ids = await iconifySearchRaw(tok.slice(0, i) + "-" + tok.slice(i), limit);
+        if (ids.length) {
+          for (const id of ids) if (!found.includes(id)) found.push(id);
+          break;
+        }
+      }
+    }
+  }
+  return found.slice().sort((a, b) => iconifyScore(a) - iconifyScore(b));
+}
+
+async function iconifyFetchSvg(iconId, color) {
+  const [prefix, name] = String(iconId || "").split(":");
+  if (!prefix || !name) return null;
+  try {
+    const url = new URL(`https://api.iconify.design/${prefix}/${name}.svg`);
+    url.searchParams.set("color", color || ICONIFY_ICON_COLOR);
+    url.searchParams.set("width", "64");
+    url.searchParams.set("height", "64");
+    const res = await fetch(url.toString());
+    if (!res.ok) return null;
+    const svg = await res.text();
+    return /^<svg[\s>]/i.test(svg) && /<\/svg>\s*$/i.test(svg) ? svg : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Turn a list of concept keywords into ~`count` real icon SVG strings.
+// strict=true respects exactly what was typed (admin-edited terms); strict=false
+// broadens (auto AI keywords).
+async function iconsFromKeywords(keywords, count, shuffle, strict) {
+  const kws = (Array.isArray(keywords) ? keywords : [])
+    .map((k) => String(k || "").trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  if (!kws.length) return [];
+
+  // Gather candidate icon ids, preserving keyword priority + game-icons bias.
+  const seen = new Set();
+  const candidates = [];
+  for (const kw of kws) {
+    const ids = await iconifySearch(kw, 12, strict);
+    for (const id of ids) {
+      if (!seen.has(id)) { seen.add(id); candidates.push(id); }
+    }
+    if (candidates.length >= 40) break;
+  }
+  if (!candidates.length) return [];
+
+  let pool = candidates;
+  if (shuffle) {
+    pool = candidates.slice();
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+  }
+
+  const pick = pool.slice(0, Math.max(count || 4, 1) + 4); // over-fetch; some may 404
+  const svgs = (await Promise.all(pick.map((id) => iconifyFetchSvg(id, ICONIFY_ICON_COLOR))))
+    .filter(Boolean)
+    .slice(0, count || 4);
+  return svgs;
+}
+
+// ─── TMDB resolvers for source-aware movie_set achievements ───
+// A movie_set can be backed by a TMDB person (director/actor filmography) or a
+// TMDB collection (franchise). We store that person/collection id on the rule so
+// the set can be REFRESHED later when new films release. resolveMovieSet returns
+// the canonical source + its current film list, so the admin can CONFIRM TMDB has
+// the right thing before saving.
+async function tmdbGetJson(path, params, token) {
+  try {
+    const url = new URL(`https://api.themoviedb.org/3/${path}`);
+    for (const [k, v] of Object.entries(params || {})) {
+      if (v !== null && v !== undefined && v !== "") url.searchParams.set(k, String(v));
+    }
+    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    return await res.json().catch(() => null);
+  } catch (_) {
+    return null;
+  }
+}
+
+function normalizeTmdbFilms(list) {
+  const out = [];
+  const seen = new Set();
+  for (const f of Array.isArray(list) ? list : []) {
+    const id = Number(f?.id);
+    const title = String(f?.title || f?.name || "").trim();
+    const rd = String(f?.release_date || "").trim();
+    if (!id || !title || seen.has(id)) continue;
+    if (!rd) continue; // skip undated/announced entries — they can't be "watched"
+    seen.add(id);
+    out.push({ tmdb_id: id, title, year: rd.slice(0, 4), release_date: rd, poster_path: f?.poster_path || null });
+  }
+  out.sort((a, b) => String(a.release_date).localeCompare(String(b.release_date)));
+  return out;
+}
+
+async function resolveMovieSet(setSource, token) {
+  const kind = String(setSource?.kind || "").trim().toLowerCase();
+  const query = String(setSource?.query || "").trim();
+  const role = String(setSource?.role || "Director").trim();
+  const source = { kind: kind || "manual" };
+  let films = [];
+
+  if (kind === "person" && query) {
+    const sj = await tmdbGetJson("search/person", { query }, token);
+    const hit = Array.isArray(sj?.results) ? sj.results[0] : null;
+    if (hit?.id) {
+      source.person_tmdb_id = Number(hit.id);
+      source.name = hit.name || query;
+      source.role = role === "Actor" ? "Actor" : "Director";
+      const cj = await tmdbGetJson(`person/${hit.id}/movie_credits`, {}, token);
+      const raw = source.role === "Actor"
+        ? (Array.isArray(cj?.cast) ? cj.cast : [])
+        : (Array.isArray(cj?.crew) ? cj.crew : []).filter((c) => String(c?.job || "") === "Director");
+      films = normalizeTmdbFilms(raw);
+    }
+  } else if (kind === "collection" && query) {
+    const sj = await tmdbGetJson("search/collection", { query }, token);
+    const hit = Array.isArray(sj?.results) ? sj.results[0] : null;
+    if (hit?.id) {
+      source.collection_tmdb_id = Number(hit.id);
+      const cj = await tmdbGetJson(`collection/${hit.id}`, {}, token);
+      source.name = cj?.name || hit.name || query;
+      films = normalizeTmdbFilms(cj?.parts);
+    }
+  }
+  return { source, films };
+}
+
+// Fold a resolved source + film list into the rule JSON we persist.
+function applyMovieSetSourceToRule(rule, source, films) {
+  rule.type = "movie_set";
+  rule.source_kind = source?.kind || "manual";
+  if (source?.person_tmdb_id) rule.person_tmdb_id = source.person_tmdb_id;
+  if (source?.collection_tmdb_id) rule.collection_tmdb_id = source.collection_tmdb_id;
+  if (source?.role) rule.person_role = source.role;
+  if (source?.name) rule.source_name = source.name;
+  rule.tmdb_ids = (Array.isArray(films) ? films : []).map((f) => f.tmdb_id).filter(Boolean);
+  rule.require_count = rule.tmdb_ids.length;
+  delete rule.movies;
+  return rule;
 }
 
 function extractDirectorNameFromCredits(creditsJson) {
@@ -1186,6 +1429,385 @@ Deno.serve(async (req) => {
           ? undefined
           : "No push sent — enable push on this device first (Account → Push notifications), or VAPID secrets aren't set.",
       }, 200);
+    }
+
+    // Admin-only: generate a brand-new achievement (name, description, rule JSON,
+    // family, suggested tier/points) PLUS several simple flat-SVG icon options
+    // from a broad natural-language prompt. The client lets the admin pick/edit/
+    // regenerate an icon and then writes the Achievements row. For franchise /
+    // filmography prompts the model lists the films and we resolve them to real
+    // TMDB ids so the movie_set rule works.
+    if (action === "generate_achievement") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) {
+        return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      }
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const me = userData?.user || null;
+      if (userErr || !me?.id) {
+        return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+      }
+      const ADMIN_EMAIL = (Deno.env.get("ADMIN_EMAIL") || "landon.talus@gmail.com").trim().toLowerCase();
+      if (String(me.email || "").trim().toLowerCase() !== ADMIN_EMAIL) {
+        return jsonResponse({ code: 403, message: "Admin only." }, 403);
+      }
+
+      const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+      if (!ANTHROPIC_API_KEY) {
+        return jsonResponse({ code: 500, message: "Missing ANTHROPIC_API_KEY." }, 500);
+      }
+      const ANTHROPIC_MODEL_BUILDER = Deno.env.get("ANTHROPIC_MODEL_BUILDER") || "claude-sonnet-4-6";
+
+      const prompt = String(body?.prompt ?? "").trim();
+      if (!prompt) {
+        return jsonResponse({ code: 400, message: "Missing prompt." }, 400);
+      }
+      const iconCountRaw = Number(body?.icon_count);
+      const iconCount = Number.isFinite(iconCountRaw) ? Math.min(6, Math.max(3, Math.floor(iconCountRaw))) : 4;
+      // When the admin is iterating on art for an already-decided achievement,
+      // they can pass icons_only:true (+ icon_concept) to get fresh art without
+      // re-deriving the name/rule/etc.
+      const iconsOnly = body?.icons_only === true;
+      const iconHint = String(body?.icon_concept ?? "").trim();
+
+      // "More icon options" — no LLM needed: pull fresh icons from the library
+      // using the concept (or any extra keywords the client passes), shuffled.
+      if (iconsOnly) {
+        const kw = Array.isArray(body?.keywords) && body.keywords.length
+          ? body.keywords
+          : [iconHint || prompt, prompt].filter(Boolean);
+        const moreIcons = await iconsFromKeywords(kw, iconCount, true, true); // strict: respect typed terms
+        return jsonResponse({ ok: true, icons: moreIcons, keywords: kw }, 200);
+      }
+
+      const TIERS = ["Bronze", "Silver", "Gold", "Platinum", "Diamond", "Emerald", "Ruby"];
+      const RULE_HELP = [
+        "rating_count   - watch/rate N movies total. rule: {type,threshold,source:'ratings'}",
+        "rewatch_count  - rewatch one movie N times. rule: {type,threshold,source:'watch_logs'}",
+        "director_count - rate N movies by a single director. rule: {type,threshold,source:'ratings'}",
+        "genre_count    - rate movies across N distinct genres. rule: {type,threshold,source:'ratings'}",
+        "decade_count   - rate movies from N distinct decades. rule: {type,threshold,source:'ratings'}",
+        "daily_count    - watch N movies in one day. rule: {type,threshold,source:'watch_logs'}",
+        "rolling_week_count - watch N movies within any 7 days. rule:{type,threshold,source:'watch_logs'}",
+        "daily_streak   - watch movies N days in a row. rule: {type,threshold,source:'watch_logs'}",
+        "weekly_streak  - watch movies N weeks in a row. rule: {type,threshold,source:'watch_logs'}",
+        "recommend_count - recommend N movies to other users. rule: {type,threshold}",
+        "follow_count   - follow N other users. rule: {type,threshold}",
+        "follower_count - reach N followers. rule: {type,threshold}",
+        "list_count     - create N custom lists. rule: {type,threshold}",
+        "theater_count  - watch N movies in theaters. rule: {type,threshold}",
+        "actor_count    - rate N movies starring the same actor. rule: {type,threshold}",
+        "quote_count    - save N favourite movie quotes. rule: {type,threshold}",
+        "series_count   - watch N TV series. rule: {type,threshold}",
+        "runtime_hours  - watch N total HOURS of film (threshold is hours). rule: {type,threshold}",
+        "high_rating_count - rate N movies at or above a score. rule: {type,threshold,min_overall:90} (min_overall 0-100, default 90)",
+        "movie_set      - watch a SPECIFIC set of films (a franchise/saga/filmography). rule: {type:'movie_set', movies:[{title,year}], require_count?}",
+      ].join("\n");
+
+      const system = [
+        "You design achievements for a movie-tracking app called CinemaTracker.",
+        "Given a broad admin prompt, produce ONE achievement and a list of icon search keywords.",
+        "",
+        "RULE TYPES (pick the single best fit and fill its fields):",
+        RULE_HELP,
+        "",
+        "For movie_set, also fill 'set_source' so the set can auto-update when new films release:",
+        "  - a single DIRECTOR or ACTOR's filmography -> kind:'person', query:<their name>, role:'Director' or 'Actor'.",
+        "  - a FRANCHISE/saga TMDB groups as a collection (e.g. Harry Potter, James Bond) -> kind:'collection', query:<franchise name>.",
+        "  - a hand-picked/curated SUBSET TMDB does NOT track as one group (e.g. 'the 9 MAIN Star Wars films', excluding spinoffs) -> kind:'manual', and THEN list the exact films in rule.movies (title + year). Do NOT invent films.",
+        "Prefer person/collection when possible (those self-update); use manual only for curated subsets.",
+        "Pick a creative, evocative NAME (not just the prompt restated), and a clear one-sentence DESCRIPTION.",
+        "Pick a 'family' = a short snake_case key shared by sibling tiers of the same progression",
+        "(e.g. 'movies_rated', 'director_devotion', 'star_wars_saga'). Tiers in a family share one icon.",
+        "Suggest a 'tier' from: " + TIERS.join(", ") + " (harder = higher tier) and integer 'points' (10-200, harder = more).",
+        "",
+        "LADDER: if this is any COUNT/THRESHOLD achievement (rating_count, rewatch_count, genre_count,",
+        "decade_count, daily_count, rolling_week_count, daily_streak, weekly_streak, recommend_count,",
+        "follow_count, follower_count, list_count, theater_count, actor_count, quote_count, series_count,",
+        "runtime_hours, high_rating_count), ALSO propose a 'ladder'",
+        "of 3-6 ADDITIONAL higher tiers of the SAME progression (same family + rule type, escalating threshold,",
+        "rising tier toward Ruby, rising points) so the admin can create the whole set at once. Each ladder entry",
+        "needs name + 1-line description + threshold + tier + points. Do NOT repeat the requested tier. For",
+        "movie_set or genuinely one-off achievements, return an empty ladder.",
+        "",
+        "ICON KEYWORDS: give 8-12 'icon_keywords' to search an icon library with. NEVER use a proper",
+        "noun (person, brand, franchise, title) — those don't exist as icons. Translate the THEME into",
+        "concrete everyday OBJECTS associated with it, simplest/most-common first. The system also tries",
+        "spelling/plural variants automatically, so plain head nouns work best. Examples:",
+        "  'all Christopher Nolan movies' -> 'film','reel','clapperboard','director chair','camera','spinner','clock','maze'",
+        "  Star Wars -> 'saber','sword','rocket','planet','robot','helmet','star','spaceship'",
+        "  many-movies -> 'film','clapperboard','camera','popcorn','ticket','reel'",
+        "  streaks/marathons -> 'fire','calendar','medal','trophy','crown','flame'.",
+        "Mix SPECIFIC objects (e.g. 'saber') with several SAFE generic fallbacks ('film','trophy','star')",
+        "so at least some icons are always found. Each keyword = a real object noun (1-2 words ok), no verbs.",
+        "ALWAYS write multi-word objects as SEPARATE words — 'light saber' NOT 'lightsaber', 'director",
+        "chair' NOT 'directorchair', 'death star' NOT 'deathstar'. Never glue words together.",
+        "Also set 'icon_concept' to a 2-4 word subject summary.",
+      ].filter(Boolean).join("\n");
+
+      const schema = {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          description: { type: "string" },
+          family: { type: "string", description: "snake_case key shared by sibling tiers" },
+          tier: { type: "string", enum: TIERS },
+          points: { type: "integer" },
+          icon_concept: { type: "string", description: "2-4 word icon subject summary" },
+          icon_keywords: {
+            type: "array",
+            items: { type: "string", description: "a single concrete object/symbol to search for" },
+          },
+          ladder: {
+            type: "array",
+            description: "for count/threshold achievements: ADDITIONAL higher sibling tiers to optionally create together (same family). Empty for movie_set / one-offs.",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                description: { type: "string" },
+                threshold: { type: "integer" },
+                tier: { type: "string", enum: TIERS },
+                points: { type: "integer" },
+              },
+              required: ["name", "threshold", "tier", "points"],
+            },
+          },
+          set_source: {
+            type: "object",
+            description: "for movie_set: how the film set is defined so it can auto-update",
+            properties: {
+              kind: { type: "string", enum: ["person", "collection", "manual"] },
+              query: { type: "string", description: "the person or franchise/collection name to search on TMDB" },
+              role: { type: "string", enum: ["Director", "Actor"] },
+            },
+          },
+          rule: {
+            type: "object",
+            properties: {
+              type: { type: "string" },
+              threshold: { type: "integer" },
+              source: { type: "string" },
+              require_count: { type: "integer" },
+              movies: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: { title: { type: "string" }, year: { type: "integer" } },
+                  required: ["title"],
+                },
+              },
+            },
+            required: ["type"],
+          },
+        },
+        required: ["name", "description", "family", "tier", "points", "rule", "icon_keywords"],
+      };
+
+      let draft;
+      try {
+        draft = await callAnthropicJson({
+          apiKey: ANTHROPIC_API_KEY,
+          model: ANTHROPIC_MODEL_BUILDER,
+          schemaName: "achievement_draft",
+          schema,
+          system,
+          user: "Admin prompt: " + prompt,
+          maxTokens: 2048,
+        });
+      } catch (e) {
+        return jsonResponse({ code: 502, message: "Generation failed: " + String(e?.message || e) }, 502);
+      }
+
+      // Pull real icons from the library using the LLM's keywords.
+      const keywords = Array.isArray(draft?.icon_keywords) ? draft.icon_keywords : [];
+      const icons = await iconsFromKeywords(
+        keywords.length ? keywords : [String(draft?.icon_concept || prompt)],
+        iconCount,
+        false,
+        false, // broad: auto AI keywords cast a wide net
+      );
+
+      const rule = draft?.rule && typeof draft.rule === "object" ? { ...draft.rule } : {};
+      let resolvedMovies = [];
+      let setSourceOut = null;
+
+      if (String(rule.type || "") === "movie_set") {
+        const ss = draft?.set_source && typeof draft.set_source === "object" ? draft.set_source : {};
+        const kind = String(ss?.kind || "").toLowerCase();
+
+        if (kind === "person" || kind === "collection") {
+          // Resolve a TMDB person/collection -> store its id + current film list.
+          const { source, films } = await resolveMovieSet(ss, TMDB_READ_ACCESS_TOKEN);
+          applyMovieSetSourceToRule(rule, source, films);
+          resolvedMovies = films;
+          setSourceOut = source;
+        } else if (Array.isArray(rule.movies)) {
+          // Manual / curated subset: resolve the LLM's explicit titles to ids.
+          const tmdbIds = [];
+          for (const mv of rule.movies.slice(0, 60)) {
+            const title = String(mv?.title || "").trim();
+            if (!title) continue;
+            const sJson = await tmdbGetJson("search/movie", { query: title, year: mv?.year }, TMDB_READ_ACCESS_TOKEN);
+            const hit = Array.isArray(sJson?.results) ? sJson.results[0] : null;
+            if (hit?.id) {
+              tmdbIds.push(Number(hit.id));
+              resolvedMovies.push({ title: hit.title || title, year: String(hit.release_date || "").slice(0, 4) || (mv?.year ? String(mv.year) : ""), tmdb_id: Number(hit.id), poster_path: hit.poster_path || null });
+            } else {
+              resolvedMovies.push({ title, year: mv?.year ? String(mv.year) : "", tmdb_id: null, poster_path: null });
+            }
+          }
+          rule.source_kind = "manual";
+          rule.tmdb_ids = tmdbIds;
+          if (!rule.require_count) rule.require_count = tmdbIds.length;
+          delete rule.movies;
+          setSourceOut = { kind: "manual" };
+        }
+      }
+
+      return jsonResponse({
+        ok: true,
+        draft: {
+          name: String(draft?.name || "").trim(),
+          description: String(draft?.description || "").trim(),
+          family: String(draft?.family || "").trim(),
+          tier: String(draft?.tier || "").trim(),
+          points: Number(draft?.points) || 0,
+          icon_concept: String(draft?.icon_concept || "").trim(),
+          rule,
+        },
+        icons,
+        keywords,
+        set_source: setSourceOut,
+        resolved_movies: resolvedMovies,
+        ladder: (Array.isArray(draft?.ladder) ? draft.ladder : [])
+          .filter((e) => e && e.name && Number.isFinite(Number(e.threshold)))
+          .map((e) => ({
+            name: String(e.name).trim(),
+            description: String(e.description || "").trim(),
+            threshold: Number(e.threshold),
+            tier: String(e.tier || "").trim(),
+            points: Number(e.points) || 0,
+          })),
+      }, 200);
+    }
+
+    // Admin-only: (re)resolve a movie_set source against TMDB so the builder can
+    // CONFIRM the right person/collection + film list before saving.
+    if (action === "resolve_movie_source") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { headers: { Authorization: authHeader } } });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const me = userData?.user || null;
+      if (userErr || !me?.id) return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+      const ADMIN_EMAIL = (Deno.env.get("ADMIN_EMAIL") || "landon.talus@gmail.com").trim().toLowerCase();
+      if (String(me.email || "").trim().toLowerCase() !== ADMIN_EMAIL) return jsonResponse({ code: 403, message: "Admin only." }, 403);
+
+      const ss = body?.set_source && typeof body.set_source === "object"
+        ? body.set_source
+        : { kind: body?.kind, query: body?.query, role: body?.role };
+      const { source, films } = await resolveMovieSet(ss, TMDB_READ_ACCESS_TOKEN);
+      return jsonResponse({
+        ok: true,
+        source,
+        resolved_movies: films,
+        tmdb_ids: films.map((f) => f.tmdb_id),
+        found: Boolean(source?.person_tmdb_id || source?.collection_tmdb_id),
+      }, 200);
+    }
+
+    // Admin-only: resolve a list of TMDB movie ids -> display info (title/year/poster),
+    // so the builder can show a stored manual movie_set as editable rows when editing.
+    if (action === "tmdb_lookup") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { headers: { Authorization: authHeader } } });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const me = userData?.user || null;
+      if (userErr || !me?.id) return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+      const ADMIN_EMAIL = (Deno.env.get("ADMIN_EMAIL") || "landon.talus@gmail.com").trim().toLowerCase();
+      if (String(me.email || "").trim().toLowerCase() !== ADMIN_EMAIL) return jsonResponse({ code: 403, message: "Admin only." }, 403);
+
+      const ids = (Array.isArray(body?.tmdb_ids) ? body.tmdb_ids : [])
+        .map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0).slice(0, 80);
+      const films = (await mapWithConcurrency(ids, 6, async (id) => {
+        const j = await tmdbGetJson(`movie/${id}`, {}, TMDB_READ_ACCESS_TOKEN);
+        if (!j?.id) return null;
+        return { tmdb_id: Number(j.id), title: String(j.title || j.name || "").trim(), year: String(j.release_date || "").slice(0, 4), poster_path: j.poster_path || null };
+      })).filter(Boolean);
+      // Preserve the caller's id order.
+      films.sort((a, b) => ids.indexOf(a.tmdb_id) - ids.indexOf(b.tmdb_id));
+      return jsonResponse({ ok: true, films }, 200);
+    }
+
+    // Admin-only: insert (or update, if id is provided) an Achievements row.
+    // Uses the service role so it works regardless of table RLS, and is gated to
+    // the admin email. When updating, the id is preserved so earned User
+    // Achievements rows stay valid. The DB triggers re-award + recalc tiers.
+    if (action === "save_achievement") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) {
+        return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      }
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const me = userData?.user || null;
+      if (userErr || !me?.id) {
+        return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+      }
+      const ADMIN_EMAIL = (Deno.env.get("ADMIN_EMAIL") || "landon.talus@gmail.com").trim().toLowerCase();
+      if (String(me.email || "").trim().toLowerCase() !== ADMIN_EMAIL) {
+        return jsonResponse({ code: 403, message: "Admin only." }, 403);
+      }
+
+      const a = body?.achievement && typeof body.achievement === "object" ? body.achievement : {};
+      const name = String(a?.name || "").trim();
+      if (!name) return jsonResponse({ code: 400, message: "Missing achievement name." }, 400);
+      const rule = a?.rule && typeof a.rule === "object" ? a.rule : null;
+
+      const row = {
+        name,
+        description: String(a?.description || "").trim(),
+        tier: String(a?.tier || "").trim() || null,
+        points: Number(a?.points) || 0,
+        family: String(a?.family || "").trim() || null,
+        type: rule ? String(rule.type || "").trim() : (String(a?.type || "").trim() || null),
+        rule,
+        icon_url: String(a?.icon_url || "").trim() || null,
+        is_active: a?.is_active === false ? false : true,
+      };
+
+      let result;
+      const editId = String(a?.id || "").trim();
+      if (editId) {
+        result = await supabaseAdmin.from("Achievements").update(row).eq("id", editId).select("id").maybeSingle();
+      } else {
+        // When the admin adds a tier to an existing family and reuses its icon,
+        // the row is still a distinct achievement (different name/threshold).
+        result = await supabaseAdmin.from("Achievements").insert(row).select("id").maybeSingle();
+      }
+      if (result?.error) {
+        return jsonResponse({ code: 500, message: "Save failed: " + String(result.error.message || result.error) }, 500);
+      }
+
+      // If editing a family's art, optionally push the new icon to every sibling.
+      if (body?.apply_icon_to_family === true && row.family && row.icon_url) {
+        await supabaseAdmin.from("Achievements").update({ icon_url: row.icon_url }).eq("family", row.family);
+      }
+
+      // On a NEW achievement, silently grant it to everyone who already qualifies
+      // so it's not treated as "newly earned" (and animated) on their next save.
+      if (!editId) {
+        try { await supabaseAdmin.rpc("award_all_users"); } catch (_) {}
+      }
+
+      return jsonResponse({ ok: true, id: result?.data?.id || editId || null }, 200);
     }
 
     // Poster failsafe (Option B): on each invocation, opportunistically backfill missing Movies.poster_path.

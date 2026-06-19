@@ -220,6 +220,125 @@
         </div>
     </div>
 
+    <div id="ach-builder-overlay" class="auth-overlay" onclick="if(event.target === this) closeAchievementBuilder();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="ach-builder-title" style="max-width: 720px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="ach-builder-title">Achievement Builder</div>
+                <button class="auth-modal-close" type="button" onclick="closeAchievementBuilder()">Close</button>
+            </div>
+
+            <div style="display:flex; gap:0.4rem; margin-bottom:0.6rem;">
+                <button type="button" id="ach-builder-mode-create" class="btn-glass" onclick="setAchBuilderMode('create')" style="flex:1;">Create new</button>
+                <button type="button" id="ach-builder-mode-edit" class="btn-outline" onclick="setAchBuilderMode('edit')" style="flex:1;">Edit existing</button>
+            </div>
+
+            <div id="ach-builder-edit-row" style="display:none; margin-bottom:0.5rem;">
+                <label class="text-xs text-gray">Pick an achievement to replace/edit (updates it in place — no duplicate, keeps everyone's earned record)
+                    <select id="ach-builder-edit-select" onchange="loadAchievementIntoBuilder(this.value)" style="width:100%; margin-top:0.2rem; padding:0.5rem; border-radius:0.5rem; border:1px solid rgba(255,255,255,0.14); background:#202024; color:#fff;"></select>
+                </label>
+            </div>
+
+            <div id="ach-builder-create-row">
+                <div class="text-xs text-gray" style="margin-bottom:0.5rem;">
+                    Describe the achievement in plain language (e.g. “watch the 9 main Star Wars movies”, “rate 100 movies”). The AI fills in the name, description, rule and icon options.
+                </div>
+                <textarea id="ach-builder-prompt" rows="2" placeholder="Describe the achievement…" style="width:100%; resize:vertical; padding:0.6rem 0.7rem; border-radius:0.6rem; border:1px solid rgba(255,255,255,0.14); background:#202024; color:#fff;"></textarea>
+                <div style="display:flex; gap:0.5rem; margin-top:0.5rem; flex-wrap:wrap;">
+                    <button type="button" id="ach-builder-generate" class="btn-glass" onclick="runAchievementBuilderGenerate(false)">Generate</button>
+                </div>
+            </div>
+            <div style="display:flex; gap:0.5rem; margin-top:0.5rem; flex-wrap:wrap;">
+                <button type="button" id="ach-builder-regen-icons" class="btn-outline" onclick="runAchievementBuilderGenerate(true)" style="display:none;">Search terms / more icons</button>
+            </div>
+            <div id="ach-builder-status" class="text-xs" style="margin-top:0.5rem; color:var(--text-muted);"></div>
+
+            <div id="ach-builder-result" style="display:none; margin-top:0.75rem;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.6rem;">
+                    <label class="text-xs text-gray">Name
+                        <input id="ach-builder-name" type="text" style="width:100%; margin-top:0.2rem; padding:0.5rem; border-radius:0.5rem; border:1px solid rgba(255,255,255,0.14); background:#202024; color:#fff;">
+                    </label>
+                    <label class="text-xs text-gray">Family (shared icon key)
+                        <input id="ach-builder-family" type="text" style="width:100%; margin-top:0.2rem; padding:0.5rem; border-radius:0.5rem; border:1px solid rgba(255,255,255,0.14); background:#202024; color:#fff;">
+                    </label>
+                </div>
+                <label class="text-xs text-gray" style="display:block; margin-top:0.5rem;">Description
+                    <textarea id="ach-builder-desc" rows="2" style="width:100%; margin-top:0.2rem; resize:vertical; padding:0.5rem; border-radius:0.5rem; border:1px solid rgba(255,255,255,0.14); background:#202024; color:#fff;"></textarea>
+                </label>
+                <div style="display:grid; grid-template-columns: 1fr 1fr 2fr; gap:0.6rem; margin-top:0.5rem;">
+                    <label class="text-xs text-gray">Tier
+                        <select id="ach-builder-tier" onchange="renderAchBuilderIcons()" style="width:100%; margin-top:0.2rem; padding:0.5rem; border-radius:0.5rem; border:1px solid rgba(255,255,255,0.14); background:#202024; color:#fff;">
+                            <option>Bronze</option><option>Silver</option><option>Gold</option><option>Platinum</option><option>Diamond</option><option>Emerald</option><option>Ruby</option>
+                        </select>
+                    </label>
+                    <label class="text-xs text-gray">Points
+                        <input id="ach-builder-points" type="number" min="0" style="width:100%; margin-top:0.2rem; padding:0.5rem; border-radius:0.5rem; border:1px solid rgba(255,255,255,0.14); background:#202024; color:#fff;">
+                    </label>
+                    <label class="text-xs text-gray">Rule (JSON)
+                        <textarea id="ach-builder-rule" rows="2" style="width:100%; margin-top:0.2rem; resize:vertical; font-family:monospace; font-size:0.72rem; padding:0.5rem; border-radius:0.5rem; border:1px solid rgba(255,255,255,0.14); background:#202024; color:#fff;"></textarea>
+                    </label>
+                </div>
+                <div id="ach-builder-movies" class="text-xs text-gray" style="margin-top:0.4rem;"></div>
+
+                <div id="ach-builder-source" style="display:none; margin-top:0.6rem; padding:0.65rem 0.7rem; border:1px solid rgba(255,255,255,0.16); border-radius:0.6rem; background:rgba(255,255,255,0.03);">
+                    <div class="text-xs" style="color:#fff; font-weight:700; margin-bottom:0.4rem;">Film set source — confirm TMDB has the right thing</div>
+                    <div class="text-xs text-gray" style="margin-bottom:0.5rem;">Person/Collection sets auto-update when new films release. “Manual” is a hand-curated list you edit below.</div>
+                    <label class="text-xs text-gray" style="display:block;">Type
+                        <select id="ach-builder-source-kind" onchange="onAchBuilderSourceKindChange()" style="width:100%; margin-top:0.2rem; padding:0.5rem; border-radius:0.5rem; border:1px solid rgba(255,255,255,0.14); background:#202024; color:#fff;">
+                            <option value="person:Director">Director</option>
+                            <option value="person:Actor">Actor</option>
+                            <option value="collection">Movie collection</option>
+                            <option value="manual">Manual (curated list)</option>
+                        </select>
+                    </label>
+
+                    <div id="ach-builder-source-auto" style="margin-top:0.5rem;">
+                        <div style="display:grid; grid-template-columns: 1fr auto; gap:0.5rem; align-items:end;">
+                            <label class="text-xs text-gray">Name to find on TMDB
+                                <input id="ach-builder-source-query" type="text" placeholder="Christopher Nolan / Harry Potter" style="width:100%; margin-top:0.2rem; padding:0.5rem; border-radius:0.5rem; border:1px solid rgba(255,255,255,0.14); background:#202024; color:#fff;">
+                            </label>
+                            <button type="button" class="btn-glass" onclick="resolveAchBuilderSource()" style="white-space:nowrap;">Find on TMDB</button>
+                        </div>
+                    </div>
+
+                    <div id="ach-builder-manual" style="display:none; margin-top:0.5rem;">
+                        <div class="text-xs text-gray" style="margin-bottom:0.3rem;">The AI pre-filled related movies — add or remove any you like:</div>
+                        <div style="display:grid; grid-template-columns: 1fr auto; gap:0.5rem;">
+                            <input id="ach-builder-manual-search" type="text" placeholder="Search a movie to add…" onkeydown="if(event.key==='Enter'){event.preventDefault();searchAchBuilderManual();}" style="width:100%; padding:0.5rem; border-radius:0.5rem; border:1px solid rgba(255,255,255,0.14); background:#202024; color:#fff;">
+                            <button type="button" class="btn-glass" onclick="searchAchBuilderManual()" style="white-space:nowrap;">Search</button>
+                        </div>
+                        <div id="ach-builder-manual-results" style="margin-top:0.4rem; display:flex; flex-direction:column; gap:0.25rem; max-height:150px; overflow:auto;"></div>
+                        <div id="ach-builder-manual-films" style="margin-top:0.5rem; display:flex; flex-wrap:wrap; gap:0.35rem;"></div>
+                    </div>
+
+                    <div id="ach-builder-source-status" class="text-xs" style="margin-top:0.5rem; color:var(--text-muted);"></div>
+                    <div id="ach-builder-source-films" class="text-xs text-gray" style="margin-top:0.4rem; max-height:170px; overflow:auto;"></div>
+                </div>
+
+                <label class="text-xs text-gray" style="display:block; margin-top:0.7rem;">Icon search terms (comma-separated — edit + “Search” to change the icons)
+                    <input id="ach-builder-keywords" type="text" placeholder="film, trophy, star…" style="width:100%; margin-top:0.2rem; padding:0.5rem; border-radius:0.5rem; border:1px solid rgba(255,255,255,0.14); background:#202024; color:#fff;">
+                </label>
+
+                <div class="text-xs text-gray" style="margin-top:0.7rem;">Pick an icon (tier color is applied automatically):</div>
+                <div id="ach-builder-icons" style="display:flex; gap:0.6rem; flex-wrap:wrap; margin-top:0.4rem;"></div>
+
+                <div id="ach-builder-ladder-wrap" style="display:none; margin-top:0.8rem; padding:0.65rem 0.7rem; border:1px solid rgba(255,255,255,0.16); border-radius:0.6rem; background:rgba(255,255,255,0.03);">
+                    <div class="text-xs" style="color:#fff; font-weight:700;">Also create these tiers? (same family + icon)</div>
+                    <div class="text-xs text-gray" style="margin:0.2rem 0 0.5rem;">Each checked row is a tier created on Save. Columns: <b style="color:#fff;">Name</b> · how many to earn it · <b style="color:#fff;">Tier</b> color · <b style="color:#fff;">Points</b> awarded.</div>
+                    <div id="ach-builder-ladder-rows" style="display:flex; flex-direction:column; gap:0.4rem;"></div>
+                </div>
+
+                <label id="ach-builder-apply-family-wrap" class="text-xs text-gray" style="display:flex; align-items:center; gap:0.45rem; margin-top:0.7rem; cursor:pointer;">
+                    <input type="checkbox" id="ach-builder-apply-family"> Apply this icon to <b style="color:#fff;">every tier in this family</b> (e.g. all “Watch N movies” at once)
+                </label>
+
+                <div style="display:flex; gap:0.5rem; margin-top:0.9rem; justify-content:flex-end;">
+                    <button type="button" class="btn-outline" onclick="closeAchievementBuilder()">Cancel</button>
+                    <button type="button" id="ach-builder-save" class="btn-glass" onclick="saveAchievementFromBuilder()">Create Achievement</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="dash-kpi-ties-overlay" class="auth-overlay" onclick="if(event.target === this) closeDashKpiTies();" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="dash-kpi-ties-title" style="max-width: 640px;">
             <div class="auth-modal-header">

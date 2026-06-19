@@ -1955,6 +1955,13 @@
                                     </label>
                                 </div>
                                 <div id="admin-signup-status" class="text-xs" style="margin-top:0.4rem; color:var(--text-muted);"></div>
+                                <div style="margin-top: 0.75rem; display:flex; align-items:center; justify-content:space-between; gap:0.75rem; padding:0.65rem 0.75rem; border-radius:0.75rem; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.04);">
+                                    <div>
+                                        <div class="text-sm text-white font-bold">Achievement Builder</div>
+                                        <div class="text-xs text-gray" style="margin-top:0.2rem;">Generate a new achievement + custom icon from a prompt.</div>
+                                    </div>
+                                    <button type="button" class="btn-glass" onclick="openAchievementBuilder()" style="flex-shrink:0;">Open</button>
+                                </div>
                             </div>
                             </div>
                         </div>

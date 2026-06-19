@@ -490,6 +490,11 @@
                 const { user: authedUser, accessToken } = await requireAuthOrThrow();
                 lastKnownEntryType = entryType;
 
+                // Snapshot which achievements they already had BEFORE this save, so
+                // we only celebrate the ones THIS entry earns (DB triggers award
+                // synchronously during the insert). Retroactive grants never pop.
+                const earnedAchievementIdsBefore = await captureEarnedAchievementIds(authedUser.id);
+
                 const toNumberOrNull = (v) => {
                     const n = Number(v);
                     return Number.isFinite(n) ? n : null;
@@ -826,7 +831,7 @@
                         await removeMovieFromAutoLists({ user_id: authedUser.id, movie_id });
                     } catch (_) {}
 
-                    checkAndAwardRatingMilestones().catch(() => null);
+                    popNewlyEarnedAchievements(authedUser.id, earnedAchievementIdsBefore).catch(() => null);
 
                     openRatingsSuccessModal('updated');
                     return;
@@ -886,7 +891,7 @@
                     }
                 } catch (_) {}
 
-                checkAndAwardRatingMilestones().catch(() => null);
+                popNewlyEarnedAchievements(authedUser.id, earnedAchievementIdsBefore).catch(() => null);
 
                 openRatingsSuccessModal('saved');
                 return;
