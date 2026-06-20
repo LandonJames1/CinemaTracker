@@ -1403,6 +1403,230 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: true, movie_id: movieId, followers: followerIds.length, notified }, 200);
     }
 
+    // ---- Notify a user that someone started following them -------------------
+    // Fired by the Feed follow button. The caller is the follower; we push the
+    // person they just followed ("@you started following you"), deep-linking to
+    // the follower's profile so they can check them back out.
+    if (action === "notify_new_follower") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) {
+        return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      }
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const follower = userData?.user || null;
+      if (userErr || !follower?.id) {
+        return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+      }
+
+      const isUuid = (v) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || "").trim());
+      const followedId = String(body?.followed_id ?? "").trim();
+      if (!isUuid(followedId) || followedId === follower.id) {
+        return jsonResponse({ code: 400, message: "Valid followed_id is required." }, 400);
+      }
+
+      let followerHandle = "";
+      try {
+        const { data: frow } = await supabaseAdmin
+          .from("Users").select("username, display_name").eq("id", follower.id).single();
+        const uname = String(frow?.username ?? "").trim();
+        followerHandle = uname ? `@${uname}` : String(frow?.display_name ?? "").trim();
+      } catch (_) {}
+      if (!followerHandle) followerHandle = "Someone";
+
+      let notified = 0;
+      try {
+        const badge = await computeUnseenBadge(supabaseAdmin, followedId);
+        notified = await sendPushToUser(supabaseAdmin, followedId, {
+          title: "New Follower 👋",
+          body: `${followerHandle} started following you`,
+          url: `/#user=${follower.id}`,
+          badge,
+          tag: `follow-${follower.id}`,
+        });
+      } catch (_) {}
+
+      return jsonResponse({ ok: true, followed_id: followedId, notified }, 200);
+    }
+
+    // ---- Notify recommenders that their recommendation got reviewed ----------
+    // Fired by the diary form when the caller rates a movie. Anyone who had
+    // recommended THIS movie to the caller (a Recommendations row from_*→caller)
+    // gets a push to go read the caller's review (deep-link to the caller's
+    // review of that movie). Best-effort, fire-and-forget.
+    if (action === "notify_rec_reviewed") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) {
+        return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      }
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const rater = userData?.user || null;
+      if (userErr || !rater?.id) {
+        return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+      }
+
+      const isUuid = (v) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || "").trim());
+      const movieId = String(body?.movie_id ?? "").trim();
+      if (!isUuid(movieId)) {
+        return jsonResponse({ code: 400, message: "Valid movie_id is required." }, 400);
+      }
+
+      // Distinct people who recommended this movie to the caller.
+      let recommenderIds = [];
+      try {
+        const { data: recRows } = await supabaseAdmin
+          .from("Recommendations")
+          .select("from_user_id")
+          .eq("to_user_id", rater.id)
+          .eq("movie_id", movieId);
+        recommenderIds = Array.from(new Set(
+          (Array.isArray(recRows) ? recRows : [])
+            .map((x) => String(x.from_user_id || "").trim())
+            .filter((x) => isUuid(x) && x !== rater.id),
+        ));
+      } catch (_) {}
+      if (recommenderIds.length === 0) {
+        return jsonResponse({ ok: true, movie_id: movieId, recommenders: 0, notified: 0 }, 200);
+      }
+
+      let movieTitle = "", movieYear = "";
+      try {
+        const { data: mrow } = await supabaseAdmin
+          .from("Movies").select("title, release_year").eq("id", movieId).single();
+        movieTitle = String(mrow?.title ?? "").trim();
+        movieYear = (mrow?.release_year ?? "") === "" ? "" : String(mrow.release_year);
+      } catch (_) {}
+      let raterHandle = "";
+      try {
+        const { data: rrow } = await supabaseAdmin
+          .from("Users").select("username, display_name").eq("id", rater.id).single();
+        const uname = String(rrow?.username ?? "").trim();
+        raterHandle = uname ? `@${uname}` : String(rrow?.display_name ?? "").trim();
+      } catch (_) {}
+      if (!raterHandle) raterHandle = "Someone";
+
+      const titlePart = `"${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`;
+      let notified = 0;
+      for (const recId of recommenderIds) {
+        try {
+          const badge = await computeUnseenBadge(supabaseAdmin, recId);
+          const pushed = await sendPushToUser(supabaseAdmin, recId, {
+            title: "Your rec got watched 🎬",
+            body: `${raterHandle} reviewed ${titlePart} you recommended — check it out`,
+            url: `/#review=${rater.id}:${movieId}`,
+            badge,
+            tag: `rec-review-${rater.id}-${movieId}`,
+          });
+          if (pushed > 0) notified++;
+        } catch (_) {}
+      }
+
+      return jsonResponse({ ok: true, movie_id: movieId, recommenders: recommenderIds.length, notified }, 200);
+    }
+
+    // ---- Notify the OTHER members of a shared list of a new movie -------------
+    // Fired when a member adds a movie to a shared list. Recipients = the list's
+    // members (owner + List Members) minus the person who added it. The caller is
+    // verified to be a member before anything is sent. Best-effort web push.
+    if (action === "notify_list_add") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) {
+        return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      }
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const adder = userData?.user || null;
+      if (userErr || !adder?.id) {
+        return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+      }
+
+      const isUuid = (v) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || "").trim());
+      const listId = String(body?.list_id ?? "").trim();
+      const movieId = String(body?.movie_id ?? "").trim();
+      if (!isUuid(listId)) {
+        return jsonResponse({ code: 400, message: "Valid list_id is required." }, 400);
+      }
+
+      // Resolve the list (owner + name) and its members.
+      let ownerId = "", listName = "";
+      try {
+        const { data: lrow } = await supabaseAdmin
+          .from("Lists").select("user_id, list_name").eq("id", listId).single();
+        ownerId = String(lrow?.user_id ?? "").trim();
+        listName = String(lrow?.list_name ?? "").trim();
+      } catch (_) {}
+      if (!ownerId) {
+        return jsonResponse({ code: 404, message: "List not found." }, 404);
+      }
+
+      let memberIds = [];
+      try {
+        const { data: mrows } = await supabaseAdmin
+          .from("List Members").select("user_id").eq("list_id", listId);
+        memberIds = (Array.isArray(mrows) ? mrows : [])
+          .map((x) => String(x.user_id || "").trim()).filter(isUuid);
+      } catch (_) {}
+
+      // The full member set = owner + member rows. Verify the caller belongs to it.
+      const allMembers = Array.from(new Set([ownerId, ...memberIds].filter(isUuid)));
+      if (!allMembers.includes(adder.id)) {
+        return jsonResponse({ code: 403, message: "Not a member of this list." }, 403);
+      }
+      // Recipients = everyone in the list except the person who added the movie.
+      const recipientIds = allMembers.filter((x) => x !== adder.id);
+      if (recipientIds.length === 0) {
+        return jsonResponse({ ok: true, list_id: listId, recipients: 0, notified: 0 }, 200);
+      }
+
+      // Movie title (+ year) + adder handle for the message.
+      let movieTitle = "", movieYear = "";
+      if (isUuid(movieId)) {
+        try {
+          const { data: mrow } = await supabaseAdmin
+            .from("Movies").select("title, release_year").eq("id", movieId).single();
+          movieTitle = String(mrow?.title ?? "").trim();
+          movieYear = (mrow?.release_year ?? "") === "" ? "" : String(mrow.release_year);
+        } catch (_) {}
+      }
+      let adderHandle = "";
+      try {
+        const { data: arow } = await supabaseAdmin
+          .from("Users").select("username, display_name").eq("id", adder.id).single();
+        const uname = String(arow?.username ?? "").trim();
+        adderHandle = uname ? `@${uname}` : String(arow?.display_name ?? "").trim();
+      } catch (_) {}
+      if (!adderHandle) adderHandle = "Someone";
+
+      const titlePart = `"${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`;
+      const listPart = listName || "a shared list";
+      let notified = 0;
+      for (const rid of recipientIds) {
+        try {
+          const badge = await computeUnseenBadge(supabaseAdmin, rid);
+          const pushed = await sendPushToUser(supabaseAdmin, rid, {
+            title: `Added to ${listPart} 🎬`,
+            body: `${adderHandle} added ${titlePart} to ${listPart}`,
+            url: `/#list=${listId}`,
+            badge,
+            tag: `list-add-${listId}-${movieId}`,
+          });
+          if (pushed > 0) notified++;
+        } catch (_) {}
+      }
+
+      return jsonResponse({ ok: true, list_id: listId, recipients: recipientIds.length, notified }, 200);
+    }
+
     // Admin/self test: send a real Web Push to the caller's own subscribed devices.
     if (action === "test_push") {
       const authHeader = req.headers.get("Authorization") ?? "";

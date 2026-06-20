@@ -215,6 +215,27 @@
                 const hash = s.includes('#') ? s.slice(s.indexOf('#')) : s;
                 if (/^#?feed$/i.test(hash)) { router.navigate('feed'); return true; }
                 if (/^#?recs$/i.test(hash)) { listsPendingSelectName = 'Recs'; router.navigate('lists'); return true; }
+                // A specific list by id (#list=<listId>), e.g. the shared-list "movie
+                // added" push → open that list directly.
+                const listLink = hash.match(/^#?list=([0-9a-f-]{36})$/i);
+                if (listLink) { listsPendingSelectId = listLink[1]; router.navigate('lists'); return true; }
+                // A specific user's review of a movie (#review=<userId>:<movieId>),
+                // e.g. from the "your rec got watched" push → open their diary entry.
+                const review = hash.match(/^#?review=([0-9a-f-]{36}):([0-9a-f-]{36})$/i);
+                if (review && typeof openProfileMovieReview === 'function') {
+                    router.navigate('feed');
+                    const uid = review[1], mid = review[2];
+                    setTimeout(() => { try { openProfileMovieReview(uid, mid); } catch (_) {} }, 0);
+                    return true;
+                }
+                // A user's profile (#user=<userId>), e.g. from the new-follower push.
+                const prof = hash.match(/^#?user=([0-9a-f-]{36})$/i);
+                if (prof && typeof openUserProfile === 'function') {
+                    router.navigate('feed');
+                    const uid = prof[1];
+                    setTimeout(() => { try { openUserProfile(uid); } catch (_) {} }, 0);
+                    return true;
+                }
             } catch (_) {}
             return false;
         }

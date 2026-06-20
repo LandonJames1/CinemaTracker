@@ -13,6 +13,7 @@
         let achievementsByName = new Map();
         let achievementsList = [];
         let userAchievementIds = new Set();
+        let userAchievementEarnedAt = new Map(); // achievement_id -> earned_at (for the "This Month" filter)
         let userTierSummary = null;
         let userTiersList = [];
         const TEST_ACHIEVEMENT_EMAIL = 'landon.talus@gmail.com';
@@ -193,6 +194,14 @@
             if (error || !Array.isArray(data)) return;
 
             userAchievementIds = new Set(data.map((row) => String(row?.achievement_id || '')).filter(Boolean));
+            // Keep earned_at per achievement so the "This Month" timeframe filter
+            // (Achievements sub-tab of the Leaderboard route) can show only badges
+            // earned in the current calendar month.
+            userAchievementEarnedAt = new Map();
+            data.forEach((row) => {
+                const id = String(row?.achievement_id || '').trim();
+                if (id && row?.earned_at) userAchievementEarnedAt.set(id, row.earned_at);
+            });
         }
 
         async function loadUserTierSummary(userId) {
@@ -902,8 +911,31 @@
 
         let achievementSortMode = 'points_asc';
         let achievementTypeFilter = 'all';
+        let achievementTimeframe = 'all_time'; // 'all_time' | 'month' (Achievements sub-tab filter)
         let achievementFiltersOpen = false;
         let achievementFiltersMode = 'filter'; // which section the shared popover shows
+
+        // True when the achievement was earned in the current calendar month.
+        function isAchievementEarnedThisMonth(id) {
+            const raw = userAchievementEarnedAt.get(String(id || '').trim());
+            if (!raw) return false;
+            const d = new Date(raw);
+            if (isNaN(d.getTime())) return false;
+            const now = new Date();
+            return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+        }
+
+        function syncAchievementTimeframeUI() {
+            document.querySelectorAll('[data-ach-timeframe]').forEach((b) => {
+                b.classList.toggle('is-active', b.dataset.achTimeframe === achievementTimeframe);
+            });
+        }
+
+        function setAchievementTimeframe(tf) {
+            achievementTimeframe = (tf === 'month') ? 'month' : 'all_time';
+            syncAchievementTimeframeUI();
+            renderAccountAchievements();
+        }
 
         function syncAchievementFilterOptions() {
             const select = document.getElementById('account-achievement-filter');
@@ -962,6 +994,8 @@
 
         function getFilteredAchievementsList() {
             const filtered = achievementsList.filter((row) => {
+                // "This Month" → only badges earned in the current calendar month.
+                if (achievementTimeframe === 'month' && !isAchievementEarnedThisMonth(String(row?.id || '').trim())) return false;
                 if (!achievementTypeFilter || achievementTypeFilter === 'all') return true;
                 const type = String(row?.type || '').trim();
                 return type === achievementTypeFilter;
@@ -1062,16 +1096,26 @@
             syncAchievementSortControl();
             syncAchievementFilterOptions();
             syncAchievementFilterButtons();
+            syncAchievementTimeframeUI();
 
-            // Mobile section header: "X / Y earned" progress chip.
+            // Mobile section header: "X / Y earned" progress chip (or, in This Month
+            // mode, the count earned this month).
             const countEl = document.getElementById('account-achievements-count');
             if (countEl) {
                 const totalCount = achievementsList.length;
-                const earnedCount = achievementsList.reduce(
-                    (n, r) => n + (userAchievementIds.has(String(r?.id || '').trim()) ? 1 : 0), 0);
-                countEl.innerHTML = (cachedIsAuthed && totalCount)
-                    ? `<span class="ac-title">Your Badges</span><span class="ac-pill">${earnedCount} / ${totalCount} earned</span>`
-                    : '';
+                if (achievementTimeframe === 'month') {
+                    const monthCount = achievementsList.reduce(
+                        (n, r) => n + (isAchievementEarnedThisMonth(String(r?.id || '').trim()) ? 1 : 0), 0);
+                    countEl.innerHTML = (cachedIsAuthed && totalCount)
+                        ? `<span class="ac-title">Your Badges</span><span class="ac-pill">${monthCount} earned this month</span>`
+                        : '';
+                } else {
+                    const earnedCount = achievementsList.reduce(
+                        (n, r) => n + (userAchievementIds.has(String(r?.id || '').trim()) ? 1 : 0), 0);
+                    countEl.innerHTML = (cachedIsAuthed && totalCount)
+                        ? `<span class="ac-title">Your Badges</span><span class="ac-pill">${earnedCount} / ${totalCount} earned</span>`
+                        : '';
+                }
             }
 
             if (!cachedIsAuthed) {
@@ -1086,7 +1130,9 @@
 
             const filtered = getFilteredAchievementsList();
             if (!filtered.length) {
-                list.innerHTML = '<div class="text-xs text-gray">No achievements match those filters.</div>';
+                list.innerHTML = (achievementTimeframe === 'month')
+                    ? '<div class="text-xs text-gray">No achievements earned this month yet.</div>'
+                    : '<div class="text-xs text-gray">No achievements match those filters.</div>';
                 return;
             }
 

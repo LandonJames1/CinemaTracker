@@ -891,6 +891,16 @@
                     }
                 } catch (_) {}
 
+                // Best-effort, fire-and-forget: if anyone recommended THIS movie to me,
+                // notify them that I've now reviewed it (deep-links to my review). Fire
+                // on the new-entry path — a recommended movie is unwatched, so the first
+                // rating is always a new entry.
+                try {
+                    if (entryType === 'new') {
+                        callSwiftApi({ action: 'notify_rec_reviewed', movie_id }, accessToken).catch(() => null);
+                    }
+                } catch (_) {}
+
                 popNewlyEarnedAchievements(authedUser.id, earnedAchievementIdsBefore).catch(() => null);
 
                 openRatingsSuccessModal('saved');

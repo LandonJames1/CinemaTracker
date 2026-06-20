@@ -108,7 +108,7 @@
             <div class="more-sheet-grabber"></div>
             <button class="more-sheet-item" type="button" onclick="closeMoreSheet(); router.navigate('ai_picks');">AI Picks</button>
             <button class="more-sheet-item" type="button" onclick="closeMoreSheet(); router.navigate('dashboard');">Data Dash</button>
-            <button class="more-sheet-item" type="button" onclick="closeMoreSheet(); router.navigate('achievements');">Achievements</button>
+            <button class="more-sheet-item" type="button" onclick="closeMoreSheet(); router.navigate('leaderboard');">Leaderboard</button>
             <button class="more-sheet-item" type="button" onclick="closeMoreSheet(); router.navigate('account');">Account</button>
             <button id="more-auth-btn" class="more-sheet-item" type="button" onclick="closeMoreSheet(); handleNavAccountButtonClick(event);">Login</button>
         </div>
@@ -571,6 +571,18 @@
         </div>
     </div>
 
+    <!-- Shared-list movie reviews: pick a member who has reviewed this movie to
+         read their full review. Opened by tapping a poster on a SHARED list. -->
+    <div id="shared-movie-overlay" class="auth-overlay" onclick="if(event.target === this) closeSharedListMovieModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="shared-movie-title" style="max-width: 480px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="shared-movie-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Movie</div>
+                <button class="auth-modal-close" type="button" onclick="closeSharedListMovieModal()">Close</button>
+            </div>
+            <div id="shared-movie-body" style="margin-top: 0.6rem;"></div>
+        </div>
+    </div>
+
     <!-- User profile overview modal (opened from the Feed) -->
     <div id="profile-overlay" class="auth-overlay" onclick="if(event.target === this) closeUserProfile();" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="profile-title" style="max-width: 760px; width: 100%; max-height: 88vh; overflow-y: auto;">
@@ -638,6 +650,23 @@
 
             <form id="lists-create-form" style="margin-top: 0.85rem; display:grid; gap: 0.65rem;">
                 <input id="lists-create-name" type="text" class="input-field" placeholder="e.g. 2026 Watchlist" maxlength="80" autocomplete="off">
+
+                <!-- Shared (group) list toggle: when on, the list can be co-edited by
+                     the people you pick below (anyone you follow). -->
+                <label class="lists-shared-toggle" style="display:flex; align-items:center; gap:10px; cursor:pointer; padding:8px 2px;">
+                    <input id="lists-create-shared" type="checkbox" onchange="toggleListsCreateShared()" style="width:20px; height:20px; min-width:20px; accent-color:var(--brand); cursor:pointer;">
+                    <span style="display:flex; flex-direction:column; gap:1px;">
+                        <span style="color:#fff; font-weight:700; font-size:0.9rem;">Shared list</span>
+                        <span style="color:rgba(255,255,255,0.55); font-weight:600; font-size:0.76rem;">Let people you follow add &amp; remove movies too</span>
+                    </span>
+                </label>
+
+                <div id="lists-create-members-wrap" style="display:none;">
+                    <div class="text-sm" style="color: var(--text-muted); margin-bottom:0.4rem;">Pick members (people you follow):</div>
+                    <input id="lists-create-members-search" type="text" class="input-field" placeholder="Search people…" autocomplete="off" oninput="renderListsCreateMembers()" style="border-radius: 0.7rem; margin-bottom: 0.5rem;">
+                    <div id="lists-create-members-list" style="display:grid; gap:8px; max-height:240px; overflow:auto;"></div>
+                </div>
+
                 <div style="display:flex; gap: 10px; flex-wrap: wrap;">
                     <button type="submit" class="btn btn-primary" style="border-radius: 0.85rem;">Save</button>
                     <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="closeListsCreateModal()">Cancel</button>
@@ -709,6 +738,19 @@
                     <input id="lists-rename-name" type="text" class="input-field" placeholder="New list name" maxlength="80" autocomplete="off">
                     <div id="lists-rename-status" class="text-xs" style="color: rgba(255,255,255,0.60);"></div>
                 </form>
+            </div>
+
+            <!-- Members (shared lists only) — any member can add/remove people. -->
+            <div id="lists-edit-members-section" style="display:none; margin-top: 1.1rem; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.85rem;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                    <div class="text-white font-bold">Members</div>
+                    <button type="button" id="lists-edit-add-member-btn" class="btn btn-outline" style="border-radius:0.7rem; padding:0.35rem 0.7rem; font-size:0.82rem;" onclick="toggleListsEditAddMode()">Add member</button>
+                </div>
+                <div id="lists-edit-members-list" style="margin-top:0.6rem; display:grid; gap:8px;"></div>
+                <div id="lists-edit-add-member-wrap" style="display:none; margin-top:0.7rem;">
+                    <input id="lists-edit-members-search" type="text" class="input-field" placeholder="Search people you follow…" autocomplete="off" oninput="renderListsEditAddPicker()" style="border-radius:0.7rem; margin-bottom:0.5rem;">
+                    <div id="lists-edit-add-member-list" style="display:grid; gap:8px; max-height:220px; overflow:auto;"></div>
+                </div>
             </div>
 
             <!-- Delete (hidden for Recs / Bucket List) -->
@@ -1201,6 +1243,7 @@
     <script src="assets/js/16-ai-picks.js"></script>
     <script src="assets/js/17-theme-creator.js"></script>
     <script src="assets/js/18-account-page.js"></script>
+    <script src="assets/js/20-leaderboard.js"></script>
     <script src="assets/js/19-logging-boot.js"></script>
 </body>
 </html>

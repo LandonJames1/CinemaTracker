@@ -104,10 +104,12 @@
                 }
 
                 let authedUser = null;
+                let authedAccessToken = null;
                 try {
                     if (guardGuestWrite()) return;
-                    const { user } = await requireAuthOrThrow();
+                    const { user, accessToken } = await requireAuthOrThrow();
                     authedUser = user;
+                    authedAccessToken = accessToken;
                 } catch (err) {
                     showToast(String(err?.message || err), { level: 'warn' });
                     return;
@@ -126,6 +128,11 @@
                             .insert({ follower_id: authedUser.id, followed_id: targetUserId });
                         if (error) throw error;
                         showToast('Followed!', { level: 'success' });
+                        // Best-effort, fire-and-forget: push-notify the person I just
+                        // followed ("@me started following you").
+                        try {
+                            callSwiftApi({ action: 'notify_new_follower', followed_id: targetUserId }, authedAccessToken).catch(() => null);
+                        } catch (_) {}
                     }
 
                     if (action === 'unfollow') {

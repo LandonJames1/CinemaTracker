@@ -48,7 +48,7 @@
 
             navigate(page, mode = 'new', navMode = 'push') {
                 // If the user is not logged in, open the auth modal with demo option.
-                const authGatedPages = ['dashboard','dashboard_kpi','dashboard_pie_filter','feed','library','lists','account','achievements','theme_creator'];
+                const authGatedPages = ['dashboard','dashboard_kpi','dashboard_pie_filter','feed','library','lists','account','leaderboard','theme_creator'];
                 if (authGatedPages.includes(page) && !cachedIsAuthed) {
                     _pendingGuestPage = page;
                     openAuthModal();
@@ -103,7 +103,7 @@
                         const MOBILE_PAGE_TITLES = {
                             home: 'Home', feed: 'Feed', library: 'My Movies', lists: 'Lists',
                             ai_picks: 'AI Picks', dashboard: 'Data Dash', account: 'Account',
-                            achievements: 'Achievements', submit: 'Log Entry', theme_creator: 'Theme Creator',
+                            leaderboard: 'Leaderboard', submit: 'Log Entry', theme_creator: 'Theme Creator',
                         };
                         titleEl.textContent = MOBILE_PAGE_TITLES[page] || 'CinemaTracker';
                     }
@@ -167,11 +167,13 @@
                     refreshAuthStateAndUI();
                     initAccountPage();
                     loadAccountPage();
-                } else if (page === 'achievements') {
-                    root.innerHTML = this.renderAchievements();
+                } else if (page === 'leaderboard') {
+                    root.innerHTML = this.renderLeaderboard();
                     refreshAuthStateAndUI();
                     initAccountPage();        // binds the shared sort/filter + card-click handlers (idempotent)
-                    loadAchievementsPage();
+                    initLeaderboardPage();    // binds sub-tab + metric/timeframe controls (idempotent)
+                    loadAchievementsPage();   // Achievements sub-tab content
+                    setLeaderboardSubtab('leaderboard'); // default to the Leaderboard sub-tab + loads it
                 } else if (page === 'theme_creator') {
                     root.innerHTML = this.renderThemeCreator();
                     refreshAuthStateAndUI();
@@ -1816,16 +1818,45 @@
                 `;
             },
 
-            renderAchievements() {
+            renderLeaderboard() {
                 return `
                     <div class="fade-in">
                         <div class="container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
-                            <div class="flex justify-between items-center mb-6" style="gap: 14px; flex-wrap: wrap;">
+                            <div id="lb-page-header" class="flex justify-between items-center mb-6" style="gap: 14px; flex-wrap: wrap;">
                                 <div class="glass-panel page-title-card">
-                                    <h1 class="text-3xl font-bold text-white">Achievements</h1>
-                                    <p class="text-gray mt-2">Your tier, points, and badges.</p>
+                                    <h1 class="text-3xl font-bold text-white">Leaderboard</h1>
+                                    <p class="text-gray mt-2">See how you rank against people you follow.</p>
                                 </div>
-                                <div class="achievement-filter-wrap" style="display:flex; gap: 10px; align-items:center; flex-wrap: wrap; justify-content:flex-end;">
+                            </div>
+
+                            <div class="lb-subtabs" role="tablist">
+                                <button type="button" class="lb-subtab is-active" data-lbtab="leaderboard">Leaderboard</button>
+                                <button type="button" class="lb-subtab" data-lbtab="achievements">Achievements</button>
+                            </div>
+
+                            <div id="lb-panel-leaderboard" class="lb-panel">
+                                <div class="lb-controls">
+                                    <div class="lb-pillgroup" id="lb-metric-wrap" role="group" aria-label="Leaderboard metric">
+                                        <button type="button" class="lb-pill is-active" data-lb-metric="movies_rated">Movies Rated</button>
+                                        <button type="button" class="lb-pill" data-lb-metric="achievement_points">Points</button>
+                                    </div>
+                                    <div class="lb-pillgroup" id="lb-timeframe-wrap" role="group" aria-label="Leaderboard timeframe">
+                                        <button type="button" class="lb-pill is-active" data-lb-timeframe="month">This Month</button>
+                                        <button type="button" class="lb-pill" data-lb-timeframe="all_time">All-Time</button>
+                                    </div>
+                                </div>
+                                <div id="lb-content">
+                                    <div class="text-xs text-gray">Loading leaderboard…</div>
+                                </div>
+                            </div>
+
+                            <div id="lb-panel-achievements" class="lb-panel" style="display:none;">
+                            <div class="lb-ach-toolbar">
+                                <div class="lb-pillgroup" id="account-achievement-timeframe-wrap" role="group" aria-label="Achievements timeframe">
+                                    <button type="button" class="lb-pill is-active" data-ach-timeframe="all_time">All-Time</button>
+                                    <button type="button" class="lb-pill" data-ach-timeframe="month">This Month</button>
+                                </div>
+                                <div id="lb-ach-controls" class="achievement-filter-wrap" style="gap: 10px; align-items:center; flex-wrap: wrap; justify-content:flex-end;">
                                     <button id="account-achievement-filter-btn" type="button" class="btn btn-outline" style="padding: 0.45rem 0.7rem; border-radius: 0.85rem;">Filter</button>
                                     <button id="account-achievement-sort-btn" type="button" class="btn btn-outline" style="padding: 0.45rem 0.7rem; border-radius: 0.85rem;">Sort</button>
                                     <div id="account-achievement-filters-pop" class="achievement-filters-pop" aria-hidden="true">
@@ -1845,7 +1876,6 @@
                                     </div>
                                 </div>
                             </div>
-
                             <div class="account-achievements-layout">
                                 <div id="account-tier-summary" class="tier-summary-card" aria-live="polite" data-tier="Extra">
                                     <div class="tier-summary-header">
@@ -1881,6 +1911,7 @@
                                     </div>
                                 </div>
                             </div>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -1915,8 +1946,8 @@
                                     <div class="text-xs text-gray" style="margin-top: 0.35rem;">Update your password and view email.</div>
                                 </button>
                                 <button type="button" class="glass-panel" data-account-action="open_achievements" style="padding: 1rem; border-radius: 1rem; text-align: left;">
-                                    <div class="text-white font-bold">Achievements</div>
-                                    <div class="text-xs text-gray" style="margin-top: 0.35rem;">Your tier, points, and badges.</div>
+                                    <div class="text-white font-bold">Leaderboard</div>
+                                    <div class="text-xs text-gray" style="margin-top: 0.35rem;">Rank vs. friends, plus your tier and badges.</div>
                                 </button>
                                 <button type="button" class="glass-panel" data-account-action="open_feature" style="padding: 1rem; border-radius: 1rem; text-align: left;">
                                     <div class="text-white font-bold">Feature Requests</div>

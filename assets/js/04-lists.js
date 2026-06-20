@@ -8,6 +8,7 @@
         let listsAddAppliedYear = '';    // Year/MPA filters for the add-movie modal search
         let listsAddAppliedMpa = '';
         let listsPendingSelectName = ''; // when set, loadListsPage opens the list with this name (deep-links, e.g. "Recs")
+        let listsPendingSelectId = '';   // when set, loadListsPage opens the list with this id (deep-links, e.g. a shared-list-add push)
         let recByDataByMovieId = new Map(); // movie_id -> [{ id, username, icon }] recommenders (for the Recs "+" modal)
         let cachedLists = [];
         let cachedListsUserId = null;
@@ -23,6 +24,14 @@
         let listsCreateBusy = false;
         let listsRenameBusy = false;
         let listsDeleteBusy = false;
+
+        // Shared (group) list state.
+        let listsCreateShared = false;                 // Create modal: shared toggle
+        let listsCreateSelectedMemberIds = new Set();  // Create modal: chosen members
+        let listsFollowsCache = [];                    // [{id, username, display_name, icon}]
+        let listsFollowsCacheUserId = '';
+        let listsEditMembers = [];                      // Edit modal: current members of the active list
+        let listsEditAddMode = false;                   // Edit modal: showing the "add member" picker?
 
         function isBucketList({ list_id, list_name } = {}) {
             const lid = String(list_id || '').trim();
@@ -731,6 +740,15 @@
                 input.value = '';
                 try { input.focus(); } catch (_) {}
             }
+            // Reset shared-list state.
+            listsCreateShared = false;
+            listsCreateSelectedMemberIds = new Set();
+            const sharedCb = document.getElementById('lists-create-shared');
+            if (sharedCb) sharedCb.checked = false;
+            const wrap = document.getElementById('lists-create-members-wrap');
+            if (wrap) wrap.style.display = 'none';
+            const search = document.getElementById('lists-create-members-search');
+            if (search) search.value = '';
             listsCreateBusy = false;
         }
 
@@ -743,6 +761,106 @@
             const input = document.getElementById('lists-create-name');
             if (input) input.value = '';
             listsCreateBusy = false;
+        }
+
+        // --- Shared-list member picker (Create modal) --------------------------
+        // Load the people the current user follows (reused by the Create + Edit
+        // member pickers). Cached per user.
+        async function loadListsFollows({ user_id, force = false } = {}) {
+            const uid = String(user_id || '').trim();
+            if (!uid) return [];
+            if (!force && listsFollowsCacheUserId === uid && listsFollowsCache.length) return listsFollowsCache;
+
+            const { data: f } = await supabaseClient
+                .from('Follows').select('followed_id').eq('follower_id', uid);
+            const ids = Array.from(new Set((Array.isArray(f) ? f : [])
+                .map(r => String(r?.followed_id || '').trim()).filter(Boolean)));
+            if (!ids.length) { listsFollowsCache = []; listsFollowsCacheUserId = uid; return []; }
+
+            let data = null;
+            try {
+                const r1 = await supabaseClient.from('Users').select('id, username, display_name, icon').in('id', ids);
+                if (r1.error) throw r1.error; data = r1.data;
+            } catch (e1) {
+                if (/column\s+"?icon"?\s+does\s+not\s+exist/i.test(String(e1?.message || e1))) {
+                    const r2 = await supabaseClient.from('Users').select('id, username, display_name').in('id', ids);
+                    data = r2.data;
+                }
+            }
+            listsFollowsCache = Array.isArray(data) ? data : [];
+            listsFollowsCacheUserId = uid;
+            return listsFollowsCache;
+        }
+
+        async function toggleListsCreateShared() {
+            const cb = document.getElementById('lists-create-shared');
+            const wrap = document.getElementById('lists-create-members-wrap');
+            listsCreateShared = Boolean(cb?.checked);
+            if (wrap) wrap.style.display = listsCreateShared ? '' : 'none';
+            if (listsCreateShared) {
+                try {
+                    const { user } = await requireAuthOrThrow();
+                    await loadListsFollows({ user_id: user.id });
+                } catch (_) {}
+                renderListsCreateMembers();
+            }
+        }
+
+        // Generic member-row renderer (a checkbox/avatar/name row), shared by the
+        // Create picker and the Edit "add member" picker.
+        function renderMemberPickRow(u, { checked, onchangeFn }) {
+            const id = String(u?.id || '').trim();
+            const username = String(u?.username || '').trim();
+            const name = String(u?.display_name || '').trim() || (username ? `@${username}` : 'User');
+            const sub = username ? `@${username}` : '';
+            const rowStyle = 'display:flex; align-items:center; gap:12px; width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); cursor:pointer;';
+            const cbStyle = 'flex:0 0 auto; width:22px; height:22px; min-width:22px; margin:0; accent-color:var(--brand); cursor:pointer;';
+            return `
+                <label style="${rowStyle}">
+                    <input type="checkbox" ${checked ? 'checked' : ''} style="${cbStyle}" onchange="${onchangeFn}('${escapeHtml(id)}', this.checked)">
+                    ${renderUserIconHtml(String(u?.icon || ''), 34)}
+                    <span style="flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:2px; text-align:left;">
+                        <span style="color:#fff; font-weight:700; font-size:0.92rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(name)}</span>
+                        ${sub ? `<span style="color:rgba(255,255,255,0.55); font-weight:600; font-size:0.78rem;">${escapeHtml(sub)}</span>` : ''}
+                    </span>
+                </label>`;
+        }
+
+        function renderListsCreateMembers() {
+            const list = document.getElementById('lists-create-members-list');
+            if (!list) return;
+            const query = String(document.getElementById('lists-create-members-search')?.value || '').trim().toLowerCase();
+            if (!listsFollowsCache.length) {
+                list.innerHTML = `<div class="text-gray" style="padding:0.5rem;">You aren’t following anyone yet — follow people from the Feed to share lists with them.</div>`;
+                return;
+            }
+            const filtered = query
+                ? listsFollowsCache.filter(u => (String(u?.username || '') + ' ' + String(u?.display_name || '')).toLowerCase().includes(query))
+                : listsFollowsCache;
+            if (!filtered.length) { list.innerHTML = `<div class="text-gray" style="padding:0.5rem;">No matches for “${escapeHtml(query)}”.</div>`; return; }
+            list.innerHTML = filtered.map(u =>
+                renderMemberPickRow(u, { checked: listsCreateSelectedMemberIds.has(String(u.id)), onchangeFn: 'toggleListsCreateMember' })
+            ).join('');
+        }
+
+        function toggleListsCreateMember(id, checked) {
+            const uid = String(id || '').trim();
+            if (!uid) return;
+            if (checked) listsCreateSelectedMemberIds.add(uid);
+            else listsCreateSelectedMemberIds.delete(uid);
+        }
+
+        // Insert (or upsert) membership rows for a shared list.
+        async function addListMembers({ list_id, owner_id, member_ids }) {
+            const lid = String(list_id || '').trim();
+            const ids = Array.from(new Set((Array.isArray(member_ids) ? member_ids : [])
+                .map(x => String(x || '').trim()).filter(x => x && x !== String(owner_id || '').trim())));
+            if (!lid || !ids.length) return;
+            const rows = ids.map(uid => ({ list_id: lid, user_id: uid, added_by: String(owner_id || '').trim() || null, role: 'editor' }));
+            const { error } = await supabaseClient
+                .from('List Members')
+                .upsert(rows, { onConflict: 'list_id,user_id' });
+            if (error) throw error;
         }
 
         function openListsRenameModal() {
@@ -788,6 +906,23 @@
             return isBucketList({ list_id, list_name }) || n === 'recs';
         }
 
+        // --- Shared (group) list helpers ---------------------------------------
+        // A list's row in cachedLists (tagged with owner_id/shared/is_owner by
+        // loadUserLists). Movie Lists rows for a shared list always carry the
+        // OWNER's user_id, so reads key on the owner, not the viewer.
+        function getCachedListRow(list_id) {
+            const lid = String(list_id || '').trim();
+            return (cachedLists || []).find(l => String(l?.id) === lid) || null;
+        }
+        function isSharedList(list_id) {
+            return Boolean(getCachedListRow(list_id)?.shared);
+        }
+        // Whose user_id keys the Movie Lists rows / view query for this list.
+        function listOwnerId(list_id, fallbackUserId) {
+            const owner = String(getCachedListRow(list_id)?.owner_id || '').trim();
+            return owner || String(fallbackUserId || '').trim();
+        }
+
         // The "Edit" button on a list → the combined edit modal: change cover photo
         // (all lists) + rename + delete (non-special lists only).
         function openListsEditModal() {
@@ -814,9 +949,256 @@
             const input = document.getElementById('lists-rename-name');
             if (input) input.value = String(listsActiveListName || '').trim();
 
+            // Members section — shown only for shared lists. Reset the add picker.
+            const membersSec = document.getElementById('lists-edit-members-section');
+            const shared = isSharedList(lid);
+            if (membersSec) membersSec.style.display = shared ? '' : 'none';
+            listsEditAddMode = false;
+            const addWrap = document.getElementById('lists-edit-add-member-wrap');
+            if (addWrap) addWrap.style.display = 'none';
+            const addBtn = document.getElementById('lists-edit-add-member-btn');
+            if (addBtn) addBtn.textContent = 'Add member';
+            if (shared) loadListsEditMembers(lid).catch(() => null);
+
             refreshListsEditCoverPreview();
             overlay.style.display = 'flex';
             listsRenameBusy = false;
+        }
+
+        // --- Edit-modal member management (shared lists) -----------------------
+        async function loadListsEditMembers(list_id) {
+            const lid = String(list_id || '').trim();
+            const listEl = document.getElementById('lists-edit-members-list');
+            if (!lid || !listEl) return;
+            listEl.innerHTML = `<div class="text-gray" style="padding:0.4rem;">Loading members…</div>`;
+            try {
+                const ownerId = listOwnerId(lid, '');
+                const { data: memRows } = await supabaseClient
+                    .from('List Members').select('user_id, added_by').eq('list_id', lid);
+                const memberIds = (Array.isArray(memRows) ? memRows : [])
+                    .map(r => String(r?.user_id || '').trim()).filter(Boolean);
+                // The owner is an implicit member (not stored in List Members).
+                const allIds = Array.from(new Set([ownerId, ...memberIds].filter(Boolean)));
+
+                let users = [];
+                if (allIds.length) {
+                    let data = null;
+                    try {
+                        const r1 = await supabaseClient.from('Users').select('id, username, display_name, icon').in('id', allIds);
+                        if (r1.error) throw r1.error; data = r1.data;
+                    } catch (e1) {
+                        const r2 = await supabaseClient.from('Users').select('id, username, display_name').in('id', allIds);
+                        data = r2.data;
+                    }
+                    users = Array.isArray(data) ? data : [];
+                }
+                // Owner first.
+                users.sort((a, b) => (String(a.id) === ownerId ? -1 : String(b.id) === ownerId ? 1 : 0));
+                listsEditMembers = users;
+                renderListsEditMembers(ownerId);
+            } catch (err) {
+                listEl.innerHTML = `<div class="text-gray" style="padding:0.4rem;">Couldn’t load members.</div>`;
+            }
+        }
+
+        function renderListsEditMembers(ownerId) {
+            const listEl = document.getElementById('lists-edit-members-list');
+            if (!listEl) return;
+            const owner = String(ownerId || listOwnerId(listsActiveListId, '') || '').trim();
+            if (!listsEditMembers.length) { listEl.innerHTML = `<div class="text-gray" style="padding:0.4rem;">No members yet.</div>`; return; }
+            const rowStyle = 'display:flex; align-items:center; gap:12px; width:100%; box-sizing:border-box; padding:9px 12px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08);';
+            listEl.innerHTML = listsEditMembers.map(u => {
+                const id = String(u?.id || '').trim();
+                const username = String(u?.username || '').trim();
+                const name = String(u?.display_name || '').trim() || (username ? `@${username}` : 'User');
+                const isOwner = id === owner;
+                const removeBtn = isOwner
+                    ? `<span style="flex:0 0 auto; color:rgba(255,255,255,0.45); font-size:0.72rem; font-weight:700; text-transform:uppercase;">Owner</span>`
+                    : `<button type="button" class="btn btn-outline" style="flex:0 0 auto; border-radius:0.6rem; padding:0.3rem 0.6rem; font-size:0.78rem; border-color:rgba(239,68,68,0.5); background:#3a1a1d;" onclick="removeListMember('${escapeHtml(id)}')">Remove</button>`;
+                return `
+                    <div style="${rowStyle}">
+                        ${renderUserIconHtml(String(u?.icon || ''), 32)}
+                        <span style="flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:1px; text-align:left;">
+                            <span style="color:#fff; font-weight:700; font-size:0.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(name)}</span>
+                            ${username ? `<span style="color:rgba(255,255,255,0.55); font-weight:600; font-size:0.76rem;">@${escapeHtml(username)}</span>` : ''}
+                        </span>
+                        ${removeBtn}
+                    </div>`;
+            }).join('');
+        }
+
+        async function removeListMember(userId) {
+            const lid = String(listsActiveListId || '').trim();
+            const uid = String(userId || '').trim();
+            if (!lid || !uid) return;
+            if (uid === listOwnerId(lid, '')) { showToast('The owner can’t be removed.', { level: 'warn' }); return; }
+            try {
+                const { error } = await supabaseClient
+                    .from('List Members').delete().eq('list_id', lid).eq('user_id', uid);
+                if (error) throw error;
+                listsEditMembers = listsEditMembers.filter(u => String(u.id) !== uid);
+                renderListsEditMembers();
+                cachedListsUserId = null;
+                showToast('Member removed.', { level: 'success' });
+            } catch (err) {
+                showToast(`Couldn’t remove member: ${String(err?.message || err)}`, { level: 'warn' });
+            }
+        }
+
+        async function toggleListsEditAddMode() {
+            listsEditAddMode = !listsEditAddMode;
+            const wrap = document.getElementById('lists-edit-add-member-wrap');
+            const btn = document.getElementById('lists-edit-add-member-btn');
+            if (wrap) wrap.style.display = listsEditAddMode ? '' : 'none';
+            if (btn) btn.textContent = listsEditAddMode ? 'Done' : 'Add member';
+            if (listsEditAddMode) {
+                try {
+                    const { user } = await requireAuthOrThrow();
+                    await loadListsFollows({ user_id: user.id });
+                } catch (_) {}
+                renderListsEditAddPicker();
+            }
+        }
+
+        function renderListsEditAddPicker() {
+            const listEl = document.getElementById('lists-edit-add-member-list');
+            if (!listEl) return;
+            const existing = new Set(listsEditMembers.map(u => String(u.id)));
+            const query = String(document.getElementById('lists-edit-members-search')?.value || '').trim().toLowerCase();
+            let candidates = listsFollowsCache.filter(u => !existing.has(String(u.id)));
+            if (query) candidates = candidates.filter(u => (String(u?.username || '') + ' ' + String(u?.display_name || '')).toLowerCase().includes(query));
+            if (!listsFollowsCache.length) { listEl.innerHTML = `<div class="text-gray" style="padding:0.5rem;">You aren’t following anyone yet.</div>`; return; }
+            if (!candidates.length) { listEl.innerHTML = `<div class="text-gray" style="padding:0.5rem;">Everyone you follow is already a member.</div>`; return; }
+            listEl.innerHTML = candidates.map(u =>
+                renderMemberPickRow(u, { checked: false, onchangeFn: 'addListMemberFromPicker' })
+            ).join('');
+        }
+
+        async function addListMemberFromPicker(userId) {
+            const lid = String(listsActiveListId || '').trim();
+            const uid = String(userId || '').trim();
+            if (!lid || !uid) return;
+            try {
+                const { user } = await requireAuthOrThrow();
+                await addListMembers({ list_id: lid, owner_id: listOwnerId(lid, user.id), member_ids: [uid] });
+                cachedListsUserId = null;
+                await loadListsEditMembers(lid);
+                renderListsEditAddPicker();
+                showToast('Member added.', { level: 'success' });
+            } catch (err) {
+                showToast(`Couldn’t add member: ${String(err?.message || err)}`, { level: 'warn' });
+            }
+        }
+
+        // --- Shared-list movie reviews popup -----------------------------------
+        // Tapping a poster on a SHARED list opens this: a list of the members who
+        // have reviewed the movie. Pick one to read their full diary entry (only
+        // reviews that actually exist are shown). Mirrors the per-member model the
+        // user designed: a member with no review for the movie simply isn't listed.
+        async function openSharedListMovieModal(movieId) {
+            const mid = String(movieId || '').trim();
+            const lid = String(listsActiveListId || '').trim();
+            if (!mid || !lid) return;
+            if (!supabaseClient || !cachedIsAuthed) { openAuthModal(); return; }
+
+            const overlay = document.getElementById('shared-movie-overlay');
+            const titleEl = document.getElementById('shared-movie-title');
+            const body = document.getElementById('shared-movie-body');
+            if (!overlay || !body) return;
+            body.innerHTML = `<div class="text-gray" style="padding:1rem;">Loading…</div>`;
+            overlay.style.display = 'flex';
+            overlay.style.zIndex = '200';
+            overlay.classList.add('open');
+
+            try {
+                const { user } = await requireAuthOrThrow();
+                const meId = String(user.id);
+                const ownerId = listOwnerId(lid, meId);
+
+                // Members = the owner + everyone in List Members.
+                const { data: memRows } = await supabaseClient
+                    .from('List Members').select('user_id').eq('list_id', lid);
+                const memberIds = Array.from(new Set([
+                    ownerId,
+                    ...((Array.isArray(memRows) ? memRows : []).map(r => String(r?.user_id || '').trim())),
+                ].filter(Boolean)));
+
+                // Names + icons.
+                const usersById = new Map();
+                if (memberIds.length) {
+                    let data = null;
+                    try {
+                        const r1 = await supabaseClient.from('Users').select('id, username, display_name, icon').in('id', memberIds);
+                        if (r1.error) throw r1.error; data = r1.data;
+                    } catch (e1) {
+                        const r2 = await supabaseClient.from('Users').select('id, username, display_name').in('id', memberIds);
+                        data = r2.data;
+                    }
+                    for (const u of (Array.isArray(data) ? data : [])) usersById.set(String(u.id), u);
+                }
+
+                // Which members have a review of this movie (+ their overall/tier).
+                const { data: viewRows } = await supabaseClient
+                    .from(LIBRARY_ITEMS_VIEW)
+                    .select('user_id, overall_rating, tier, title, release_year')
+                    .eq('movie_id', mid)
+                    .in('user_id', memberIds);
+                const reviews = (Array.isArray(viewRows) ? viewRows : [])
+                    .filter(r => r?.overall_rating !== null && r?.overall_rating !== undefined);
+
+                // Title (from any review row, else the cached list prefill).
+                const titleRow = reviews[0] || null;
+                let movieTitle = String(titleRow?.title || '').trim();
+                const movieYear = (titleRow?.release_year ?? '') === '' ? '' : String(titleRow.release_year);
+                if (!movieTitle) movieTitle = String(listsMoviePrefillById?.get(mid)?.title || 'Movie').trim();
+                if (titleEl) titleEl.textContent = movieTitle + (movieYear ? ` (${movieYear})` : '');
+
+                if (!reviews.length) {
+                    body.innerHTML = `<div class="text-gray" style="padding:1rem;">No one in this list has reviewed this movie yet.</div>`;
+                    return;
+                }
+
+                // Sort: me first (labeled "You"), then by overall desc.
+                reviews.sort((a, b) => {
+                    const am = String(a.user_id) === meId, bm = String(b.user_id) === meId;
+                    if (am !== bm) return am ? -1 : 1;
+                    return (Number(b.overall_rating) || 0) - (Number(a.overall_rating) || 0);
+                });
+
+                const rowStyle = 'display:flex; align-items:center; gap:12px; width:100%; box-sizing:border-box; padding:11px 12px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.09); cursor:pointer; text-align:left;';
+                body.innerHTML = `<div style="color:rgba(255,255,255,0.6); font-weight:600; font-size:0.84rem; margin-bottom:0.6rem;">Tap a member to read their review:</div>`
+                    + `<div style="display:grid; gap:8px;">` + reviews.map(r => {
+                        const uid = String(r.user_id);
+                        const u = usersById.get(uid) || {};
+                        const username = String(u.username || '').trim();
+                        const isMe = uid === meId;
+                        const name = isMe ? 'You' : (String(u.display_name || '').trim() || (username ? `@${username}` : 'User'));
+                        const scoreText = dashFormatScore(r.overall_rating);
+                        const tier = dashNormalizeTierLabel(r.tier);
+                        const meta = dashJoinHelpParts([
+                            scoreText ? `${dashRenderHelpScore(scoreText)} Overall` : '',
+                            tier ? dashRenderHelpTier(tier) : '',
+                        ]);
+                        return `
+                            <button type="button" style="${rowStyle}" onclick="openProfileMovieReview('${escapeHtml(uid)}','${escapeHtml(mid)}')">
+                                ${renderUserIconHtml(String(u.icon || ''), 38)}
+                                <span style="flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:3px;">
+                                    <span style="color:#fff; font-weight:700; font-size:0.94rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(name)}${isMe && username ? ` <span style="color:rgba(255,255,255,0.45); font-weight:600;">@${escapeHtml(username)}</span>` : ''}</span>
+                                    <span style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">${meta}</span>
+                                </span>
+                                <span style="flex:0 0 auto; color:rgba(255,255,255,0.4); font-size:1.3rem; line-height:1;">›</span>
+                            </button>`;
+                    }).join('') + `</div>`;
+            } catch (err) {
+                body.innerHTML = `<div class="text-gray" style="padding:1rem;">Could not load reviews: ${escapeHtml(String(err?.message || err))}</div>`;
+            }
+        }
+
+        function closeSharedListMovieModal() {
+            const overlay = document.getElementById('shared-movie-overlay');
+            if (!overlay) return;
+            overlay.style.display = 'none';
+            overlay.classList.remove('open');
         }
 
         // Render the current cover (or a placeholder) inside the Edit modal.
@@ -846,7 +1228,7 @@
                     .from('Lists')
                     .update({ cover: null })
                     .eq('id', lid)
-                    .eq('user_id', user.id);
+                    .eq('user_id', listOwnerId(lid, user.id));
                 if (error) throw error;
                 const row = (cachedLists || []).find(l => String(l.id) === lid);
                 if (row) row.cover = null;
@@ -1922,24 +2304,64 @@
             }
 
             // `cover` is the optional per-list square image (data URL); see
-            // lists_cover_column.sql. Fall back to a cover-less select on older DBs
-            // that haven't run the migration yet, so the page still works.
+            // lists_cover_column.sql. `is_shared`/`user_id` come from shared_lists.sql.
+            // Fall back to leaner selects on older DBs that haven't run those
+            // migrations yet, so the page still works.
+            const FULL_COLS = 'id, list_name, created_at, cover, user_id, is_shared';
             let data, error;
             ({ data, error } = await supabaseClient
                 .from('Lists')
-                .select('id, list_name, created_at, cover')
+                .select(FULL_COLS)
                 .eq('user_id', uid)
                 .order('created_at', { ascending: true }));
-            if (error && /column .*cover.* does not exist/i.test(String(error?.message || ''))) {
+            if (error && /column .*(cover|is_shared).* does not exist/i.test(String(error?.message || ''))) {
                 ({ data, error } = await supabaseClient
                     .from('Lists')
-                    .select('id, list_name, created_at')
+                    .select('id, list_name, created_at, user_id')
                     .eq('user_id', uid)
                     .order('created_at', { ascending: true }));
             }
             if (error) throw error;
 
-            const rows = Array.isArray(data) ? data : [];
+            let rows = Array.isArray(data) ? data : [];
+
+            // SHARED LISTS: also pull lists this user is a member of (owned by
+            // someone else). Membership rows → their Lists rows (RLS allows members
+            // to read them). Merge + dedupe by id. Best-effort: if the shared-lists
+            // migration hasn't run, the List Members query errors and we skip it.
+            try {
+                const { data: memRows, error: memErr } = await supabaseClient
+                    .from('List Members')
+                    .select('list_id')
+                    .eq('user_id', uid);
+                if (!memErr) {
+                    const sharedIds = Array.from(new Set(
+                        (Array.isArray(memRows) ? memRows : [])
+                            .map(r => String(r?.list_id || '').trim())
+                            .filter(Boolean)));
+                    const ownIds = new Set(rows.map(r => String(r.id)));
+                    const wantIds = sharedIds.filter(id => !ownIds.has(id));
+                    if (wantIds.length) {
+                        let sData, sErr;
+                        ({ data: sData, error: sErr } = await supabaseClient
+                            .from('Lists').select(FULL_COLS).in('id', wantIds));
+                        if (sErr && /column .*(cover|is_shared).* does not exist/i.test(String(sErr?.message || ''))) {
+                            ({ data: sData } = await supabaseClient
+                                .from('Lists').select('id, list_name, created_at, user_id').in('id', wantIds));
+                        }
+                        if (Array.isArray(sData) && sData.length) rows = rows.concat(sData);
+                    }
+                }
+            } catch (_) {}
+
+            // Tag each row: owner_id, whether shared, and whether I own it.
+            rows = rows.map(r => ({
+                ...r,
+                owner_id: String(r?.user_id || '').trim(),
+                shared: Boolean(r?.is_shared) || String(r?.user_id || '').trim() !== uid,
+                is_owner: String(r?.user_id || '').trim() === uid,
+            }));
+
             rows.sort((a, b) => {
                 const an = String(a?.list_name || '').toLowerCase();
                 const bn = String(b?.list_name || '').toLowerCase();
@@ -1960,19 +2382,28 @@
             return cachedLists;
         }
 
-        async function createUserList({ user_id, list_name }) {
+        async function createUserList({ user_id, list_name, is_shared = false }) {
             if (!supabaseClient) throw new Error('Supabase client not initialized.');
             const uid = String(user_id || '').trim();
             const name = normalizeListName(list_name);
             if (!uid) throw new Error('Missing user_id.');
             if (!name) throw new Error('List name is required.');
 
-            const { data, error } = await supabaseClient
+            const row = { user_id: uid, list_name: name };
+            if (is_shared) row.is_shared = true;
+            let { data, error } = await supabaseClient
                 .from('Lists')
-                .insert({ user_id: uid, list_name: name })
+                .insert(row)
                 .select('id, list_name, created_at')
                 .single();
-
+            // Pre-migration DBs lack is_shared — retry without it.
+            if (error && /column .*is_shared.* does not exist/i.test(String(error?.message || ''))) {
+                ({ data, error } = await supabaseClient
+                    .from('Lists')
+                    .insert({ user_id: uid, list_name: name })
+                    .select('id, list_name, created_at')
+                    .single());
+            }
             if (error) throw error;
             return data;
         }
@@ -1986,11 +2417,34 @@
             if (!lid) throw new Error('Missing list_id.');
             if (!mid) throw new Error('Missing movie_id.');
 
-            const { error } = await supabaseClient
+            // SHARED lists: every row carries the OWNER's user_id (so the owner-keyed
+            // view/reads resolve), and `added_by` records who actually added it.
+            const ownerId = listOwnerId(lid, uid);
+            let { error } = await supabaseClient
                 .from('Movie Lists')
-                .insert({ user_id: uid, list_id: lid, movie_id: mid });
-
+                .insert({ user_id: ownerId, list_id: lid, movie_id: mid, added_by: uid });
+            // Pre-migration DBs lack the added_by column — retry without it.
+            if (error && /column .*added_by.* does not exist/i.test(String(error?.message || ''))) {
+                ({ error } = await supabaseClient
+                    .from('Movie Lists')
+                    .insert({ user_id: ownerId, list_id: lid, movie_id: mid }));
+            }
             if (error) throw error;
+
+            // Best-effort, fire-and-forget: on a SHARED list, push-notify the OTHER
+            // members that a new movie was added. Never let a notify error affect
+            // the add itself.
+            if (isSharedList(lid)) {
+                (async () => {
+                    try {
+                        const { data: s } = await supabaseClient.auth.getSession();
+                        const token = s?.session?.access_token;
+                        if (token) {
+                            callSwiftApi({ action: 'notify_list_add', list_id: lid, movie_id: mid }, token).catch(() => null);
+                        }
+                    } catch (_) {}
+                })();
+            }
         }
 
         async function removeMovieFromList({ user_id, list_id, movie_id }) {
@@ -2000,10 +2454,12 @@
             const mid = String(movie_id || '').trim();
             if (!uid || !lid || !mid) return;
 
+            // Rows are keyed on the list owner (shared) or the user (own) — resolve it.
+            const ownerId = listOwnerId(lid, uid);
             const { error } = await supabaseClient
                 .from('Movie Lists')
                 .delete()
-                .eq('user_id', uid)
+                .eq('user_id', ownerId)
                 .eq('list_id', lid)
                 .eq('movie_id', mid);
             if (error) throw error;
@@ -2350,18 +2806,21 @@
                         setStatus('Deleting…');
 
                         try {
-                            // Remove joins first (safe even if there are none).
+                            // Shared lists are keyed on the owner; any member may
+                            // delete (RLS lists_delete_member). Remove joins first
+                            // (safe even if there are none; FK cascade also covers it).
+                            const ownerId = listOwnerId(lid, authedUser.id);
                             const { error: joinsErr } = await supabaseClient
                                 .from('Movie Lists')
                                 .delete()
-                                .eq('user_id', authedUser.id)
+                                .eq('user_id', ownerId)
                                 .eq('list_id', lid);
                             if (joinsErr) throw joinsErr;
 
                             const { error: delErr } = await supabaseClient
                                 .from('Lists')
                                 .delete()
-                                .eq('user_id', authedUser.id)
+                                .eq('user_id', ownerId)
                                 .eq('id', lid);
                             if (delErr) throw delErr;
 
@@ -2399,6 +2858,13 @@
                     // (Movie Details / followed users' reviews) instead of the log form.
                     if (String(listsActiveListName || '').trim().toLowerCase() === 'recs') {
                         openRecsMovieModal(mid).catch((err) => showToast(`Open failed: ${String(err?.message || err)}`, { level: 'warn' }));
+                        return;
+                    }
+
+                    // On a SHARED list, a poster opens the member-reviews popup: pick
+                    // any member who has reviewed the movie to read their full review.
+                    if (isSharedList(listsActiveListId)) {
+                        openSharedListMovieModal(mid).catch((err) => showToast(`Open failed: ${String(err?.message || err)}`, { level: 'warn' }));
                         return;
                     }
 
@@ -2593,12 +3059,29 @@
                         return;
                     }
 
+                    const wantShared = Boolean(listsCreateShared);
+                    const memberIds = Array.from(listsCreateSelectedMemberIds);
+                    if (wantShared && memberIds.length === 0) {
+                        setStatus('Pick at least one member, or turn off “Shared list”.');
+                        return;
+                    }
+
                     listsCreateBusy = true;
                     setStatus('Saving…');
 
                     try {
-                        const created = await createUserList({ user_id: authedUser.id, list_name: name });
+                        const created = await createUserList({ user_id: authedUser.id, list_name: name, is_shared: wantShared });
                         cachedListsUserId = null;
+
+                        // Shared list: add the selected followers as members.
+                        if (wantShared && created?.id && memberIds.length) {
+                            setStatus('Adding members…');
+                            try {
+                                await addListMembers({ list_id: created.id, owner_id: authedUser.id, member_ids: memberIds });
+                            } catch (mErr) {
+                                showToast(`List created, but adding members failed: ${String(mErr?.message || mErr)}`, { level: 'warn' });
+                            }
+                        }
 
                         // Auto-select the newly created list.
                         if (created?.id) {
@@ -2679,7 +3162,7 @@
                         const { data, error } = await supabaseClient
                             .from('Lists')
                             .update({ list_name: name })
-                            .eq('user_id', authedUser.id)
+                            .eq('user_id', listOwnerId(lid, authedUser.id))
                             .eq('id', lid)
                             .select('id, list_name')
                             .single();
@@ -2770,11 +3253,17 @@
                 const infoByList = new Map(); // list_id -> { count, posters: [poster_path] }
                 lists.forEach(l => infoByList.set(String(l.id), { count: 0, posters: [], _ids: [] }));
 
-                const { data: joinRows } = await supabaseClient
-                    .from('Movie Lists')
-                    .select('list_id, movie_id, created_at')
-                    .eq('user_id', user.id)
-                    .order('created_at', { ascending: false });
+                // Query by list_id (not user_id) so SHARED lists owned by someone
+                // else — whose Movie Lists rows carry the owner's user_id — are
+                // included too. RLS lets members read these rows.
+                const allListIds = lists.map(l => String(l.id)).filter(Boolean);
+                const { data: joinRows } = allListIds.length
+                    ? await supabaseClient
+                        .from('Movie Lists')
+                        .select('list_id, movie_id, created_at')
+                        .in('list_id', allListIds)
+                        .order('created_at', { ascending: false })
+                    : { data: [] };
 
                 const wantIds = new Set();
                 (Array.isArray(joinRows) ? joinRows : []).forEach(r => {
@@ -2816,11 +3305,16 @@
                     const recsBadge = isRecs
                         ? `<span id="lists-cover-badge-recs" class="lists-cover-badge${recsUnseen > 0 ? ' show' : ''}">${recsUnseen > 99 ? '99+' : recsUnseen}</span>`
                         : '';
+                    // A small "people" chip marks shared (group) lists.
+                    const sharedChip = l?.shared
+                        ? `<span class="lists-cover-shared" title="Shared list">${icons.users || '👥'}</span>`
+                        : '';
                     return `
                         <button type="button" class="lists-cover-card" onclick="openListFromOverview('${escapeHtml(id)}')">
                             <span class="lists-cover-art">
                                 ${renderListCoverArt(l, info)}
                                 ${recsBadge}
+                                ${sharedChip}
                             </span>
                             <span class="lists-cover-name">${escapeHtml(name)}</span>
                             <span class="lists-cover-count">${escapeHtml(countLabel)}</span>
@@ -2838,14 +3332,14 @@
         // Entry point when the Lists page mounts: deep-link (e.g. "Recs" from a push)
         // opens that list directly; otherwise show the cover-grid overview.
         async function enterListsPage() {
-            if (listsPendingSelectName) {
+            if (listsPendingSelectName || listsPendingSelectId) {
                 listsViewMode = 'detail';
                 const ov = document.getElementById('lists-overview');
                 const dt = document.getElementById('lists-detail');
                 if (ov) ov.style.display = 'none';
                 if (dt) dt.style.display = '';
                 updateListsFab();
-                await loadListsPage({ reset: true }).catch(() => null); // resolves listsPendingSelectName
+                await loadListsPage({ reset: true }).catch(() => null); // resolves the pending name/id
                 return;
             }
             showListsOverview();
@@ -2970,7 +3464,7 @@
                     .from('Lists')
                     .update({ cover: dataUrl })
                     .eq('id', listId)
-                    .eq('user_id', user.id);
+                    .eq('user_id', listOwnerId(listId, user.id));
                 if (error) throw error;
 
                 // Update the cache so the grid re-renders with the new art instantly.
@@ -3017,6 +3511,13 @@
 
                 await ensureBucketListForUser({ user_id: user.id }).catch(() => null);
                 const lists = await loadUserLists({ user_id: user.id, force: true });
+
+                // Deep-link: open a specific list by id (e.g. a shared-list-add push).
+                if (listsPendingSelectId) {
+                    const want = lists.find(l => String(l?.id || '') === String(listsPendingSelectId));
+                    if (want?.id) listsActiveListId = String(want.id);
+                    listsPendingSelectId = '';
+                }
 
                 // Deep-link: open a specific list by name (e.g. "Recs" from a notification link).
                 if (listsPendingSelectName) {
@@ -3098,10 +3599,17 @@
                 // actors / the user's own rating / watch info). This replaces the old
                 // Movies fetch + a live per-movie TMDB call for each movie, which is what
                 // made this page slow / "never load". See lists_views.sql.
+                // For a SHARED list the "Movie Lists" rows carry the list OWNER's
+                // user_id, so key the view on the owner (not the viewer) — this is
+                // what lets a member read a list owned by someone else. Metadata is
+                // movie-level so it's correct regardless of which user_id keys it.
+                const viewUserId = isSharedList(listsActiveListId)
+                    ? listOwnerId(listsActiveListId, user.id)
+                    : user.id;
                 const { data: viewRows, error: viewErr } = await supabaseClient
                     .from(LIST_ITEMS_VIEW)
                     .select('*')
-                    .eq('user_id', user.id)
+                    .eq('user_id', viewUserId)
                     .eq('list_id', listsActiveListId)
                     .order('added_at', { ascending: false });
                 if (viewErr) throw viewErr;
@@ -3131,6 +3639,14 @@
                     ratingsByMovieId.set(mid, row);
                     if (row?.latest_watch_date) latestWatchByMovieId.set(mid, row.latest_watch_date);
                     libraryByMovieId.set(mid, row);
+                }
+
+                // On a SHARED list the view rows carry the OWNER's rating/watch info
+                // (not the viewer's), so don't paint a personal rating overlay on the
+                // cards — tapping a poster opens the per-member reviews popup instead.
+                if (isSharedList(listsActiveListId)) {
+                    ratingsByMovieId.clear();
+                    latestWatchByMovieId.clear();
                 }
 
                 // For the "Recs" list: who recommended each movie (avatars + "+" modal),

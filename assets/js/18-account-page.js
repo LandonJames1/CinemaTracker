@@ -38,7 +38,7 @@
                 }
 
                 if (action === 'open_achievements') {
-                    router.navigate('achievements');
+                    router.navigate('leaderboard');
                     return;
                 }
 
