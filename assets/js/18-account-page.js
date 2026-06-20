@@ -386,13 +386,43 @@
                     setStatus('Permission was not granted, so notifications can’t be shown.', false);
                     return;
                 }
+
+                // First try a REAL end-to-end Web Push through the server (`test_push`).
+                // This is the only check that actually verifies the full pipeline:
+                // VAPID secrets are set + this device's subscription was saved + the
+                // server can deliver. A local notification (below) only proves display.
+                setStatus('Sending real push…', true);
+                let realSent = 0, reason = '';
+                try {
+                    const { data: s } = await supabaseClient.auth.getSession();
+                    const token = s?.session?.access_token;
+                    if (token) {
+                        const res = await callSwiftApi({ action: 'test_push' }, token);
+                        realSent = Number(res?.sent || 0);
+                        reason = String(res?.reason || '');
+                    } else {
+                        reason = 'Not logged in.';
+                    }
+                } catch (e) {
+                    reason = String(e?.message || e);
+                }
+                if (realSent > 0) {
+                    setStatus(`Real push delivered to ${realSent} device${realSent === 1 ? '' : 's'}. 🎉`, true);
+                    return;
+                }
+
+                // Fall back to a LOCAL notification so the user still sees something,
+                // and explain why the real push didn't go out (usually: push not
+                // enabled on this device, or VAPID secrets missing on the server).
                 const reg = await navigator.serviceWorker.ready;
                 await reg.showNotification('CinemaTracker', {
-                    body: 'Notifications are working! 🍿',
+                    body: 'Local test notification 🍿',
                     icon: 'assets/icons/icon-192.png',
                     badge: 'assets/icons/icon-192.png',
                 });
-                setStatus('Sent — you should see a test notification.', true);
+                setStatus(reason
+                    ? `Showed a local test, but no real push was sent: ${reason}`
+                    : 'Showed a local test. Turn on “Push notifications” above to test real (server) pushes.', false);
             } catch (err) {
                 setStatus(`Could not enable notifications: ${String(err?.message || err)}`, false);
             }
@@ -474,10 +504,10 @@
                         return;
                     }
                     await enablePushOnThisDevice();
-                    setStatus('Push enabled on this device. You’ll get push notifications here instead of texts.', true);
+                    setStatus('Push enabled on this device. You’ll get notifications here.', true);
                 } else {
                     await disablePushOnThisDevice();
-                    setStatus('Push turned off on this device. You’ll get texts instead.', true);
+                    setStatus('Push turned off on this device. You won’t get notifications here.', true);
                 }
             } catch (err) {
                 toggle.checked = false;
