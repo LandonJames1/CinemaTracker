@@ -329,12 +329,14 @@
             gap: 8px;
             align-items: center;
             margin: 1.1rem 0 0.85rem;
+            flex-wrap: wrap; /* dropdown drops below the buttons if the row gets tight */
         }
         .profile-toggle-btn { font-size: 0.85rem; padding: 0.4rem 0.9rem; }
-        /* Top Rated metric dropdown — pill style (see .profile-compat-metric),
-           sits inline next to the buttons, sized to content. */
+        /* Top Rated metric dropdown — pill style (see .profile-compat-metric).
+           Explicit width (not auto) so iOS doesn't size it to its longest option. */
         #profile-top-metric {
-            width: auto;
+            width: 10rem;
+            max-width: 100%;
             min-width: 0;
             flex: 0 0 auto;
             font-size: 0.85rem;
@@ -386,10 +388,15 @@
             gap: 0.6rem;
             margin-top: 0.8rem;
             margin-bottom: 0.35rem;
+            flex-wrap: wrap; /* dropdown drops below the label if the row gets tight */
         }
-        .profile-compat-subrow .profile-compat-sub { margin: 0; }
+        .profile-compat-subrow .profile-compat-sub { margin: 0; flex: 1 1 auto; min-width: 0; }
         .profile-compat-metric.select-field {
-            width: auto;
+            /* Explicit width (not auto): iOS sizes auto-width selects to their LONGEST
+               option + native chrome, which overflowed the modal. A fixed width that
+               fits "Cinematography" keeps it inside the card. */
+            width: 10rem;
+            max-width: 100%;
             min-width: 0;
             flex: 0 0 auto;
             padding: 0.32rem 1.7rem 0.32rem 0.75rem;
@@ -1053,7 +1060,14 @@
         /* iOS sizes date inputs by their inner value element, which can render wider
            than the box and bleed out of a modal (e.g. the Watch Method popup). Keep
            the value inside: clip + left-align it and stop it forcing a min width. */
-        .auth-modal input[type="date"] { width: 100%; max-width: 100%; min-width: 0; overflow: hidden; box-sizing: border-box; }
+        .auth-modal input[type="date"] {
+            width: 100%; max-width: 100%; min-width: 0; overflow: hidden; box-sizing: border-box;
+            /* iOS ignores the CSS width on date inputs while their native appearance is
+               active, so the control sizes to its content and bleeds past the modal edge.
+               Resetting the appearance makes it honor width:100%. The picker still opens
+               via showPicker() in openDatePickerFromInput(). */
+            -webkit-appearance: none; -moz-appearance: none; appearance: none;
+        }
         .auth-modal input[type="date"]::-webkit-date-and-time-value { text-align: left; margin: 0; min-width: 0; }
 
         /* Genre chips (tap/click selection, max 2) */
@@ -3282,8 +3296,12 @@
             form.grid-3 > .glass-panel { max-width: 100% !important; min-width: 0 !important; padding: 1rem !important; overflow: hidden; }
             .tier-btn-group { grid-template-columns: repeat(6, 1fr) !important; gap: 0.3rem !important; }
             .tier-btn { padding: 0.55rem 0 !important; min-width: 0 !important; }
-            /* iOS sizes date inputs wide — force them to fit their container. */
-            input[type="date"] { width: 100% !important; min-width: 0 !important; box-sizing: border-box; }
+            /* iOS sizes date inputs wide — force them to fit their container.
+               Resetting -webkit-appearance is what makes iOS honor the width. */
+            input[type="date"] {
+                width: 100% !important; min-width: 0 !important; box-sizing: border-box;
+                -webkit-appearance: none !important; appearance: none !important;
+            }
             /* Update form: stack Times Watched / Watch Method so neither is cut off. */
             .submit-watch-inline { grid-template-columns: 1fr !important; gap: 0.85rem !important; }
             /* Prior-watches + watch-details modals: let date/method grids shrink. */
