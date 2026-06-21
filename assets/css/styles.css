@@ -423,11 +423,19 @@
         .profile-compat-item:first-of-type { border-top: none; }
         .profile-compat-title {
             color: #fff;
-            font-weight: 600;
-            font-size: 0.88rem;
+            font-weight: 800;
+            font-size: 1rem;
+            line-height: 1.25;
+            letter-spacing: -0.01em;
             min-width: 0;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            margin-bottom: 0.4rem;
+            /* Show the full title (wraps if long) so the movie is easy to identify. */
+            overflow-wrap: anywhere;
+        }
+        .profile-compat-title-meta {
+            font-weight: 600;
+            font-size: 0.82rem;
+            color: var(--text-muted);
             white-space: nowrap;
         }
         .profile-compat-chips {

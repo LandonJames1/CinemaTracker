@@ -2067,7 +2067,7 @@
                 const moviesById = new Map();
                 if (movieIds.length) {
                     const { data: movies } = await supabaseClient
-                        .from('Movies').select('id, title, release_year, tmdb_id, poster_path').in('id', movieIds);
+                        .from('Movies').select('id, title, release_year, mpa_rating, tmdb_id, poster_path').in('id', movieIds);
                     for (const m of (Array.isArray(movies) ? movies : [])) moviesById.set(String(m.id), m);
                 }
 
@@ -2163,11 +2163,14 @@
                             const theirs = Number(rr?.overall_rating);
                             if (!Number.isFinite(theirs) || !myByMovie.has(mid)) continue;
                             const me = myByMovie.get(mid);
+                            const mrow = moviesById.get(mid) || {};
                             // Keep overall mine/theirs for the Taste Match score, plus the
                             // full rating rows so disagreements can re-sort by any sub-rating.
                             pairs.push({
                                 movie_id: mid,
-                                title: String(moviesById.get(mid)?.title || '').trim() || 'Untitled',
+                                title: String(mrow?.title || '').trim() || 'Untitled',
+                                release_year: mrow?.release_year ?? null,
+                                mpa_rating: String(mrow?.mpa_rating || '').trim(),
                                 mine: Number(me?.overall_rating), mineTier: me?.tier, mineRow: me,
                                 theirs, theirsTier: rr?.tier, theirsRow: rr,
                             });
@@ -2434,9 +2437,15 @@
             }
             return ranked.map(d => {
                 const mid = escapeHtml(String(d.movie_id || ''));
+                // Title formatted "Movie Title (Year) - MPA RATING" (year/MPA omitted if missing).
+                const yearStr = (d.release_year === null || d.release_year === undefined || d.release_year === '')
+                    ? '' : String(d.release_year);
+                const mpaStr = String(d.mpa_rating || '').trim();
+                const metaBits = [yearStr ? `(${escapeHtml(yearStr)})` : '', mpaStr ? `- ${escapeHtml(mpaStr)}` : '']
+                    .filter(Boolean).join(' ');
                 return `
                 <div class="profile-compat-item">
-                    <div class="profile-compat-title">${escapeHtml(d.title)}</div>
+                    <div class="profile-compat-title">${escapeHtml(d.title)}${metaBits ? ` <span class="profile-compat-title-meta">${metaBits}</span>` : ''}</div>
                     <div class="profile-compat-chips">
                         <span class="profile-compat-chip" role="button" tabindex="0" style="cursor:pointer;" onclick="try{initLibraryPage()}catch(e){}openLibraryMovieModal('${mid}')">You — <strong${tierStyle(d.mineTier)}>${dashFormatScoreWhole(d.mineVal)}</strong> ${escapeHtml(metricLabel)}</span>
                         <span class="profile-compat-chip" role="button" tabindex="0" style="cursor:pointer;" onclick="openProfileMovieReview('${themUid}','${mid}')">${escapeHtml(profileThemShort)} — <strong${tierStyle(d.theirsTier)}>${dashFormatScoreWhole(d.theirsVal)}</strong> ${escapeHtml(metricLabel)}</span>
