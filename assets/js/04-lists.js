@@ -1014,7 +1014,7 @@
                 const isOwner = id === owner;
                 const removeBtn = isOwner
                     ? `<span style="flex:0 0 auto; color:rgba(255,255,255,0.45); font-size:0.72rem; font-weight:700; text-transform:uppercase;">Owner</span>`
-                    : `<button type="button" class="btn btn-outline" style="flex:0 0 auto; border-radius:0.6rem; padding:0.3rem 0.6rem; font-size:0.78rem; border-color:rgba(239,68,68,0.5); background:#3a1a1d;" onclick="removeListMember('${escapeHtml(id)}')">Remove</button>`;
+                    : `<button type="button" class="btn btn-outline" style="flex:0 0 auto; width:auto; border-radius:0.6rem; padding:0.3rem 0.7rem; font-size:0.78rem; border-color:rgba(239,68,68,0.5); background:#3a1a1d;" onclick="removeListMember('${escapeHtml(id)}')">Remove</button>`;
                 return `
                     <div style="${rowStyle}">
                         ${renderUserIconHtml(String(u?.icon || ''), 32)}
@@ -3405,6 +3405,17 @@
             if (q.length >= 3) handleListsAddMovieSearch(q, { force: true });
         }
 
+        // Mobile header bar: "Lists" on the overview, "Lists - <name>" inside a list.
+        // (The desktop nav hides #mobile-page-title, so this is a no-op there.)
+        function setListsMobileHeader() {
+            try {
+                const el = document.getElementById('mobile-page-title');
+                if (!el || document.body.dataset.page !== 'lists') return;
+                const name = String(listsActiveListName || '').trim();
+                el.textContent = (listsViewMode === 'detail' && name) ? `Lists - ${name}` : 'Lists';
+            } catch (_) {}
+        }
+
         // Show the overview grid (hide the single-list detail panel).
         function showListsOverview() {
             listsViewMode = 'overview';
@@ -3413,6 +3424,7 @@
             if (ov) ov.style.display = '';
             if (dt) dt.style.display = 'none';
             updateListsFab();
+            setListsMobileHeader();
             loadListsOverview().catch(() => null);
         }
 
@@ -3428,6 +3440,7 @@
             if (ov) ov.style.display = 'none';
             if (dt) dt.style.display = '';
             updateListsFab();
+            setListsMobileHeader();
             try {
                 const input = document.getElementById('lists-movie-search-input');
                 if (input) input.value = '';
@@ -3559,6 +3572,7 @@
                     `;
 
                 if (elTitle) elTitle.textContent = listsActiveListName || 'List';
+                setListsMobileHeader();
                 if (elSub) {
                     ensureListsSortFilterStateInitialized();
                     const labels = {

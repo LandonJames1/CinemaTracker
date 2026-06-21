@@ -105,7 +105,12 @@
                             ai_picks: 'AI Picks', dashboard: 'Data Dash', account: 'Account',
                             leaderboard: 'Leaderboard', submit: 'Log Entry', theme_creator: 'Theme Creator',
                         };
-                        titleEl.textContent = MOBILE_PAGE_TITLES[page] || 'CinemaTracker';
+                        // The submit page serves both new entries and rating updates; show
+                        // the right header for each (it's the only header now that the
+                        // in-page title card is hidden on mobile).
+                        titleEl.textContent = (page === 'submit')
+                            ? (this.formMode === 'update' ? 'Update Ratings' : 'Log New Entry')
+                            : (MOBILE_PAGE_TITLES[page] || 'CinemaTracker');
                     }
                 } catch (_) {}
 

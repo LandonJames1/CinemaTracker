@@ -306,6 +306,13 @@
         function tabNav(page) {
             try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
             if (router && router.currentPage === page) {
+                // Tapping the Lists tab while inside a specific list returns to the
+                // all-lists overview (not just a scroll-to-top).
+                if (page === 'lists' && typeof listsViewMode !== 'undefined' && listsViewMode === 'detail') {
+                    try { showListsOverview(); } catch (_) {}
+                    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) { window.scrollTo(0, 0); }
+                    return;
+                }
                 try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) { window.scrollTo(0, 0); }
                 return;
             }
@@ -468,7 +475,25 @@
             // ONLY the loading overlay is excluded: it's a blocking spinner with no close
             // handler, so "dismissing" it would hide the spinner while the operation runs.
             const EXCLUDE = new Set(['loading-overlay']);
-            let modal = null, overlay = null, closeFn = null, startY = 0, dy = 0, dragging = false;
+            let modal = null, overlay = null, closeFn = null, scroller = null, startY = 0, dy = 0, dragging = false;
+
+            // The element whose scroll position decides "are we at the top?". A sheet can
+            // contain a NESTED scroll container (e.g. the Add-to-list movie results list,
+            // `.lists-add-results`, has its own overflow:auto). Without this, scrolling that
+            // inner list dragged the whole sheet instead — the "glitchy, moves around"
+            // bug. Walk from the touch target up to the modal and use the first scrollable
+            // ancestor; fall back to the modal itself.
+            function findScroller(target, boundary) {
+                let el = target;
+                while (el && el !== boundary && el.parentElement) {
+                    try {
+                        const oy = window.getComputedStyle(el).overflowY;
+                        if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 1) return el;
+                    } catch (_) {}
+                    el = el.parentElement;
+                }
+                return boundary;
+            }
 
             function sheetsActive() {
                 try { return isMobileViewport() && document.body.classList.contains('app-sheets'); } catch (_) { return false; }
@@ -525,13 +550,17 @@
             }
 
             document.addEventListener('touchstart', (e) => {
-                dragging = false; modal = null; overlay = null; closeFn = null;
+                dragging = false; modal = null; overlay = null; closeFn = null; scroller = null;
                 if (!sheetsActive() || e.touches.length !== 1) return;
                 // Don't hijack drags that start on a text/range control.
                 if (e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
                 const found = findSheet(e.target);
                 if (!found) return;
-                if (found.m.scrollTop > 0) return;   // let the sheet scroll its own content first
+                // The scroll container under the finger (the modal, or a nested scroller
+                // like the Add-to-list results list). Only start a sheet drag when it's at
+                // its top — otherwise let it scroll its own content first.
+                scroller = findScroller(e.target, found.m);
+                if (scroller.scrollTop > 0) return;
                 modal = found.m; overlay = found.ov; closeFn = found.close || null;
                 startY = e.touches[0].clientY; dy = 0;
                 dragging = true;
@@ -540,7 +569,7 @@
             document.addEventListener('touchmove', (e) => {
                 if (!dragging || !modal) return;
                 dy = e.touches[0].clientY - startY;
-                if (modal.scrollTop > 0) { dragging = false; reset(modal); return; }
+                if ((scroller || modal).scrollTop > 0) { dragging = false; reset(modal); return; }
                 if (dy <= 0) { dy = 0; modal.style.transform = ''; return; }
                 // We're actively dragging the sheet down: consume the gesture so the
                 // page/content BEHIND the modal does not scroll along with it. (Listener

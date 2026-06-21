@@ -761,6 +761,13 @@
             body[data-page="account"] #app-root .page-title-card {
                 display: none !important;
             }
+            /* Log/Update form: the title card is the header wrapper's only child, so
+               hide the WHOLE wrapper (incl. its mb-8 margin) — leaving just the card
+               hidden would keep 2rem of dead space. The header bar already shows
+               "Log New Entry" / "Update Ratings", so the content fills the top. */
+            body[data-page="submit"] #app-root .container > .mb-8:has(.page-title-card) {
+                display: none !important;
+            }
             /* Leaderboard: the in-page title card is the header row's only child, so
                with it hidden the whole row is dead space — collapse it on mobile (the
                dynamic header bar already shows "Leaderboard"). */
@@ -1471,11 +1478,11 @@
            CSS @keyframes (not transitions) are used so the slide plays even though modals
            are opened by toggling inline display:flex. */
         @media (max-width: 768px) {
-            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay) {
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay) {
                 align-items: flex-end !important;
                 padding: 0 !important;
             }
-            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay) > .auth-modal {
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay) > .auth-modal {
                 width: 100% !important;
                 max-width: 100% !important;
                 max-height: 92dvh !important;
@@ -1484,7 +1491,7 @@
                 padding: 1rem 1.1rem calc(1.25rem + env(safe-area-inset-bottom)) !important;
                 animation: sheetUp 0.32s cubic-bezier(0.16, 1, 0.3, 1);
             }
-            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay) > .auth-modal::before {
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay) > .auth-modal::before {
                 content: "";
                 display: block;
                 width: 40px;
