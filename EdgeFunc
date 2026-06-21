@@ -1392,7 +1392,9 @@ Deno.serve(async (req) => {
           const pushed = await sendPushToUser(supabaseAdmin, fid, {
             title: "New Review 🎬",
             body: `Check out ${authorHandle}'s new review of ${titlePart}`,
-            url: "/#feed",
+            // Deep-link straight to the author's diary entry for this movie
+            // (handleNotificationRoute → openProfileMovieReview), not just the feed.
+            url: `/#review=${author.id}:${movieId}`,
             badge,
             tag: `review-${author.id}-${movieId}`,
           });

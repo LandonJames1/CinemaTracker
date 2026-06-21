@@ -331,13 +331,14 @@
             margin: 1.1rem 0 0.85rem;
         }
         .profile-toggle-btn { font-size: 0.85rem; padding: 0.4rem 0.9rem; }
-        /* Top Rated metric dropdown — sits inline next to the buttons, sized to content. */
+        /* Top Rated metric dropdown — pill style (see .profile-compat-metric),
+           sits inline next to the buttons, sized to content. */
         #profile-top-metric {
             width: auto;
-            min-width: 140px;
-            flex: 1 1 auto;
+            min-width: 0;
+            flex: 0 0 auto;
             font-size: 0.85rem;
-            padding: 0.4rem 2.25rem 0.4rem 0.85rem;
+            padding: 0.32rem 1.7rem 0.32rem 0.75rem;
         }
         @media (max-width: 520px) {
             .profile-kpis { grid-template-columns: 1fr; }
@@ -377,6 +378,36 @@
             letter-spacing: 0.05em;
             text-transform: uppercase;
             color: var(--text-muted);
+        }
+        .profile-compat-subrow {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.6rem;
+            margin-top: 0.8rem;
+            margin-bottom: 0.35rem;
+        }
+        .profile-compat-subrow .profile-compat-sub { margin: 0; }
+        .profile-compat-metric.select-field {
+            width: auto;
+            min-width: 0;
+            flex: 0 0 auto;
+            padding: 0.32rem 1.7rem 0.32rem 0.75rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border-radius: 999px;
+            background-color: rgba(255,255,255,0.06);
+            border-color: color-mix(in srgb, var(--brand) 22%, rgba(255,255,255,0.12));
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.6rem center;
+            background-size: 0.78rem;
+        }
+        .profile-compat-metric.select-field:hover {
+            background-color: rgba(255,255,255,0.1);
         }
         .profile-compat-item {
             padding: 0.45rem 0;
@@ -3235,6 +3266,9 @@
             /* 16px inputs so iOS doesn't auto-zoom the page when a field is focused. */
             input, textarea, select,
             .input-field, .select-field, .textarea-field { font-size: 16px; }
+            /* Compact pill dropdown — selects don't trigger iOS zoom, so keep it small. */
+            .profile-compat-metric.select-field,
+            #profile-top-metric { font-size: 0.9rem; }
 
             /* Log form: smaller poster to cut the long scroll. */
             .submit-poster-img { width: 130px !important; }

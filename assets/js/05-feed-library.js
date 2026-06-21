@@ -1983,6 +1983,9 @@
         let profileMode = 'recent'; // 'recent' | 'top'
         let profileViewUserId = ''; // the user whose profile is open (for poster taps)
         let profileTopMetric = 'overall_rating'; // which rating drives the Top Rated grid
+        let profileDisagreementMetric = 'overall_rating'; // which rating drives "Biggest disagreements"
+        let profileCompat = null; // cached taste-match data (incl. all rating pairs) for re-sorting disagreements
+        let profileThemShort = 'Them'; // short label for the other user, used in disagreement chips
         let profileRatedItems = []; // all rated movies (sorted/sliced per metric in render)
         let profileRecent10 = [];
 
@@ -2002,6 +2005,9 @@
             profileMode = 'recent';
             profileViewUserId = uid;
             profileTopMetric = 'overall_rating';
+            profileDisagreementMetric = 'overall_rating';
+            profileCompat = null;
+            profileThemShort = 'Them';
             profileRatedItems = [];
             profileRecent10 = [];
 
@@ -2143,19 +2149,28 @@
                     const meId = String(getActiveUserId() || '').trim();
                     if (meId && meId !== uid) {
                         const { data: myRatingsData } = await supabaseClient
-                            .from('Movie Ratings').select('movie_id, overall_rating, tier').eq('user_id', meId);
+                            .from('Movie Ratings')
+                            .select('movie_id, overall_rating, acting_rating, pacing_rating, sound_rating, imagery_rating, plot_rating, dialogue_rating, tier')
+                            .eq('user_id', meId);
                         const myByMovie = new Map();
                         for (const r of (Array.isArray(myRatingsData) ? myRatingsData : [])) {
                             const mid = String(r?.movie_id || '').trim();
                             const v = Number(r?.overall_rating);
-                            if (mid && Number.isFinite(v)) myByMovie.set(mid, { overall: v, tier: r?.tier });
+                            if (mid && Number.isFinite(v)) myByMovie.set(mid, r);
                         }
                         const pairs = [];
                         for (const [mid, rr] of ratingByMovieId) {
                             const theirs = Number(rr?.overall_rating);
                             if (!Number.isFinite(theirs) || !myByMovie.has(mid)) continue;
                             const me = myByMovie.get(mid);
-                            pairs.push({ movie_id: mid, mine: me.overall, mineTier: me.tier, theirs, theirsTier: rr?.tier });
+                            // Keep overall mine/theirs for the Taste Match score, plus the
+                            // full rating rows so disagreements can re-sort by any sub-rating.
+                            pairs.push({
+                                movie_id: mid,
+                                title: String(moviesById.get(mid)?.title || '').trim() || 'Untitled',
+                                mine: Number(me?.overall_rating), mineTier: me?.tier, mineRow: me,
+                                theirs, theirsTier: rr?.tier, theirsRow: rr,
+                            });
                         }
                         if (pairs.length) {
                             // Taste Match = how similarly you two RANK shared movies, not how
@@ -2187,11 +2202,9 @@
                             }
                             const score = Math.max(0, Math.min(100, Math.round(shrinkToNeutral(rawPct))));
 
-                            const byGap = pairs.slice().sort((a, b) => Math.abs(b.mine - b.theirs) - Math.abs(a.mine - a.theirs));
-                            const decorate = (p) => ({ ...p, title: String(moviesById.get(p.movie_id)?.title || '').trim() || 'Untitled' });
-                            compat = { score, count: pairs.length, userId: uid, disagreements: byGap.slice(0, 3).map(decorate) };
+                            compat = { score, count: pairs.length, userId: uid, pairs };
                         } else {
-                            compat = { score: null, count: 0, userId: uid, disagreements: [] };
+                            compat = { score: null, count: 0, userId: uid, pairs: [] };
                         }
                     }
                 } catch (_) { compat = null; }
@@ -2214,6 +2227,9 @@
                 const s = username ? `@${username}` : (String(displayName || '').trim() || 'Them');
                 return s.length > 14 ? `${s.slice(0, 13)}…` : s;
             })();
+            // Cache for the disagreement-metric dropdown (re-renders without a reload).
+            profileCompat = compat || null;
+            profileThemShort = themShort;
             const compatHtml = !compat ? '' : `
                 <div class="profile-compat">
                     <div class="profile-compat-top">
@@ -2222,26 +2238,14 @@
                     </div>
                     ${compat.score !== null ? `<div class="profile-compat-bar"><div class="profile-compat-bar-fill" style="width:${compat.score}%;"></div></div>` : ''}
                     ${compat.count === 0 ? `<div class="text-xs text-gray" style="margin-top:0.4rem;">No movies in common yet — rate some of the same films to see your match.</div>` : ''}
-                    ${compat.disagreements && compat.disagreements.length ? `
-                        <div class="profile-compat-sub">Biggest disagreements</div>
-                        ${compat.disagreements.map(d => {
-                            const tierStyle = (tierRaw) => {
-                                const letter = dashTierLetterFromLabel(dashNormalizeTierLabel(tierRaw));
-                                return letter ? ` style="color:rgb(var(--tier-${letter.toLowerCase()}-rgb));"` : '';
-                            };
-                            const mid = escapeHtml(String(d.movie_id || ''));
-                            const themUid = escapeHtml(String(compat.userId || ''));
-                            return `
-                            <div class="profile-compat-item">
-                                <div class="profile-compat-title">${escapeHtml(d.title)}</div>
-                                <div class="profile-compat-chips">
-                                    <span class="profile-compat-chip" role="button" tabindex="0" style="cursor:pointer;" onclick="try{initLibraryPage()}catch(e){}openLibraryMovieModal('${mid}')">You — <strong${tierStyle(d.mineTier)}>${dashFormatScoreWhole(d.mine)}</strong> Overall</span>
-                                    <span class="profile-compat-chip" role="button" tabindex="0" style="cursor:pointer;" onclick="openProfileMovieReview('${themUid}','${mid}')">${escapeHtml(themShort)} — <strong${tierStyle(d.theirsTier)}>${dashFormatScoreWhole(d.theirs)}</strong> Overall</span>
-                                    <span class="profile-compat-gap" style="color:#fff;">${Math.round(Math.abs(d.mine - d.theirs))}% apart</span>
-                                </div>
-                            </div>
-                            `;
-                        }).join('')}
+                    ${(compat.pairs && compat.pairs.length) ? `
+                        <div class="profile-compat-subrow">
+                            <div class="profile-compat-sub">Biggest disagreements</div>
+                            <select id="profile-disagree-metric" class="select-field profile-compat-metric" onchange="setProfileDisagreementMetric(this.value)">
+                                ${PROFILE_TOP_METRICS.map(m => `<option value="${m.key}"${m.key === profileDisagreementMetric ? ' selected' : ''}>${escapeHtml(m.label)}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div id="profile-disagree-list">${renderProfileDisagreements()}</div>
                     ` : ''}
                 </div>
             `;
@@ -2262,7 +2266,7 @@
                 <div class="profile-toggle">
                     <button type="button" class="nav-link profile-toggle-btn" data-profile-mode="recent" onclick="setProfileMode('recent')">Recent</button>
                     <button type="button" class="nav-link profile-toggle-btn" data-profile-mode="top" onclick="setProfileMode('top')">Top Rated</button>
-                    <select id="profile-top-metric" class="select-field" onchange="setProfileTopMetric(this.value)" style="display:none;">
+                    <select id="profile-top-metric" class="select-field profile-compat-metric" onchange="setProfileTopMetric(this.value)" style="display:none;">
                         ${PROFILE_TOP_METRICS.map(m => `<option value="${m.key}"${m.key === profileTopMetric ? ' selected' : ''}>${escapeHtml(m.label)}</option>`).join('')}
                     </select>
                 </div>
@@ -2398,6 +2402,56 @@
             const valid = PROFILE_TOP_METRICS.some(m => m.key === key);
             profileTopMetric = valid ? key : 'overall_rating';
             renderProfileGrid();
+        }
+
+        // Builds the "Biggest disagreements" rows for the profile modal, ranked by
+        // the chosen rating metric (overall by default; acting/plot/etc. selectable).
+        // Only movies where BOTH users rated that metric count toward the ranking.
+        function renderProfileDisagreements() {
+            const compat = profileCompat;
+            if (!compat || !Array.isArray(compat.pairs) || !compat.pairs.length) return '';
+            const metricKey = PROFILE_TOP_METRICS.some(m => m.key === profileDisagreementMetric)
+                ? profileDisagreementMetric : 'overall_rating';
+            const metricLabel = profileMetricLabel(metricKey);
+            const themUid = escapeHtml(String(compat.userId || ''));
+            const tierStyle = (tierRaw) => {
+                const letter = dashTierLetterFromLabel(dashNormalizeTierLabel(tierRaw));
+                return letter ? ` style="color:rgb(var(--tier-${letter.toLowerCase()}-rgb));"` : '';
+            };
+
+            const ranked = compat.pairs
+                .map(p => ({
+                    ...p,
+                    mineVal: Number(p?.mineRow?.[metricKey]),
+                    theirsVal: Number(p?.theirsRow?.[metricKey]),
+                }))
+                .filter(p => Number.isFinite(p.mineVal) && Number.isFinite(p.theirsVal))
+                .sort((a, b) => Math.abs(b.mineVal - b.theirsVal) - Math.abs(a.mineVal - a.theirsVal))
+                .slice(0, 3);
+
+            if (!ranked.length) {
+                return `<div class="text-xs text-gray" style="margin-top:0.4rem;">No movies you both rated for ${escapeHtml(metricLabel)} yet.</div>`;
+            }
+            return ranked.map(d => {
+                const mid = escapeHtml(String(d.movie_id || ''));
+                return `
+                <div class="profile-compat-item">
+                    <div class="profile-compat-title">${escapeHtml(d.title)}</div>
+                    <div class="profile-compat-chips">
+                        <span class="profile-compat-chip" role="button" tabindex="0" style="cursor:pointer;" onclick="try{initLibraryPage()}catch(e){}openLibraryMovieModal('${mid}')">You — <strong${tierStyle(d.mineTier)}>${dashFormatScoreWhole(d.mineVal)}</strong> ${escapeHtml(metricLabel)}</span>
+                        <span class="profile-compat-chip" role="button" tabindex="0" style="cursor:pointer;" onclick="openProfileMovieReview('${themUid}','${mid}')">${escapeHtml(profileThemShort)} — <strong${tierStyle(d.theirsTier)}>${dashFormatScoreWhole(d.theirsVal)}</strong> ${escapeHtml(metricLabel)}</span>
+                        <span class="profile-compat-gap" style="color:#fff;">${Math.round(Math.abs(d.mineVal - d.theirsVal))}% apart</span>
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        function setProfileDisagreementMetric(key) {
+            const valid = PROFILE_TOP_METRICS.some(m => m.key === key);
+            profileDisagreementMetric = valid ? key : 'overall_rating';
+            const list = document.getElementById('profile-disagree-list');
+            if (list) list.innerHTML = renderProfileDisagreements();
         }
 
         function closeUserProfile() {
