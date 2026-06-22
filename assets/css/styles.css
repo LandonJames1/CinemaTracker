@@ -1366,6 +1366,8 @@
             z-index: 1200;
             max-height: 360px;
             overflow-y: auto;
+            -webkit-overflow-scrolling: touch;   /* momentum scrolling on iOS */
+            overscroll-behavior: contain;          /* don't let the scroll bleed into the page */
         }
         #search-results {
             z-index: 2147483647 !important;

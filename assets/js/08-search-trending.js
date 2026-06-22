@@ -136,6 +136,25 @@
             }).join('');
             results.classList.remove('hidden');
 
+            // On mobile the dropdown floats over the page with the fixed bottom
+            // tab bar overlapping its lower edge. With the default 360px max-height
+            // the (up to 4) results all fit, so overflow-y:auto never engages — the
+            // last result ends up hidden behind the tab bar AND can't be scrolled
+            // into view (the "stuck dropdown" bug). Cap the height to the space
+            // between the dropdown's top and just above the tab bar so the list
+            // actually becomes scrollable when it would otherwise be clipped.
+            try {
+                if (typeof isMobileViewport === 'function' && isMobileViewport()) {
+                    const rect = results.getBoundingClientRect();
+                    const tabbar = document.getElementById('mobile-tabbar');
+                    const tabH = tabbar ? tabbar.getBoundingClientRect().height : 0;
+                    const avail = Math.floor(window.innerHeight - rect.top - tabH - 12);
+                    if (avail > 120) results.style.maxHeight = avail + 'px';
+                } else {
+                    results.style.maxHeight = '';
+                }
+            } catch (_) {}
+
             if (!results.dataset.boundClicks) {
                 results.dataset.boundClicks = 'true';
                 results.addEventListener('click', (e) => {
