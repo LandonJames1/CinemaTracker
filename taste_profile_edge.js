@@ -15,6 +15,10 @@ const RUNTIME_BIN_MINUTES = 10;
 // over the prior. People also require a hard MIN_PEOPLE_COUNT before ranking.
 const SHRINK_K = 5;
 const MIN_PEOPLE_COUNT = 2;
+// Keywords are far more numerous + sparse than genres, so require more evidence
+// before one counts, and cap how many we keep so the stored JSON stays small.
+const MIN_KEYWORD_COUNT = 3;
+const MAX_KEYWORDS_STORED = 60;
 
 // Pull `avg` (over `count` samples) toward `prior` by SHRINK_K pseudo-counts.
 function shrink(avg, count, prior, k = SHRINK_K) {
@@ -398,6 +402,39 @@ async function computeAndStoreTasteProfile(supabaseAdmin, userId) {
       }));
     }
 
+    // Keyword (theme) affinity: per-keyword mean rating, shrunk toward the user's
+    // mean, keyed by lowercase keyword NAME. Captures theme-level taste ("heist",
+    // "dystopia", "slow burn") beyond genre. Requires MIN_KEYWORD_COUNT ratings and
+    // keeps only the strongest |aff| keywords so the JSON stays small.
+    let keywordAffinity = {};
+    if (movieIds.length > 0) {
+      const kwByMovie = await fetchKeywordsByMovieIds(supabaseAdmin, movieIds);
+      const kwStats = new Map();
+      kwByMovie.forEach((names, movieId) => {
+        const rating = movieRatingById.get(String(movieId));
+        if (!Number.isFinite(rating)) return;
+        uniqStrings(names).forEach((name) => {
+          if (!kwStats.has(name)) kwStats.set(name, { sum: 0, count: 0 });
+          const s = kwStats.get(name);
+          s.sum += rating;
+          s.count += 1;
+        });
+      });
+      const ranked = Array.from(kwStats.entries())
+        .map(([name, s]) => {
+          const avg = s.count ? Number((s.sum / s.count).toFixed(2)) : 0;
+          const shrunk = shrink(avg, s.count, meanOverall);
+          return { name, avg, count: s.count, shrunk: Number(shrunk.toFixed(2)), aff: Number((shrunk - meanOverall).toFixed(2)) };
+        })
+        .filter((k) => k.count >= MIN_KEYWORD_COUNT)
+        .sort((a, b) => Math.abs(b.aff) - Math.abs(a.aff))
+        .slice(0, MAX_KEYWORDS_STORED);
+      keywordAffinity = Object.fromEntries(ranked.map((k) => [
+        k.name,
+        { avg: k.avg, count: k.count, shrunk: k.shrunk, aff: k.aff },
+      ]));
+    }
+
     const payload = {
       user_id: userId,
       computed_at: new Date().toISOString(),
@@ -411,6 +448,7 @@ async function computeAndStoreTasteProfile(supabaseAdmin, userId) {
       people_affinity_json: peopleAffinity,
       subrating_weights_json: subratingWeights,
       genre_affinity_json: genreAffinity,
+      keyword_affinity_json: keywordAffinity,
     };
 
     const { error: upsertErr } = await supabaseAdmin
@@ -425,6 +463,7 @@ async function computeAndStoreTasteProfile(supabaseAdmin, userId) {
       ratings_count: overallRatings.length,
       people_count: Object.keys(peopleAffinity).length,
       genres_count: Object.keys(genreAffinity).length,
+      keywords_count: Object.keys(keywordAffinity).length,
     };
 }
 
@@ -462,6 +501,48 @@ async function fetchTasteRecomputeTargets(supabaseAdmin, limit) {
     return ta - tb; // oldest / never-computed first
   });
   return (Number.isFinite(limit) && limit > 0) ? ordered.slice(0, limit) : ordered;
+}
+
+async function fetchKeywordsByMovieIds(supabaseAdmin, movieIds) {
+  // Returns Map<movieId, string[]> of keyword names for the given movies.
+  const kwByMovie = new Map();
+  if (!Array.isArray(movieIds) || movieIds.length === 0) return kwByMovie;
+
+  const links = [];
+  const chunkSize = 200;
+  for (let i = 0; i < movieIds.length; i += chunkSize) {
+    const chunk = movieIds.slice(i, i + chunkSize);
+    const { data, error } = await supabaseAdmin
+      .from("Movie Keywords")
+      .select("movie_id, keyword_id")
+      .in("movie_id", chunk);
+    if (error) throw error;
+    if (Array.isArray(data)) links.push(...data);
+  }
+  if (links.length === 0) return kwByMovie;
+
+  const keywordIds = Array.from(new Set(links.map((r) => r.keyword_id).filter((v) => v != null)));
+  const nameById = new Map();
+  for (let i = 0; i < keywordIds.length; i += 200) {
+    const chunk = keywordIds.slice(i, i + 200);
+    const { data, error } = await supabaseAdmin
+      .from("Keywords")
+      .select("id, name")
+      .in("id", chunk);
+    if (error) throw error;
+    if (Array.isArray(data)) {
+      data.forEach((k) => nameById.set(String(k.id), String(k.name || "").trim().toLowerCase()));
+    }
+  }
+
+  links.forEach((row) => {
+    const mid = String(row.movie_id);
+    const name = nameById.get(String(row.keyword_id));
+    if (!name) return;
+    if (!kwByMovie.has(mid)) kwByMovie.set(mid, []);
+    kwByMovie.get(mid).push(name);
+  });
+  return kwByMovie;
 }
 
 Deno.serve(async (req) => {

@@ -560,12 +560,8 @@
                                 prompt,
                                 filters,
                                 similar_movie: similarMovies,
-                                taste_profile: {
-                                    top_genres: [],
-                                    avg_rating_by_genre: {},
-                                    favorite_actors: [],
-                                    favorite_directors: [],
-                                },
+                                // Taste is loaded server-side from the Taste Profiles row
+                                // (keyed on the authed user) — nothing to send from here.
                                 debug,
                             };
                             const data = await callSwiftApiPublic(payload);

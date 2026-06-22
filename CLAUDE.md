@@ -95,6 +95,9 @@ _original_backup/              Byte-identical pre-refactor originals (safety net
 .github/workflows/refresh-taste-profiles.yml  Daily GitHub Actions cron → calls the
                                swift-responder taste edge in CRON_SECRET batch mode
                                (recomputes stalest taste profiles + one-time backfill)
+.github/workflows/backfill-movie-keywords.yml  Manual (workflow_dispatch) GitHub Actions
+                               job → loops the swift-api `backfill_movie_keywords` action
+                               until the whole catalog has TMDB keywords (one-click catch-up)
 ```
 
 PWA install (iPhone): `index.html` `<head>` has the `apple-mobile-web-app-*` meta
@@ -178,7 +181,9 @@ the front end calls:
   `EdgeFunc` dispatches by `body.action`; notable actions
   include `search`, AI picks (the `ai_picks` action **reads that Taste Profile and
   scores every candidate with `predictTasteScore(model, features)`** — a reusable
-  0-100 prediction from genre+decade affinity + a crowd/imdb_delta anchor, with short
+  0-100 prediction from genre+decade affinity (+ keyword/theme affinity when a movie's
+  keywords are known — inert for AI Picks discover candidates, ready for the per-movie/swipe
+  predictor) + a crowd/imdb_delta anchor, with short
   `taste_reasons`; candidates are sorted by it, the rerank LLM is told to treat it as
   a primary ranking factor (not a tie-breaker) and weave the reasons into its
   explanations, and `taste_score` is returned on each pick. No-genre "surprise me"
@@ -344,6 +349,16 @@ the front end calls:
   `Taste Profiles.genre_affinity_json`; the rest of the genre-affinity / shrinkage
   enrichment lives in `taste_profile_edge.js` and the predictor in `EdgeFunc`'s
   `ai_picks`, so just re-deploy those two edge functions after running),
+  `movie_keywords.sql` (**run once**, idempotent — adds the `Keywords` +
+  `Movie Keywords` join tables (TMDB theme tags) and `Taste Profiles.keyword_affinity_json`.
+  Ingestion is in `EdgeFunc`: every movie save now fetches keywords
+  (`append_to_response=keywords`) via `syncMovieKeywords`, and the cron-gated
+  `backfill_movie_keywords` action (`x-cron-secret`==`CRON_SECRET`, body `{limit}`,
+  returns `remaining` — re-run until 0) fills the existing catalog, runnable one-click via
+  `.github/workflows/backfill-movie-keywords.yml` (loops until done). `taste_profile_edge.js`
+  then learns per-keyword affinity and the `ai_picks` rerank matches it against
+  candidate overviews — re-deploy both edge functions + run the keyword backfill, then the
+  taste backfill, after running the SQL),
   etc.; more in `Supabase Setup/`.
 - Gating constants in JS: `ADMIN_EMAIL` (admin panel), `THEME_CREATOR_OWNER_EMAIL`
   (theme creator), `DEMO_USER_ID` (guest mode).
@@ -355,8 +370,8 @@ header row = that table's columns).** Read the relevant CSV header before writin
 any query. Do NOT guess column locations.
 
 **The #1 trap: movie metadata is split across tables. `Movies` holds only core
-fields. Genre, director/cast, platforms, and external (IMDb) ratings each live in
-their own join tables — they are NOT columns on `Movies`.** Selecting a
+fields. Genre, director/cast, keywords, platforms, and external (IMDb) ratings each
+live in their own join tables — they are NOT columns on `Movies`.** Selecting a
 non-existent column makes the whole PostgREST query fail and return nothing.
 
 ### Tables and columns (exact)
@@ -366,6 +381,8 @@ non-existent column makes the whole PostgREST query fail and return nothing.
 | `Movies` | `id, created_at, tmdb_id, imdb_id, title, release_year, runtime_minutes, mpa_rating, is_series, poster_path` — **no genre, no director, no cast, no platform, no imdb rating** |
 | `Movie Genres` | `movie_id, genre_id, created_at` → join to `Genres` |
 | `Genres` | `id, name` |
+| `Movie Keywords` | `movie_id, keyword_id, created_at` → join to `Keywords` (`movie_keywords.sql`; TMDB theme tags) |
+| `Keywords` | `id, created_at, tmdb_keyword_id, name` (TMDB keyword/theme, e.g. "heist"; `movie_keywords.sql`) |
 | `Movie Cast` | `movie_id, person_id, character, created_at` → join to `People` |
 | `Movie Crew` | `movie_id, person_id, job, created_at` → join to `People` (director = `job` = 'Director') |
 | `People` | `id, created_at, tmdb_person_id, name` |
@@ -392,7 +409,7 @@ non-existent column makes the whole PostgREST query fail and return nothing.
 | `Help Pop-ups` | `user_id, "AI Picks Help", "New Feature News"` |
 | `Feature Requests` | `user_id, created_at, feature` |
 | `Settings` | `id, created_at, allow_signups` |
-| `Taste Profiles` | `user_id, computed_at, mean_overall, std_overall, like_threshold, runtime_bins_json, decade_bins_json, people_affinity_json, subrating_weights_json, imdb_delta, median_overall, genre_affinity_json` (`genre_affinity_json` added by `taste_genre_affinity.sql`, not in the CSV export — per-genre affinity keyed by genre NAME: `{ "Science Fiction": { avg, count, shrunk, aff } }` where `aff` = `shrunk - mean_overall` = how far above/below baseline the user rates that genre. `people_affinity_json` and the runtime/decade bins now also carry `shrunk`+`aff`; people require ≥2 rated movies and rank by `aff`, not raw avg. All use **Bayesian shrinkage toward the user's mean** (pseudo-count `SHRINK_K=5`) so a single rating can't create a fake favorite) |
+| `Taste Profiles` | `user_id, computed_at, mean_overall, std_overall, like_threshold, runtime_bins_json, decade_bins_json, people_affinity_json, subrating_weights_json, imdb_delta, median_overall, genre_affinity_json, keyword_affinity_json` (`genre_affinity_json` added by `taste_genre_affinity.sql`, `keyword_affinity_json` by `movie_keywords.sql`, neither in the CSV export — per-genre / per-keyword affinity keyed by NAME: `{ "Science Fiction": { avg, count, shrunk, aff } }` where `aff` = `shrunk - mean_overall` = how far above/below baseline the user rates that genre/theme. `keyword_affinity_json` is theme-level taste (TMDB keywords like "heist"/"dystopia"), capped to the ~60 strongest `|aff|` keywords with ≥3 ratings each. `people_affinity_json` and the runtime/decade bins now also carry `shrunk`+`aff`; people require ≥2 rated movies and rank by `aff`, not raw avg. All use **Bayesian shrinkage toward the user's mean** (pseudo-count `SHRINK_K=5`) so a single rating can't create a fake favorite) |
 
 ### How to read denormalized movie data
 The front end usually reads **genre/director/platforms together via SQL views**

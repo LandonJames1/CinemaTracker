@@ -240,6 +240,7 @@ function uniqStrings(arr) {
 // People/runtime affinity live in the profile too and will feed the per-movie
 // predictor once full movie details are available (e.g. the future swipe deck).
 const TASTE_GENRE_WEIGHT = 1.0;   // genre affinity is the strongest available signal
+const TASTE_KEYWORD_WEIGHT = 0.8; // theme/keyword affinity (only when keywords are known)
 const TASTE_DECADE_WEIGHT = 0.5;  // era is a weaker, noisier signal
 const TASTE_CROWD_WEIGHT = 0.35;  // nudge toward what the crowd (TMDB) + imdb_delta implies
 
@@ -262,8 +263,18 @@ function buildTasteModel(row) {
     if (Number.isFinite(aff)) decades[String(decade)] = aff;
   }
 
-  const hasData = Object.keys(genres).length > 0 || Object.keys(decades).length > 0;
-  return { hasData, mean, imdbDelta: Number(row?.imdb_delta) || 0, genres, decades };
+  // Keyword/theme affinity — only usable when a movie's keywords are known (e.g.
+  // the future per-movie / swipe-deck predictor). AI Picks discover candidates
+  // don't carry keywords, so this stays inert there but completes the model.
+  const keywords = {};
+  const ka = row?.keyword_affinity_json && typeof row.keyword_affinity_json === "object" ? row.keyword_affinity_json : {};
+  for (const [name, info] of Object.entries(ka)) {
+    const aff = Number(info?.aff);
+    if (Number.isFinite(aff)) keywords[String(name).toLowerCase()] = aff;
+  }
+
+  const hasData = Object.keys(genres).length > 0 || Object.keys(decades).length > 0 || Object.keys(keywords).length > 0;
+  return { hasData, mean, imdbDelta: Number(row?.imdb_delta) || 0, genres, decades, keywords };
 }
 
 function predictTasteScore(model, features) {
@@ -288,6 +299,20 @@ function predictTasteScore(model, features) {
     if (worst.aff <= -4) reasons.push(`${worst.name} is usually below your average`);
   }
 
+  // Keyword/theme affinity (only when the movie's keywords are provided).
+  const kwNames = Array.isArray(feats.keywords) ? feats.keywords : [];
+  const kAffs = [];
+  for (const k of kwNames) {
+    const aff = (model.keywords || {})[String(k || "").toLowerCase()];
+    if (typeof aff === "number") kAffs.push({ name: k, aff });
+  }
+  if (kAffs.length) {
+    const avgAff = kAffs.reduce((a, x) => a + x.aff, 0) / kAffs.length;
+    score += TASTE_KEYWORD_WEIGHT * avgAff;
+    const best = kAffs.slice().sort((a, b) => b.aff - a.aff)[0];
+    if (best.aff >= 4) reasons.push(`leans into "${best.name}", a theme you like`);
+  }
+
   // Decade.
   const year = Number(feats.year);
   if (Number.isFinite(year) && year > 1800) {
@@ -308,6 +333,62 @@ function predictTasteScore(model, features) {
 
   const clamped = Math.max(0, Math.min(100, score));
   return { score: Math.round(clamped), reasons };
+}
+
+// Upsert a movie's TMDB keywords (theme tags like "heist"/"dystopia") into the
+// Keywords + Movie Keywords tables (service role). `prefetched` = the keyword array
+// from a details fetch (append_to_response=keywords → json.keywords.keywords); when
+// absent it fetches /movie/{id}/keywords itself (used by the backfill action).
+// Best-effort: returns { ok, count } or { ok:false, error } and never throws.
+async function syncMovieKeywords(supabaseAdmin, tmdbHeaders, movieRowId, tmdbId, prefetched) {
+  try {
+    if (!movieRowId) return { ok: false, error: "Missing movie row id." };
+    let kws = Array.isArray(prefetched) ? prefetched : null;
+    if (!kws) {
+      const res = await fetch(`https://api.themoviedb.org/3/movie/${Number(tmdbId)}/keywords`, { headers: tmdbHeaders });
+      if (!res.ok) return { ok: false, error: `TMDb keywords HTTP ${res.status}` };
+      const j = await res.json().catch(() => null);
+      kws = Array.isArray(j?.keywords) ? j.keywords : [];
+    }
+
+    const clean = [];
+    const seen = new Set();
+    for (const k of kws) {
+      const id = Number(k?.id);
+      const name = String(k?.name ?? "").trim();
+      if (!Number.isFinite(id) || id <= 0 || !name || seen.has(id)) continue;
+      seen.add(id);
+      clean.push({ tmdb_keyword_id: id, name });
+    }
+
+    const keywordIdByTmdb = new Map();
+    if (clean.length) {
+      const { data: upserted, error: upErr } = await supabaseAdmin
+        .from("Keywords")
+        .upsert(clean, { onConflict: "tmdb_keyword_id" })
+        .select("id, tmdb_keyword_id");
+      if (upErr) return { ok: false, error: `Keywords upsert: ${upErr.message}` };
+      (upserted ?? []).forEach((r) => keywordIdByTmdb.set(Number(r.tmdb_keyword_id), r.id));
+    }
+
+    // Refresh the join rows for this movie (idempotent).
+    const { error: delErr } = await supabaseAdmin
+      .from("Movie Keywords")
+      .delete()
+      .eq("movie_id", movieRowId);
+    if (delErr) return { ok: false, error: `Clear Movie Keywords: ${delErr.message}` };
+
+    const joinRows = clean
+      .map((c) => ({ movie_id: movieRowId, keyword_id: keywordIdByTmdb.get(c.tmdb_keyword_id) }))
+      .filter((r) => r.keyword_id);
+    if (joinRows.length) {
+      const { error: insErr } = await supabaseAdmin.from("Movie Keywords").insert(joinRows);
+      if (insErr) return { ok: false, error: `Insert Movie Keywords: ${insErr.message}` };
+    }
+    return { ok: true, count: joinRows.length };
+  } catch (e) {
+    return { ok: false, error: String(e?.message ?? e) };
+  }
 }
 
 function mapGenreNamesToIds(names) {
@@ -1262,6 +1343,86 @@ Deno.serve(async (req) => {
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, rows.length) }, worker));
 
       return jsonResponse({ ok: true, checked, updated, failed }, 200);
+    }
+
+    // ---- Backfill TMDB keywords for the existing catalog ----------------------
+    // Cron-gated (x-cron-secret == CRON_SECRET, no user session). New movies get
+    // keywords on save; this fills in movies that pre-date that. Processes the
+    // oldest movies WITHOUT any Movie Keywords rows, `limit` at a time, and reports
+    // `remaining` so you can re-run until it hits 0. Keywords are static, so no
+    // recurring schedule is needed — just run this a few times after deploying.
+    if (action === "backfill_movie_keywords") {
+      const provided = String(req.headers.get("x-cron-secret") ?? "").trim();
+      const expected = String(Deno.env.get("CRON_SECRET") ?? "").trim();
+      if (!expected || provided !== expected) {
+        return jsonResponse({ code: 401, message: "Invalid or missing cron secret." }, 401);
+      }
+
+      const TMDB_TOKEN = Deno.env.get("TMDB_READ_ACCESS_TOKEN");
+      if (!TMDB_TOKEN) {
+        return jsonResponse({ ok: false, message: "Missing TMDB_READ_ACCESS_TOKEN." }, 200);
+      }
+      const tmdbHeaders = { Authorization: `Bearer ${TMDB_TOKEN}` };
+      const limit = Math.max(1, Math.min(500, Number(body?.limit) || 200));
+
+      // Which movies already have keywords? (paged)
+      const haveKw = new Set();
+      let kfrom = 0;
+      while (true) {
+        const { data, error } = await supabaseAdmin
+          .from("Movie Keywords")
+          .select("movie_id")
+          .range(kfrom, kfrom + 999);
+        if (error) return jsonResponse({ ok: false, message: `Movie Keywords scan: ${error.message}` }, 200);
+        const page = Array.isArray(data) ? data : [];
+        page.forEach((r) => { if (r?.movie_id) haveKw.add(String(r.movie_id)); });
+        if (page.length < 1000) break;
+        kfrom += 1000;
+      }
+
+      // Oldest movies with a tmdb_id, minus the ones already done.
+      const targets = [];
+      let mfrom = 0;
+      while (targets.length < limit) {
+        const { data, error } = await supabaseAdmin
+          .from("Movies")
+          .select("id, tmdb_id")
+          .not("tmdb_id", "is", null)
+          .order("created_at", { ascending: true })
+          .range(mfrom, mfrom + 999);
+        if (error) return jsonResponse({ ok: false, message: `Movies scan: ${error.message}` }, 200);
+        const page = Array.isArray(data) ? data : [];
+        for (const m of page) {
+          if (targets.length >= limit) break;
+          if (!haveKw.has(String(m.id))) targets.push(m);
+        }
+        if (page.length < 1000) break;
+        mfrom += 1000;
+      }
+
+      let updated = 0;
+      let failed = 0;
+      const CONCURRENCY = 4;
+      for (let i = 0; i < targets.length; i += CONCURRENCY) {
+        const slice = targets.slice(i, i + CONCURRENCY);
+        const settled = await Promise.allSettled(
+          slice.map((m) => syncMovieKeywords(supabaseAdmin, tmdbHeaders, m.id, m.tmdb_id, null)),
+        );
+        settled.forEach((s) => {
+          if (s.status === "fulfilled" && s.value?.ok) updated += 1;
+          else failed += 1;
+        });
+      }
+
+      // If we filled the batch there are probably more untouched movies — re-run.
+      const moreLikely = targets.length >= limit;
+      return jsonResponse({
+        ok: true,
+        processed: targets.length,
+        updated,
+        failed,
+        remaining: moreLikely ? "more (re-run)" : 0,
+      }, 200);
     }
 
     // ---- Movie recommendations: add a movie to each recipient's "Recs" list ----
@@ -2552,7 +2713,7 @@ Deno.serve(async (req) => {
       try {
         const { data: tasteRows, error: tasteErr } = await supabaseAdmin
           .from("Taste Profiles")
-          .select("mean_overall, runtime_bins_json, decade_bins_json, imdb_delta, subrating_weights_json, people_affinity_json, genre_affinity_json")
+          .select("mean_overall, runtime_bins_json, decade_bins_json, imdb_delta, subrating_weights_json, people_affinity_json, genre_affinity_json, keyword_affinity_json")
           .eq("user_id", userData.user.id)
           .limit(1);
         if (!tasteErr && Array.isArray(tasteRows) && tasteRows.length > 0) {
@@ -2572,6 +2733,19 @@ Deno.serve(async (req) => {
             .sort((a, b) => (b.aff - a.aff) || (b.count - a.count))
             .slice(0, 3)
             .map((x) => x.name);
+
+          // Strongest theme/keyword preferences as a compact {name, aff} list — the
+          // rerank LLM matches these against each candidate's overview text (the only
+          // place we can apply theme taste in AI Picks, since discover candidates
+          // don't carry keywords). aff>0 = a theme you like, aff<0 = one you don't.
+          const keywordAff = row?.keyword_affinity_json && typeof row.keyword_affinity_json === "object"
+            ? row.keyword_affinity_json
+            : {};
+          var keywordAffForLlm = Object.entries(keywordAff)
+            .map(([name, info]) => ({ name, aff: Number(info?.aff ?? 0) }))
+            .filter((x) => Number.isFinite(x.aff) && Math.abs(x.aff) >= 2)
+            .sort((a, b) => Math.abs(b.aff) - Math.abs(a.aff))
+            .slice(0, 20);
 
           const runtimeBins = row?.runtime_bins_json && typeof row.runtime_bins_json === "object"
             ? row.runtime_bins_json
@@ -2614,6 +2788,7 @@ Deno.serve(async (req) => {
                 ? row.people_affinity_json
                 : {},
               genre_affinity: genreAff,
+              keyword_affinity: keywordAffForLlm,
             },
           };
         }
@@ -2981,7 +3156,9 @@ Deno.serve(async (req) => {
         "Do not expect or reference keyword fields; none are provided. " +
         "Each candidate may include a `taste_score` (0-100, the system's prediction of how THIS user would rate the movie, derived from their own rating history) " +
         "and `taste_reasons` (short factual fragments explaining that prediction, e.g. genres/eras they favor). " +
-        "taste_profile_rerank may also include imdb_delta, subrating_weights, people_affinity, and genre_affinity.\n\n" +
+        "taste_profile_rerank may also include imdb_delta, subrating_weights, people_affinity, genre_affinity, and " +
+        "keyword_affinity (a list of {name, aff} theme preferences from the user's history; aff>0 = a theme they tend to rate ABOVE their average, aff<0 = below). " +
+        "Match keyword_affinity against each candidate's `overview` text — a candidate whose overview reflects the user's liked themes should rank up, and one dominated by disliked themes should rank down.\n\n" +
         "RANKING PRINCIPLES\n" +
         "- Balance TWO signals roughly equally: (a) alignment with the prompt's vibe/themes, and (b) the user's predicted taste (taste_score / taste_reasons / taste_profile_rerank).\n" +
         "- taste_score and taste_reasons are STRONG EVIDENCE about this specific user — treat them as a primary ranking factor, NOT just a tie-breaker. A higher taste_score should meaningfully raise a candidate that also fits the prompt.\n" +
@@ -3536,6 +3713,7 @@ Deno.serve(async (req) => {
     // TMDb details to get runtime/title/release date
     const detailsUrl = new URL(`https://api.themoviedb.org/3/movie/${tmdb_id}`);
     detailsUrl.searchParams.set("language", "en-US");
+    detailsUrl.searchParams.set("append_to_response", "keywords");
 
     // TMDb release_dates to get US certification (MPA rating)
     const releaseDatesUrl = new URL(
@@ -3769,6 +3947,22 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Sync TMDB keywords -> Keywords + Movie Keywords join (best-effort, theme-level
+    // taste signal). Reuses the keywords already returned by the details fetch above.
+    const keywordSync = { ok: false, count: 0, error: null };
+    if (movie_row_id) {
+      const r = await syncMovieKeywords(
+        supabaseAdmin,
+        { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` },
+        movie_row_id,
+        tmdb_id,
+        detailsJson?.keywords?.keywords,
+      );
+      keywordSync.ok = Boolean(r?.ok);
+      keywordSync.count = Number(r?.count ?? 0) || 0;
+      keywordSync.error = r?.error ?? null;
+    }
+
     // Sync watch providers -> Platforms + Movie Platforms (best-effort).
     // IMPORTANT: This must not block the core save flow.
     const platformSync = {
@@ -3840,6 +4034,7 @@ Deno.serve(async (req) => {
       mpa_rating: movieData.mpa_rating,
       imdb_id: movieData.imdb_id,
       genre_sync: genreSync,
+      keyword_sync: keywordSync,
       platform_sync: platformSync,
       imdb_rating_pct: external_ratings?.imdb?.pct ?? null,
       external_ratings,

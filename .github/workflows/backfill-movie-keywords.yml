@@ -1,0 +1,58 @@
+name: Backfill movie keywords
+
+# One-time-ish catch-up: fetches TMDB keywords (theme tags) for every existing movie
+# that doesn't have them yet, via the swift-api `backfill_movie_keywords` Edge action.
+# New movies get keywords automatically on save, so this is only for the back catalog.
+# Run it from the Actions tab → "Run workflow". It LOOPS internally — one click keeps
+# calling the function (a batch at a time, to respect TMDB rate limits) until the whole
+# catalog is done, so you don't have to re-run it manually.
+#
+# Required repo secrets (same ones the other jobs use):
+#   SUPABASE_FUNCTION_URL    -> the .../functions/v1/swift-api URL
+#   SUPABASE_PUBLISHABLE_KEY -> the sb_publishable_... key
+#   CRON_SECRET              -> matches the swift-api CRON_SECRET edge secret
+on:
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: 'Movies per call (max 500; lower = gentler on TMDB)'
+        required: false
+        default: '300'
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Backfill keywords until catalog is complete
+        env:
+          URL: ${{ secrets.SUPABASE_FUNCTION_URL }}
+          APIKEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BATCH: ${{ github.event.inputs.batch_size || '300' }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            echo "--- pass $i ---"
+            resp=$(curl -sS -X POST "$URL" \
+              -H "Content-Type: application/json" \
+              -H "apikey: $APIKEY" \
+              -H "x-cron-secret: $CRON_SECRET" \
+              -d "{\"action\":\"backfill_movie_keywords\",\"limit\": $BATCH}" \
+              --fail-with-body)
+            echo "$resp"
+
+            ok=$(echo "$resp" | jq -r '.ok // false')
+            if [ "$ok" != "true" ]; then
+              echo "::error::Backfill call did not return ok:true"
+              exit 1
+            fi
+
+            remaining=$(echo "$resp" | jq -r '.remaining')
+            if [ "$remaining" = "0" ]; then
+              echo "All movies have keywords. Done."
+              exit 0
+            fi
+
+            sleep 3
+          done
+          echo "::warning::Hit the 60-pass cap; run again if some movies still lack keywords."
