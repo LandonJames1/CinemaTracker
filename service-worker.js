@@ -14,7 +14,7 @@
  * open page to reload onto the new version.
  */
 
-const CACHE_VERSION = 'v63';
+const CACHE_VERSION = 'v64';
 const CACHE = `cinematracker-${CACHE_VERSION}`;
 
 self.addEventListener('install', () => {

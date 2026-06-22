@@ -28,6 +28,103 @@
 
         // (director filter is applied via modal Save)
 
+        // ===== Page title search (My Movies + Feed) =====
+        // A small magnifier button on each page opens the shared #page-search-overlay
+        // popup; submitting filters the page to movies whose title (close-)matches the
+        // query. My Movies filters server-side (ilike, paginated); Feed filters the
+        // already-loaded rows client-side. Both use loose/"fuzzy" matching so "Du" finds
+        // "Dune". Empty query = no filter.
+        let librarySearchQuery = '';
+        let feedSearchQuery = '';
+        let pageSearchContext = ''; // 'library' | 'feed' — which page the open popup targets
+
+        // Normalize a string for loose matching: lowercase, strip accents + anything that
+        // isn't a letter/number/space, collapse whitespace.
+        function normalizeSearchText(s) {
+            return String(s || '')
+                .toLowerCase()
+                .normalize('NFD').replace(/[̀-ͯ]/g, '')
+                .replace(/[^a-z0-9\s]+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        // Loose title match used by the Feed (client-side). Every whitespace-separated
+        // word in the query must appear (as a substring) somewhere in the title — so
+        // "du" → "Dune", "dark knight" → "The Dark Knight", order-independent.
+        function movieTitleMatchesSearch(title, query) {
+            const q = normalizeSearchText(query);
+            if (!q) return true;
+            const hay = normalizeSearchText(title);
+            if (!hay) return false;
+            return q.split(' ').every((word) => word && hay.includes(word));
+        }
+
+        // Reflect the active-search state on a page's magnifier button (solid highlight +
+        // tooltip showing what's being searched).
+        function syncPageSearchButton(context) {
+            const btnId = context === 'feed' ? 'feed-search-btn' : 'library-search-btn';
+            const query = context === 'feed' ? feedSearchQuery : librarySearchQuery;
+            const btn = document.getElementById(btnId);
+            if (!btn) return;
+            const active = !!String(query || '').trim();
+            btn.classList.toggle('filter-active', active);
+            btn.title = active ? `Searching: "${query}" — tap to change` : 'Search by title';
+        }
+
+        function openPageSearch(context) {
+            pageSearchContext = (context === 'feed') ? 'feed' : 'library';
+            const overlay = document.getElementById('page-search-overlay');
+            const input = document.getElementById('page-search-input');
+            const titleEl = document.getElementById('page-search-title');
+            if (!overlay || !input) return;
+            if (titleEl) titleEl.textContent = (pageSearchContext === 'feed') ? 'Search Feed' : 'Search My Movies';
+            input.value = (pageSearchContext === 'feed') ? feedSearchQuery : librarySearchQuery;
+            overlay.style.display = 'flex';
+            // Focus after the overlay paints so mobile keyboards reliably open.
+            setTimeout(() => { try { input.focus(); input.select(); } catch (_) {} }, 30);
+        }
+
+        function closePageSearch() {
+            const overlay = document.getElementById('page-search-overlay');
+            if (overlay) overlay.style.display = 'none';
+        }
+
+        async function submitPageSearch(e) {
+            if (e && e.preventDefault) e.preventDefault();
+            const input = document.getElementById('page-search-input');
+            const value = String(input?.value || '').trim();
+            const context = pageSearchContext;
+            closePageSearch();
+            if (context === 'feed') {
+                feedSearchQuery = value;
+                syncPageSearchButton('feed');
+                await loadFeedItems();
+            } else {
+                librarySearchQuery = value;
+                syncPageSearchButton('library');
+                await loadLibraryPage({ reset: true });
+            }
+        }
+
+        async function clearPageSearch() {
+            const context = pageSearchContext;
+            const input = document.getElementById('page-search-input');
+            if (input) input.value = '';
+            closePageSearch();
+            if (context === 'feed') {
+                if (!feedSearchQuery) return;
+                feedSearchQuery = '';
+                syncPageSearchButton('feed');
+                await loadFeedItems();
+            } else {
+                if (!librarySearchQuery) return;
+                librarySearchQuery = '';
+                syncPageSearchButton('library');
+                await loadLibraryPage({ reset: true });
+            }
+        }
+
         function formatFeedTimestamp(ts) {
             if (!ts) return '';
             const d = new Date(ts);
@@ -73,6 +170,11 @@
 
                 if (action === 'open_filter') {
                     await openFeedFilterModal();
+                    return;
+                }
+
+                if (action === 'open_search') {
+                    openPageSearch('feed');
                     return;
                 }
 
@@ -233,6 +335,11 @@
                 }
                 if (action === 'open_filters') {
                     openLibrarySortFilterModal('filters');
+                    return;
+                }
+
+                if (action === 'open_search') {
+                    openPageSearch('library');
                     return;
                 }
 
@@ -1425,6 +1532,7 @@
             const elMeta = document.getElementById('library-meta');
             const wrap = document.getElementById('library-load-more-wrap');
             if (!elList) return;
+            syncPageSearchButton('library');
 
             if (!supabaseClient || !cachedIsAuthed) {
                 elList.innerHTML = `<div class="text-gray">Log in to view your movies.</div>`;
@@ -1494,6 +1602,15 @@
             const movieId = String(state?.movieId || '').trim();
             if (movieId) {
                 q = q.eq('movie_id', movieId);
+            }
+
+            // Title search (magnifier popup). Loose match: each word must appear in the
+            // title (ilike substring), so "du" → "Dune", "dark knight" → "The Dark Knight".
+            const searchNeedle = String(librarySearchQuery || '').trim();
+            if (searchNeedle) {
+                searchNeedle.split(/\s+/).filter(Boolean).forEach((word) => {
+                    q = q.ilike('title', `%${word}%`);
+                });
             }
 
             const watchMethod = String(state?.watchMethod || '').trim();
@@ -1809,7 +1926,7 @@
             }
         }
 
-        let feedHighlightSince = ''; // items with updated_at newer than this glow as "new" for one view
+        let feedHighlightSince = ''; // items with created_at (original post time) newer than this glow as "new" for one view
 
         // ===== Nav notification badges (Feed = new follow activity, Lists = new recs) =====
         const FEED_LAST_SEEN_KEY = 'ct_feed_last_seen';
@@ -1920,7 +2037,9 @@
                     setNavBadge('nav-badge-lists', listsCount);
                 } catch (_) { /* Recommendations table may not exist pre-migration */ }
 
-                // Feed badge: ratings from people I follow (excluding me) since last seen.
+                // Feed badge: NEW reviews from people I follow (excluding me) since last
+                // seen — keyed on created_at (original post time), so an edit to an old
+                // review doesn't re-ping the badge.
                 try {
                     await loadMyFollowingIds();
                     const followed = Array.from(feedFollowingIds).filter(id => id && id !== meId);
@@ -1930,7 +2049,7 @@
                             .from('Movie Ratings')
                             .select('id', { count: 'exact', head: true })
                             .in('user_id', followed)
-                            .gt('updated_at', since);
+                            .gt('created_at', since);
                         feedCount = count || 0;
                         setNavBadge('nav-badge-feed', feedCount);
                     } else {
@@ -2815,6 +2934,7 @@
             const elList = document.getElementById('feed-list');
             const elMeta = document.getElementById('feed-meta');
             if (!elList) return;
+            syncPageSearchButton('feed');
 
 
             if (!supabaseClient || !cachedIsAuthed) {
@@ -2863,7 +2983,7 @@
                 if (elMeta) elMeta.textContent = '';
             }
 
-            const ratingCols = 'user_id, movie_id, overall_rating, tier, watch_date, updated_at, fav_quote, notes, sound_rating, pacing_rating, imagery_rating, acting_rating, plot_rating, dialogue_rating';
+            const ratingCols = 'user_id, movie_id, overall_rating, tier, watch_date, updated_at, created_at, fav_quote, notes, sound_rating, pacing_rating, imagery_rating, acting_rating, plot_rating, dialogue_rating';
 
             // 1) Watch logs. Normal feed = recent 60. "In common" loads 1000 at a
             //    time (accumulated across "Load More"), so older overlaps aren't cut off.
@@ -2884,14 +3004,15 @@
                 wrows = feedInCommonWatchRows;
             } else {
                 // Normal feed: drive selection + order by the most recently
-                // ADDED/UPDATED reviews (Movie Ratings.updated_at), not watch date,
-                // so editing a review re-surfaces it. Shaped like watch rows so the
-                // dedup + rating-merge below is unchanged.
+                // POSTED reviews (Movie Ratings.created_at = when the review was first
+                // written), NOT updated_at — so going back to EDIT an old rating updates
+                // it in place without resurfacing it to the top of followers' feeds.
+                // Shaped like watch rows so the dedup + rating-merge below is unchanged.
                 const { data: recent, error: wErr } = await supabaseClient
                     .from('Movie Ratings')
-                    .select('user_id, movie_id, watch_date, updated_at')
+                    .select('user_id, movie_id, watch_date, updated_at, created_at')
                     .in('user_id', queryUserIds)
-                    .order('updated_at', { ascending: false, nullsFirst: false })
+                    .order('created_at', { ascending: false, nullsFirst: false })
                     .limit(60);
                 if (wErr) throw wErr;
                 wrows = Array.isArray(recent) ? recent : [];
@@ -3024,6 +3145,18 @@
 
             // Posters are lazy-loaded from stored DB poster_path; no TMDb calls.
 
+            // Title search (magnifier popup): narrow the already-loaded rows to movies
+            // whose title (close-)matches the query before grouping/rendering.
+            if (String(feedSearchQuery || '').trim()) {
+                rows = rows.filter((r) => movieTitleMatchesSearch(moviesById.get(r?.movie_id)?.title, feedSearchQuery));
+                if (rows.length === 0) {
+                    elList.innerHTML = `<div class="text-gray">No reviews match “${escapeHtml(feedSearchQuery)}”.</div>`;
+                    if (elMeta) elMeta.textContent = '';
+                    renderFeedInCommonLoadMore(elList);
+                    return;
+                }
+            }
+
             if (elMeta) {
                 const modeLabel = feedCompareOwn ? 'You + selected follows' : 'Selected follows';
                 const orderLabel = feedInCommonOnly ? 'Most recent watches first' : 'Most recently updated first';
@@ -3062,10 +3195,12 @@
                     { k: 'Dialogue', v: dashFormatScoreWhole(r?.dialogue_rating) },
                 ].filter(x => String(x.v || '').trim());
 
-                // Highlight only OTHER people's new/updated entries — never your own.
+                // Highlight only OTHER people's brand-NEW entries (by created_at, the
+                // original post time) since you last looked — never your own, and never
+                // a mere edit of an old review.
                 const isNew = feedHighlightSince
                     && actorId !== authedUserId
-                    && String(r?.updated_at || '') > feedHighlightSince;
+                    && String(r?.created_at || '') > feedHighlightSince;
                 // A new entry for a movie YOU recommended to this person → distinct glow.
                 const isRecFulfilled = isNew && myRecSentPairs.has(`${actorId}|${String(r?.movie_id || '').trim()}`);
                 const highlightClass = isNew ? (isRecFulfilled ? ' is-new-rec' : ' is-new') : '';

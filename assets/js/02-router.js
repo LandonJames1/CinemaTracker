@@ -1553,6 +1553,7 @@
                                             <div id="feed-meta" class="text-xs text-gray" style="margin-top: 0.25rem;"></div>
                                         </div>
                                         <div class="feed-controls-actions" style="display:flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
+                                            <button id="feed-search-btn" type="button" class="btn btn-outline page-search-btn" data-feed-action="open_search" title="Search by title" aria-label="Search reviews" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">${icons.search}<span class="page-search-label">Search</span></button>
                                             <button type="button" class="btn btn-outline feed-follows-toggle" onclick="openFeedFollows()" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Follows</button>
                                             <button id="feed-filter-btn" type="button" class="btn btn-outline feed-sort-btn" data-feed-action="open_filter" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Filter</button>
                                             <button id="feed-refresh" type="button" class="btn btn-outline" data-feed-action="refresh" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Refresh</button>
@@ -1807,6 +1808,7 @@
                                     <div class="library-controls-row" style="display:flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
                                         <!-- One button that flips List/Grid (shows the view you'll switch TO). -->
                                         <button id="library-view-toggle-btn" type="button" class="btn btn-outline" data-library-action="toggle_view" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">List View</button>
+                                        <button id="library-search-btn" type="button" class="btn btn-outline page-search-btn" data-library-action="open_search" title="Search by title" aria-label="Search my movies" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">${icons.search}<span class="page-search-label">Search</span></button>
                                         <button id="library-open-filters" type="button" class="btn btn-outline" data-library-action="open_filters" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Filters</button>
                                         <button id="library-open-sort" type="button" class="btn btn-outline" data-library-action="open_sort" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Sort</button>
                                         <button id="library-refresh" type="button" class="btn btn-outline" data-library-action="refresh" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Refresh</button>

@@ -16,6 +16,105 @@
         let userAchievementEarnedAt = new Map(); // achievement_id -> earned_at (for the "This Month" filter)
         let userTierSummary = null;
         let userTiersList = [];
+        let achievementProgressLoadPending = false; // guard so the locked-card progress bars load evidence only once
+
+        // Threshold rules for the STANDARD achievements, keyed by name. Drives both the
+        // achievement-detail modal's progress readout AND the locked-card progress bars
+        // (renderAccountAchievements). Custom/admin-built achievements aren't listed here,
+        // so they simply render without a bar. Each value's `type` maps to a field on the
+        // achievement-evidence object via achievementRuleProgressValue().
+        const ACHIEVEMENT_PROGRESS_RULES = {
+            'First Screening': { type: 'ratings', threshold: 10 },
+            'Film Buff': { type: 'ratings', threshold: 50 },
+            'Dedicated Critic': { type: 'ratings', threshold: 250 },
+            'Cinema Archivist': { type: 'ratings', threshold: 750 },
+            'Screen Authority': { type: 'ratings', threshold: 1000 },
+            'Screen Legend': { type: 'ratings', threshold: 1250 },
+            'Master of Cinema': { type: 'ratings', threshold: 1500 },
+
+            'Encore': { type: 'rewatch', threshold: 2 },
+            'Comfort Classic': { type: 'rewatch', threshold: 3 },
+            'Repeat Viewer': { type: 'rewatch', threshold: 5 },
+            'Cult Favorite': { type: 'rewatch', threshold: 7 },
+            'Devoted Fan': { type: 'rewatch', threshold: 10 },
+            'Legendary Obsession': { type: 'rewatch', threshold: 15 },
+            'Timeless Classic': { type: 'rewatch', threshold: 25 },
+
+            'Director Devotee': { type: 'director', threshold: 4 },
+            'Director Loyalist': { type: 'director', threshold: 6 },
+            'Director Disciple': { type: 'director', threshold: 8 },
+            'Director Specialist': { type: 'director', threshold: 10 },
+            'Director Scholar': { type: 'director', threshold: 12 },
+            'Director Archivist': { type: 'director', threshold: 15 },
+            'Director Master': { type: 'director', threshold: 20 },
+
+            'Genre Explorer': { type: 'genre', threshold: 4 },
+            'Genre Hopper': { type: 'genre', threshold: 6 },
+            'Genre Connoisseur': { type: 'genre', threshold: 8 },
+            'Genre Specialist': { type: 'genre', threshold: 10 },
+            'Genre Authority': { type: 'genre', threshold: 12 },
+            'Genre Virtuoso': { type: 'genre', threshold: 14 },
+            'Genre Completionist': { type: 'genre', threshold: 16 },
+
+            'Time Traveler': { type: 'decade', threshold: 3 },
+            'Decade Explorer': { type: 'decade', threshold: 5 },
+            'Era Enthusiast': { type: 'decade', threshold: 7 },
+            'Decade Specialist': { type: 'decade', threshold: 9 },
+            'Century Wanderer': { type: 'decade', threshold: 11 },
+            'Historical Archivist': { type: 'decade', threshold: 13 },
+            'Timeline Master': { type: 'decade', threshold: 14 },
+
+            'Double Feature': { type: 'day', threshold: 2 },
+            'Opening Weekend': { type: 'day', threshold: 5 },
+            'Marathon Critic': { type: 'week', threshold: 10 },
+            'Festival Run': { type: 'day_streak', threshold: 7 },
+            'Premiere Season': { type: 'day_streak', threshold: 30 },
+            'Endurance Champion': { type: 'day_streak', threshold: 365 },
+            'Year-Long Viewer': { type: 'week_streak', threshold: 52 },
+        };
+
+        // Current progress value for a rule type, read off the achievement-evidence object.
+        function achievementRuleProgressValue(ruleType, evidence) {
+            if (!evidence) return null;
+            switch (ruleType) {
+                case 'ratings': return evidence.ratingsCount || 0;
+                case 'rewatch': return evidence.rewatchMax || 0;
+                case 'director': return evidence.topDirector ? evidence.topDirector.count : 0;
+                case 'genre': return Array.isArray(evidence.genreList) ? evidence.genreList.length : 0;
+                case 'decade': return Array.isArray(evidence.decadeList) ? evidence.decadeList.length : 0;
+                case 'day': return evidence.maxDayCount || 0;
+                case 'week': return evidence.rollingWeekMax || 0;
+                case 'day_streak': return evidence.dailyStreakMax || 0;
+                case 'week_streak': return evidence.weeklyStreakMax || 0;
+                default: return null;
+            }
+        }
+
+        // {value, threshold} for a known achievement (by name) given evidence, or null.
+        function getAchievementProgressInfo(name, evidence) {
+            const rule = ACHIEVEMENT_PROGRESS_RULES[String(name || '').trim()];
+            if (!rule || !evidence) return null;
+            const value = achievementRuleProgressValue(rule.type, evidence);
+            if (value === null) return null;
+            return { value, threshold: rule.threshold };
+        }
+
+        // Returns the cached evidence for the current user if loaded; otherwise kicks off
+        // a one-time load and re-renders the achievement grid when it arrives. Sync-safe
+        // (renderAccountAchievements is synchronous) — returns null until data is ready.
+        function ensureAchievementProgressData() {
+            const uid = String(cachedAuthUser?.id || '').trim();
+            if (!uid || !cachedIsAuthed) return null;
+            if (achievementEvidenceCache && achievementEvidenceCacheUserId === uid) return achievementEvidenceCache;
+            if (!achievementProgressLoadPending) {
+                achievementProgressLoadPending = true;
+                loadAchievementEvidence(uid)
+                    .then(() => { achievementProgressLoadPending = false; renderAccountAchievements(); })
+                    .catch(() => { achievementProgressLoadPending = false; });
+            }
+            return null;
+        }
+
         const TEST_ACHIEVEMENT_EMAIL = 'landon.talus@gmail.com';
         const ADMIN_EMAIL = 'landon.talus@gmail.com';
         let testAchievementEnabled = false;
@@ -1140,6 +1239,10 @@
             const STATUS_EARNED_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
             const STATUS_LOCKED_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
 
+            // Progress bars for LOCKED achievements need the user's evidence (rating/genre/
+            // director counts, streaks, …). Loaded once + re-rendered when ready.
+            const progressEvidence = ensureAchievementProgressData();
+
             list.innerHTML = filtered.map((row) => {
                 const id = String(row?.id || '').trim();
                 const name = String(row?.name || '').trim() || 'Achievement';
@@ -1152,6 +1255,21 @@
                 const meta = [points ? `${points} pts` : '', earned ? 'Earned' : 'Locked'].filter(Boolean).join(' • ');
                 const tierLabel = tier || 'Achievement';
 
+                // Locked + a known threshold rule → show a "how close am I" progress bar.
+                let progressHtml = '';
+                if (!earned) {
+                    const info = getAchievementProgressInfo(name, progressEvidence);
+                    if (info && info.threshold > 0) {
+                        const cur = Math.max(0, Math.min(info.threshold, info.value || 0));
+                        const pct = Math.max(0, Math.min(100, Math.round((cur / info.threshold) * 100)));
+                        progressHtml = `
+                            <div class="achievement-progress" role="progressbar" aria-valuemin="0" aria-valuemax="${info.threshold}" aria-valuenow="${cur}">
+                                <div class="achievement-progress-track"><div class="achievement-progress-fill" style="width:${pct}%;"></div></div>
+                                <div class="achievement-progress-label">${cur} / ${info.threshold}</div>
+                            </div>`;
+                    }
+                }
+
                 return `
                     <div class="achievement-card ${earned ? '' : 'locked'}" data-tier="${escapeHtml(tierLabel)}" data-type="${escapeHtml(type)}" data-earned="${earned ? 'true' : 'false'}" data-achievement-id="${escapeHtml(id)}">
                         <div class="achievement-status" aria-hidden="true">${earned ? STATUS_EARNED_SVG : STATUS_LOCKED_SVG}</div>
@@ -1162,8 +1280,9 @@
                             <div class="achievement-badge">${escapeHtml(tierLabel)}</div>
                         </div>
                         <div class="achievement-title">${escapeHtml(name)}</div>
-                        ${desc ? `<div class="achievement-meta">${escapeHtml(desc)}</div>` : ''}
-                        ${meta ? `<div class="achievement-meta">${escapeHtml(meta)}</div>` : ''}
+                        ${desc ? `<div class="achievement-meta achievement-desc">${escapeHtml(desc)}</div>` : ''}
+                        ${meta ? `<div class="achievement-meta achievement-status-meta">${escapeHtml(meta)}</div>` : ''}
+                        ${progressHtml}
                     </div>
                 `;
             }).join('');
@@ -1595,57 +1714,7 @@
             const name = String(achievement?.name || '').trim();
             const desc = String(achievement?.description || '').trim();
 
-            const rules = {
-                'First Screening': { type: 'ratings', threshold: 10 },
-                'Film Buff': { type: 'ratings', threshold: 50 },
-                'Dedicated Critic': { type: 'ratings', threshold: 250 },
-                'Cinema Archivist': { type: 'ratings', threshold: 750 },
-                'Screen Authority': { type: 'ratings', threshold: 1000 },
-                'Screen Legend': { type: 'ratings', threshold: 1250 },
-                'Master of Cinema': { type: 'ratings', threshold: 1500 },
-
-                'Encore': { type: 'rewatch', threshold: 2 },
-                'Comfort Classic': { type: 'rewatch', threshold: 3 },
-                'Repeat Viewer': { type: 'rewatch', threshold: 5 },
-                'Cult Favorite': { type: 'rewatch', threshold: 7 },
-                'Devoted Fan': { type: 'rewatch', threshold: 10 },
-                'Legendary Obsession': { type: 'rewatch', threshold: 15 },
-                'Timeless Classic': { type: 'rewatch', threshold: 25 },
-
-                'Director Devotee': { type: 'director', threshold: 4 },
-                'Director Loyalist': { type: 'director', threshold: 6 },
-                'Director Disciple': { type: 'director', threshold: 8 },
-                'Director Specialist': { type: 'director', threshold: 10 },
-                'Director Scholar': { type: 'director', threshold: 12 },
-                'Director Archivist': { type: 'director', threshold: 15 },
-                'Director Master': { type: 'director', threshold: 20 },
-
-                'Genre Explorer': { type: 'genre', threshold: 4 },
-                'Genre Hopper': { type: 'genre', threshold: 6 },
-                'Genre Connoisseur': { type: 'genre', threshold: 8 },
-                'Genre Specialist': { type: 'genre', threshold: 10 },
-                'Genre Authority': { type: 'genre', threshold: 12 },
-                'Genre Virtuoso': { type: 'genre', threshold: 14 },
-                'Genre Completionist': { type: 'genre', threshold: 16 },
-
-                'Time Traveler': { type: 'decade', threshold: 3 },
-                'Decade Explorer': { type: 'decade', threshold: 5 },
-                'Era Enthusiast': { type: 'decade', threshold: 7 },
-                'Decade Specialist': { type: 'decade', threshold: 9 },
-                'Century Wanderer': { type: 'decade', threshold: 11 },
-                'Historical Archivist': { type: 'decade', threshold: 13 },
-                'Timeline Master': { type: 'decade', threshold: 14 },
-
-                'Double Feature': { type: 'day', threshold: 2 },
-                'Opening Weekend': { type: 'day', threshold: 5 },
-                'Marathon Critic': { type: 'week', threshold: 10 },
-                'Festival Run': { type: 'day_streak', threshold: 7 },
-                'Premiere Season': { type: 'day_streak', threshold: 30 },
-                'Endurance Champion': { type: 'day_streak', threshold: 365 },
-                'Year-Long Viewer': { type: 'week_streak', threshold: 52 },
-            };
-
-            const rule = rules[name] || null;
+            const rule = ACHIEVEMENT_PROGRESS_RULES[name] || null;
             const detailItems = [];
             let progressValue = null;
 

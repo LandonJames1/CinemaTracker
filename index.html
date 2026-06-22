@@ -183,6 +183,25 @@
         </div>
     </div>
 
+    <!-- Shared title-search popup for My Movies + Feed (opened by the magnifier button) -->
+    <div id="page-search-overlay" class="auth-overlay" onclick="if(event.target === this) closePageSearch();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="page-search-title" style="max-width: 440px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="page-search-title">Search</div>
+                <button class="auth-modal-close" type="button" onclick="closePageSearch()">Close</button>
+            </div>
+            <form onsubmit="submitPageSearch(event)">
+                <label class="text-sm text-white font-bold mb-2 label-gap submit-label block" style="margin-top: 0.6rem;">Movie title</label>
+                <input id="page-search-input" type="text" class="input-field" placeholder="e.g. Dune" autocomplete="off" autocapitalize="none" spellcheck="false" style="width: 100%;">
+                <div class="text-xs text-gray" style="margin-top: 0.45rem;">Close matches count — “Du” finds “Dune”.</div>
+                <div class="auth-modal-actions" style="margin-top: 1rem; display:flex; gap: 0.75rem; flex-wrap: wrap;">
+                    <button type="submit" class="btn btn-primary" style="flex:1; border-radius: 0.85rem;">Search</button>
+                    <button type="button" class="btn btn-outline" onclick="clearPageSearch()" style="border-radius: 0.85rem;">Clear</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <div id="achievement-earned-overlay" class="auth-overlay" onclick="if(event.target === this) closeAchievementPopup();" style="display:none;">
         <div id="achievement-splash" aria-hidden="true"></div>
         <svg id="achievement-swipe" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true">

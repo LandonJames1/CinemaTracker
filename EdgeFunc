@@ -62,8 +62,10 @@ async function computeUnseenBadge(supabaseAdmin, userId) {
         .from("Follows").select("followed_id").eq("follower_id", userId);
       const followed = (Array.isArray(fr) ? fr : []).map((x) => x.followed_id).filter(Boolean);
       if (followed.length) {
+        // Keyed on created_at (original post time), matching the in-app feed +
+        // badge in 05-feed-library.js — so editing an old review doesn't re-ping.
         let q = supabaseAdmin.from("Movie Ratings").select("id", { count: "exact", head: true }).in("user_id", followed);
-        if (u?.feed_seen_at) q = q.gt("updated_at", u.feed_seen_at);
+        if (u?.feed_seen_at) q = q.gt("created_at", u.feed_seen_at);
         const { count } = await q;
         if (typeof count === "number") feed = count;
       }

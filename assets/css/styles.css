@@ -1533,11 +1533,11 @@
            CSS @keyframes (not transitions) are used so the slide plays even though modals
            are opened by toggling inline display:flex. */
         @media (max-width: 768px) {
-            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay) {
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay):not(#page-search-overlay) {
                 align-items: flex-end !important;
                 padding: 0 !important;
             }
-            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay) > .auth-modal {
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay):not(#page-search-overlay) > .auth-modal {
                 width: 100% !important;
                 max-width: 100% !important;
                 max-height: 92dvh !important;
@@ -1546,7 +1546,7 @@
                 padding: 1rem 1.1rem calc(1.25rem + env(safe-area-inset-bottom)) !important;
                 animation: sheetUp 0.32s cubic-bezier(0.16, 1, 0.3, 1);
             }
-            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay) > .auth-modal::before {
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay):not(#page-search-overlay) > .auth-modal::before {
                 content: "";
                 display: block;
                 width: 40px;
@@ -1764,6 +1764,55 @@
             font-size: 0.75rem;
             color: var(--text-muted);
             line-height: 1.2;
+        }
+
+        /* Progress bar on LOCKED achievement cards (how close the user is to earning it). */
+        .achievement-progress {
+            margin-top: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        /* Let a locked card grow to fit its progress bar instead of clipping it (desktop
+           cards are otherwise a fixed height with overflow hidden). */
+        .achievement-card.locked { height: auto; min-height: 175px; }
+        .achievement-progress-track {
+            flex: 1 1 auto;
+            height: 6px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.12);
+            overflow: hidden;
+        }
+        .achievement-progress-fill {
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, var(--brand), var(--brand-2));
+            transition: width 0.5s ease;
+            min-width: 2px;
+        }
+        .achievement-progress-label {
+            flex: 0 0 auto;
+            font-size: 0.7rem;
+            font-weight: 800;
+            color: rgba(255, 255, 255, 0.75);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Magnifier "Search" button on My Movies + Feed control rows. */
+        .page-search-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .page-search-btn svg {
+            width: 17px;
+            height: 17px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            flex: 0 0 auto;
         }
         #achievement-earned-body {
             --tier-rgb: 148, 163, 184;
@@ -2246,7 +2295,9 @@
                 margin-top: 0.35rem;
             }
             /* Tiles stay clean — drop the long description, keep the points/earned line. */
-            .achievement-card .achievement-meta:not(:last-child) { display: none; }
+            .achievement-card .achievement-desc { display: none; }
+            /* Locked-card progress bar sits below the points/earned line in the flex order. */
+            .achievement-card .achievement-progress { order: 5; width: 100%; margin-top: 0.5rem; }
             /* Soft tier glow anchored top-center under the icon. */
             .achievement-card::after {
                 inset: -30% auto auto 50%;
@@ -2261,6 +2312,7 @@
             .achievement-card.locked {
                 opacity: 1;
                 filter: none;
+                min-height: 0; /* reset the desktop min-height so mobile tiles stay compact */
                 background: linear-gradient(165deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
                 border-color: rgba(255,255,255,0.1);
             }
@@ -3160,6 +3212,22 @@
                My Movies + Lists detail already do this above. */
             .feed-controls-actions { width: 100%; flex-wrap: nowrap !important; }
             .feed-controls-actions > button:not(#feed-refresh) { flex: 1 1 0; min-width: 0; }
+
+            /* Search button stays a compact icon-only magnifier on mobile (the user wants
+               an "additional small button", not a full-width search bar). It opts out of
+               the equal-width stretch above and drops its text label. */
+            .page-search-label { display: none; }
+            /* `button#id` keeps specificity on par with the `> button:not(#x)` stretch
+               rule above; being later in source order, this wins → compact magnifier. */
+            .library-controls-row > button#library-search-btn,
+            .feed-controls-actions > button#feed-search-btn {
+                flex: 0 0 auto;
+                padding-left: 0.7rem;
+                padding-right: 0.7rem;
+            }
+            .page-search-btn { gap: 0; }
+            .page-search-btn svg { width: 20px; height: 20px; }
+
             .achievement-filter-wrap { width: 100%; flex-wrap: nowrap !important; }
             .achievement-filter-wrap > button { flex: 1 1 0; min-width: 0; }
 
