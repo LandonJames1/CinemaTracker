@@ -9,12 +9,18 @@
         let feedInCommonWatchRows = [];      // accumulated raw watch logs across loaded pages
         let feedInCommonOffset = 0;          // how many watch-log rows fetched so far
         let feedInCommonHasMore = false;     // last page came back full → more may exist
+        // Normal-feed paging: top 100 newest reviews, then infinite-scroll appends the
+        // next 100 at the bottom (mirrors the in-common accumulation above).
+        const FEED_NORMAL_PAGE = 100;
+        let feedNormalRows = [];             // accumulated driver rows (Movie Ratings) across pages
+        let feedNormalOffset = 0;            // how many driver rows fetched so far
+        let feedNormalHasMore = false;       // last page came back full → more may exist
         let feedFilterUsersCache = [];       // [{id, username, display_name, icon}] of people you follow (for the Filter modal)
         let feedFilterPrefsLoaded = false;
 
         let libraryBound = false;
         let libraryOffset = 0;
-        const libraryLimit = 25;
+        const libraryLimit = 100; // top 100, then infinite-scroll loads the next 100 at the bottom
         let libraryHasMore = true;
         let libraryLoading = false;
         let libraryViewMode = 'list';
@@ -445,9 +451,8 @@
             if (!btn) return;
             // The button shows the view you'll switch TO when you tap it.
             btn.textContent = libraryViewMode === 'grid' ? 'List View' : 'Grid View';
-            // Always keep the theme-color highlight on this control (not a filter,
-            // so the "filter is on" dot is suppressed via CSS).
-            btn.classList.add('filter-active');
+            // Plain outline button — same look as Filters/Sort (no brand fill).
+            btn.classList.remove('filter-active');
         }
 
         function getLibraryWatchCountRangeEls() {
@@ -1838,6 +1843,14 @@
 
                 renderLibraryList();
                 if (wrap) wrap.style.display = libraryHasMore ? 'flex' : 'none';
+                // Infinite scroll: auto-load the next page when the user nears the
+                // bottom. The manual "Load More" button stays as a fallback (e.g. if
+                // IntersectionObserver is unavailable). Detach once there's no more.
+                if (libraryHasMore && wrap) {
+                    attachInfiniteScroll(wrap, () => { loadLibraryMore({ replace: false }); });
+                } else {
+                    detachInfiniteScroll();
+                }
             } catch (err) {
                 const msg = String(err?.message || err);
                 if (replace) {
@@ -2927,10 +2940,12 @@
         }
 
         async function loadFeedItems(opts = {}) {
-            // appendInCommon=true → "Load More" pressed: fetch the next in-common page
-            // and re-render WITHOUT resetting the accumulated rows or the scroll-jarring
-            // "Loading…" placeholder.
+            // appendInCommon=true → in-common "Load More": fetch the next in-common page.
+            // appendNormal=true   → normal-feed infinite scroll: fetch the next 100 newest
+            //                       reviews. Both append to their accumulator + re-render
+            //                       WITHOUT resetting or re-showing the loading skeleton.
             const appendInCommon = opts.appendInCommon === true;
+            const appendNormal = opts.appendNormal === true;
             const elList = document.getElementById('feed-list');
             const elMeta = document.getElementById('feed-meta');
             if (!elList) return;
@@ -2978,7 +2993,7 @@
                 return;
             }
 
-            if (!appendInCommon) {
+            if (!appendInCommon && !appendNormal) {
                 elList.innerHTML = loadingPlaceholder('rows');
                 if (elMeta) elMeta.textContent = '';
             }
@@ -3007,15 +3022,21 @@
                 // POSTED reviews (Movie Ratings.created_at = when the review was first
                 // written), NOT updated_at — so going back to EDIT an old rating updates
                 // it in place without resurfacing it to the top of followers' feeds.
-                // Shaped like watch rows so the dedup + rating-merge below is unchanged.
+                // Top 100, then infinite-scroll appends the next 100 (accumulated in
+                // feedNormalRows). Shaped like watch rows so the dedup/merge is unchanged.
+                if (!appendNormal) { feedNormalRows = []; feedNormalOffset = 0; feedNormalHasMore = false; }
                 const { data: recent, error: wErr } = await supabaseClient
                     .from('Movie Ratings')
                     .select('user_id, movie_id, watch_date, updated_at, created_at')
                     .in('user_id', queryUserIds)
                     .order('created_at', { ascending: false, nullsFirst: false })
-                    .limit(60);
+                    .range(feedNormalOffset, feedNormalOffset + FEED_NORMAL_PAGE - 1);
                 if (wErr) throw wErr;
-                wrows = Array.isArray(recent) ? recent : [];
+                const batch = Array.isArray(recent) ? recent : [];
+                feedNormalRows.push(...batch);
+                feedNormalOffset += batch.length;
+                feedNormalHasMore = batch.length === FEED_NORMAL_PAGE;
+                wrows = feedNormalRows;
             }
 
             // 2) Dedup to one (user, movie) pair, keeping the most recent watch.
@@ -3080,6 +3101,7 @@
                 }
                 elList.innerHTML = `<div class="text-gray">No recent watch logs found (or privacy blocks access).</div>`;
                 if (elMeta) elMeta.textContent = '';
+                renderFeedNormalLoadMore(elList);
                 return;
             }
 
@@ -3153,6 +3175,8 @@
                     elList.innerHTML = `<div class="text-gray">No reviews match “${escapeHtml(feedSearchQuery)}”.</div>`;
                     if (elMeta) elMeta.textContent = '';
                     renderFeedInCommonLoadMore(elList);
+                    // Keep paging older reviews so the search can scan beyond this batch.
+                    renderFeedNormalLoadMore(elList);
                     return;
                 }
             }
@@ -3278,6 +3302,25 @@
 
             // In-common mode: offer "Load More" if there may be more watch logs to scan.
             renderFeedInCommonLoadMore(elList);
+            // Normal mode: infinite-scroll sentinel that auto-loads the next 100.
+            renderFeedNormalLoadMore(elList);
+        }
+
+        // Appends an infinite-scroll sentinel for the NORMAL feed (a skeleton "loading
+        // more" hold) when another page may exist, and observes it so scrolling near the
+        // bottom auto-loads the next 100 newest reviews. Detaches when there's no more.
+        function renderFeedNormalLoadMore(elList) {
+            if (feedInCommonOnly) return;
+            const el = elList || document.getElementById('feed-list');
+            if (!el) return;
+            if (!feedNormalHasMore) { detachInfiniteScroll(); return; }
+            const sentinel = document.createElement('div');
+            sentinel.id = 'feed-load-sentinel';
+            sentinel.className = 'infinite-sentinel';
+            sentinel.style.cssText = 'grid-column: 1 / -1;';
+            sentinel.innerHTML = skeletonRows(2);
+            el.appendChild(sentinel);
+            attachInfiniteScroll(sentinel, () => { loadFeedItems({ appendNormal: true }); });
         }
 
         // Appends a "Load More" button (in-common mode only) when the last page came

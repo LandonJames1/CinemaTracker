@@ -319,10 +319,9 @@
             router.navigate(page);
         }
 
-        // Phase 4 — loading skeletons. On mobile we show shimmering placeholders shaped
-        // like the real content instead of a "Loading…" line; desktop keeps the text so
-        // its loading state is unchanged. `kind`: 'rows' (library/feed stacked cards) or
-        // 'posters' (lists poster grid).
+        // Phase 4 — loading skeletons. Shimmering placeholders shaped like the real
+        // content instead of a "Loading…" line, on BOTH mobile and desktop. `kind`:
+        // 'rows' (library/feed stacked cards) or 'posters' (lists poster grid).
         function skeletonRows(n = 6) {
             let out = '';
             for (let i = 0; i < n; i++) {
@@ -337,8 +336,27 @@
             return out;
         }
         function loadingPlaceholder(kind) {
-            if (!isMobileViewport()) return `<div class="text-gray">Loading…</div>`;
             return kind === 'posters' ? skeletonPosters() : skeletonRows();
+        }
+
+        // ===== Infinite scroll (shared) =====
+        // One IntersectionObserver shared across the app — only one infinitely-scrolling
+        // list (My Movies / Feed / a Lists detail) is ever on screen at a time in this SPA.
+        // A page renders a sentinel element at the bottom of its list and calls
+        // attachInfiniteScroll(sentinel, onReach); when the sentinel scrolls near the
+        // viewport, onReach() loads/renders the next page. rootMargin prefetches a bit
+        // before the very bottom for a smooth feel.
+        let _infiniteScrollObserver = null;
+        function attachInfiniteScroll(sentinel, onReach) {
+            detachInfiniteScroll();
+            if (!sentinel || typeof IntersectionObserver === 'undefined' || typeof onReach !== 'function') return;
+            _infiniteScrollObserver = new IntersectionObserver((entries) => {
+                if (entries.some((e) => e.isIntersecting)) { try { onReach(); } catch (_) {} }
+            }, { root: null, rootMargin: '500px 0px', threshold: 0 });
+            _infiniteScrollObserver.observe(sentinel);
+        }
+        function detachInfiniteScroll() {
+            if (_infiniteScrollObserver) { try { _infiniteScrollObserver.disconnect(); } catch (_) {} _infiniteScrollObserver = null; }
         }
 
         // Pull-to-refresh (mobile, Instagram-style): drag down at the top of a refreshable

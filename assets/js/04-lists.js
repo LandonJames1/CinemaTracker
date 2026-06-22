@@ -10,6 +10,10 @@
         let listsPendingSelectName = ''; // when set, loadListsPage opens the list with this name (deep-links, e.g. "Recs")
         let listsPendingSelectId = '';   // when set, loadListsPage opens the list with this id (deep-links, e.g. a shared-list-add push)
         let recByDataByMovieId = new Map(); // movie_id -> [{ id, username, icon }] recommenders (for the Recs "+" modal)
+        // Lists detail infinite scroll: the whole list loads in one query, but we render
+        // only the first LISTS_RENDER_PAGE cards and append the rest as the user scrolls.
+        const LISTS_RENDER_PAGE = 100;
+        let listsPendingCardsHtml = []; // remaining pre-built card HTML strings not yet in the DOM
         let cachedLists = [];
         let cachedListsUserId = null;
 
@@ -3891,7 +3895,10 @@
 
                 const visibleItems = applyListsSortFilter(items, listsSortFilterState);
 
-                const cards = visibleItems
+                // Build EVERY card's HTML (the map also fully populates
+                // listsMoviePrefillById for all items), but only the first
+                // LISTS_RENDER_PAGE get injected now; the rest stream in on scroll.
+                const cardHtmlArr = visibleItems
                     .map((it) => {
                         const id = String(it?.movie_id || '').trim();
                         const movie = moviesById.get(id) || null;
@@ -4009,12 +4016,15 @@
                                 </div>
                             </div>
                         `;
-                    })
-                    .join('');
+                    });
 
+                const firstCards = cardHtmlArr.slice(0, LISTS_RENDER_PAGE);
+                listsPendingCardsHtml = cardHtmlArr.slice(LISTS_RENDER_PAGE);
                 elItems.innerHTML = `
-                    <div class="lists-grid">${cards}</div>
+                    <div class="lists-grid">${firstCards.join('')}</div>
                 `;
+                // Stream the rest in as the user scrolls toward the bottom.
+                renderListsMoreCards({ initial: true });
             } catch (err) {
                 const msg = String(err?.message || err);
                 elLists.innerHTML = `<div class="text-gray">Failed to load lists: ${escapeHtml(msg)}</div>`;
@@ -4024,5 +4034,33 @@
                 listsLoading = false;
                 try { setListsActiveListActionsEnabledState(); } catch (_) {}
             }
+        }
+
+        // Lists detail infinite scroll: append the next page of already-built card HTML
+        // (from listsPendingCardsHtml) into the grid and keep a bottom sentinel observed
+        // until everything's rendered. Pure client-side windowing — no extra DB calls.
+        function renderListsMoreCards({ initial = false } = {}) {
+            const elItems = document.getElementById('lists-items');
+            if (!elItems) return;
+            const grid = elItems.querySelector('.lists-grid');
+
+            if (!initial && grid && listsPendingCardsHtml.length) {
+                const next = listsPendingCardsHtml.splice(0, LISTS_RENDER_PAGE);
+                grid.insertAdjacentHTML('beforeend', next.join(''));
+            }
+
+            let sentinel = document.getElementById('lists-load-sentinel');
+            if (!listsPendingCardsHtml.length) {
+                if (sentinel) sentinel.remove();
+                detachInfiniteScroll();
+                return;
+            }
+            if (!sentinel) {
+                sentinel = document.createElement('div');
+                sentinel.id = 'lists-load-sentinel';
+                sentinel.className = 'infinite-sentinel';
+            }
+            elItems.appendChild(sentinel); // keep it last, after the grid
+            attachInfiniteScroll(sentinel, () => { renderListsMoreCards(); });
         }
 

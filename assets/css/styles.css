@@ -966,6 +966,10 @@
         .skel-line.sm { width: 40%; }
         .skel-tile { width: 100%; aspect-ratio: 2 / 3; border-radius: 0.6rem; }
 
+        /* Infinite-scroll sentinel (My Movies / Feed / Lists detail) — a thin element at
+           the bottom of a list that, when scrolled near, auto-loads the next page. */
+        .infinite-sentinel { min-height: 1px; width: 100%; }
+
         .btn {
             padding: 0.75rem 1.5rem;
             border-radius: 0.75rem;
@@ -3212,6 +3216,22 @@
                My Movies + Lists detail already do this above. */
             .feed-controls-actions { width: 100%; flex-wrap: nowrap !important; }
             .feed-controls-actions > button:not(#feed-refresh) { flex: 1 1 0; min-width: 0; }
+
+            /* Keep every button in these rows the SAME (single-line) height: stretch so
+               they share one cross-size, and shrink the label font / padding so the long
+               "Grid View" label fits on one line instead of wrapping to two (which made
+               that one button tall). */
+            .library-controls-row,
+            .feed-controls-actions {
+                align-items: stretch !important;
+            }
+            .library-controls-row > button,
+            .feed-controls-actions > button {
+                white-space: nowrap;
+                font-size: 0.86rem;
+                padding-left: 0.55rem;
+                padding-right: 0.55rem;
+            }
 
             /* Search button stays a compact icon-only magnifier on mobile (the user wants
                an "additional small button", not a full-width search bar). It opts out of

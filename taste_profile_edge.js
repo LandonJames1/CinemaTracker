@@ -9,6 +9,22 @@ const corsHeaders = {
 
 const RUNTIME_BIN_MINUTES = 10;
 
+// Bayesian shrinkage: a group's average is pulled toward the user's personal mean
+// by SHRINK_K pseudo-counts, so a genre/person/bin seen only once or twice doesn't
+// create a fake "favorite". A group needs ~SHRINK_K ratings before it's trusted
+// over the prior. People also require a hard MIN_PEOPLE_COUNT before ranking.
+const SHRINK_K = 5;
+const MIN_PEOPLE_COUNT = 2;
+
+// Pull `avg` (over `count` samples) toward `prior` by SHRINK_K pseudo-counts.
+function shrink(avg, count, prior, k = SHRINK_K) {
+  const n = Number(count) || 0;
+  const a = Number(avg);
+  const p = Number(prior) || 0;
+  if (!Number.isFinite(a) || n <= 0) return p;
+  return (n * a + k * p) / (n + k);
+}
+
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -17,6 +33,18 @@ function jsonResponse(body, status = 200) {
       ...corsHeaders,
     },
   });
+}
+
+function uniqStrings(arr) {
+  const seen = new Set();
+  const out = [];
+  (Array.isArray(arr) ? arr : []).forEach((v) => {
+    const s = String(v || "").trim();
+    if (!s || seen.has(s)) return;
+    seen.add(s);
+    out.push(s);
+  });
+  return out;
 }
 
 function mean(nums) {
@@ -133,51 +161,54 @@ async function fetchPeopleNames(supabaseAdmin, personIds) {
   return map;
 }
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return jsonResponse({ message: "Method not allowed" }, 405);
+async function fetchGenresByMovieIds(supabaseAdmin, movieIds) {
+  // Returns Map<movieId, string[]> of genre names for the given movies.
+  const genreByMovie = new Map();
+  if (!Array.isArray(movieIds) || movieIds.length === 0) return genreByMovie;
 
-  try {
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const links = [];
+  const chunkSize = 200;
+  for (let i = 0; i < movieIds.length; i += chunkSize) {
+    const chunk = movieIds.slice(i, i + chunkSize);
+    const { data, error } = await supabaseAdmin
+      .from("Movie Genres")
+      .select("movie_id, genre_id")
+      .in("movie_id", chunk);
+    if (error) throw error;
+    if (Array.isArray(data)) links.push(...data);
+  }
+  if (links.length === 0) return genreByMovie;
 
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
-      return jsonResponse({ message: "Missing Supabase env vars." }, 500);
+  const genreIds = Array.from(new Set(links.map((r) => r.genre_id).filter((v) => v != null)));
+  const genreNameById = new Map();
+  for (let i = 0; i < genreIds.length; i += 100) {
+    const chunk = genreIds.slice(i, i + 100);
+    const { data, error } = await supabaseAdmin
+      .from("Genres")
+      .select("id, name")
+      .in("id", chunk);
+    if (error) throw error;
+    if (Array.isArray(data)) {
+      data.forEach((g) => genreNameById.set(String(g.id), String(g.name || "").trim()));
     }
+  }
 
-    const authHeader = req.headers.get("Authorization")
-      ?? req.headers.get("authorization")
-      ?? "";
-    if (!authHeader.toLowerCase().startsWith("bearer ")) {
-      return jsonResponse({ message: "Missing Authorization bearer token." }, 401);
-    }
+  links.forEach((row) => {
+    const mid = String(row.movie_id);
+    const name = genreNameById.get(String(row.genre_id));
+    if (!name) return;
+    if (!genreByMovie.has(mid)) genreByMovie.set(mid, []);
+    genreByMovie.get(mid).push(name);
+  });
+  return genreByMovie;
+}
 
-    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
-    if (!token) {
-      return jsonResponse({ message: "Missing JWT token." }, 401);
-    }
-
-    const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser(token);
-    if (userErr || !userData?.user?.id) {
-      return jsonResponse({ message: userErr?.message || "Invalid or expired session." }, 401);
-    }
-
-    const body = await req.json().catch(() => ({}));
-    const requestedUserId = String(body?.user_id || "").trim();
-    const userId = String(userData.user.id).trim();
-    if (requestedUserId && requestedUserId !== userId) {
-      return jsonResponse({ message: "User mismatch." }, 403);
-    }
-
-    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
+// Compute and upsert ONE user's taste profile. Returns a plain summary object
+// (no HTTP). Shared by the per-user authed call and the cron batch sweep.
+async function computeAndStoreTasteProfile(supabaseAdmin, userId) {
     const rows = await fetchAllUserRatings(supabaseAdmin, userId);
     if (!rows.length) {
-      return jsonResponse({ message: "No ratings found for user." }, 400);
+      return { ok: false, user_id: userId, reason: "no_ratings" };
     }
 
     const overallRatings = [];
@@ -241,21 +272,24 @@ Deno.serve(async (req) => {
       });
     });
 
-    Object.values(runtimeBins).forEach((bin) => {
-      bin.avg = bin.count ? Number((bin.sum / bin.count).toFixed(2)) : 0;
-      delete bin.sum;
-    });
-
-    Object.values(decadeBins).forEach((bin) => {
-      bin.avg = bin.count ? Number((bin.sum / bin.count).toFixed(2)) : 0;
-      delete bin.sum;
-    });
-
     const meanOverall = Number(mean(overallRatings).toFixed(2));
     const medianOverall = Number(median(overallRatings).toFixed(2));
     const stdOverall = Number(stddev(overallRatings).toFixed(2));
     const likeThreshold = Number(percentile(overallRatings, 0.75).toFixed(2));
     const imdbDelta = Number(mean(imdbDeltas).toFixed(2));
+
+    // Finalize bins with shrinkage toward the user's mean so sparse bins (each
+    // ~10-min runtime bucket / decade has few movies) don't read as strong signal.
+    // `shrunk` = avg pulled toward mean; `aff` = how far above/below baseline.
+    const finalizeBin = (bin) => {
+      bin.avg = bin.count ? Number((bin.sum / bin.count).toFixed(2)) : 0;
+      const shrunk = shrink(bin.avg, bin.count, meanOverall);
+      bin.shrunk = Number(shrunk.toFixed(2));
+      bin.aff = Number((shrunk - meanOverall).toFixed(2));
+      delete bin.sum;
+    };
+    Object.values(runtimeBins).forEach(finalizeBin);
+    Object.values(decadeBins).forEach(finalizeBin);
 
     const subratingWeights = {
       sound: Number(correlation(subRatings.sound.x, subRatings.sound.y).toFixed(4)),
@@ -303,14 +337,23 @@ Deno.serve(async (req) => {
       });
 
       const topPeople = Array.from(personStats.values())
-        .map((entry) => ({
-          id: entry.id,
-          name: entry.name,
-          roles: Array.from(entry.roles),
-          avg: entry.count ? Number((entry.sum / entry.count).toFixed(2)) : 0,
-          count: entry.count,
-        }))
-        .sort((a, b) => (b.avg - a.avg) || (b.count - a.count))
+        .map((entry) => {
+          const avg = entry.count ? Number((entry.sum / entry.count).toFixed(2)) : 0;
+          const shrunk = shrink(avg, entry.count, meanOverall);
+          return {
+            id: entry.id,
+            name: entry.name,
+            roles: Array.from(entry.roles),
+            avg,
+            count: entry.count,
+            shrunk: Number(shrunk.toFixed(2)),
+            aff: Number((shrunk - meanOverall).toFixed(2)),
+          };
+        })
+        // Require a minimum sample so a single great/awful movie doesn't crown a
+        // "favorite". Rank by shrunk affinity (how far above baseline), not raw avg.
+        .filter((entry) => entry.count >= MIN_PEOPLE_COUNT)
+        .sort((a, b) => (b.aff - a.aff) || (b.count - a.count))
         .slice(0, 50);
 
       peopleAffinity = Object.fromEntries(topPeople.map((entry) => [
@@ -320,8 +363,39 @@ Deno.serve(async (req) => {
           roles: entry.roles,
           avg: entry.avg,
           count: entry.count,
+          shrunk: entry.shrunk,
+          aff: entry.aff,
         },
       ]));
+    }
+
+    // Genre affinity: per-genre mean rating, shrunk toward the user's overall mean.
+    // Keyed by genre NAME so the AI Picks predictor matches TMDB candidate genres
+    // directly. Covers every genre the user has rated (only ~19 exist).
+    let genreAffinity = {};
+    if (movieIds.length > 0) {
+      const genreByMovie = await fetchGenresByMovieIds(supabaseAdmin, movieIds);
+      const genreStats = new Map();
+      genreByMovie.forEach((names, movieId) => {
+        const rating = movieRatingById.get(String(movieId));
+        if (!Number.isFinite(rating)) return;
+        uniqStrings(names).forEach((name) => {
+          if (!genreStats.has(name)) genreStats.set(name, { sum: 0, count: 0 });
+          const s = genreStats.get(name);
+          s.sum += rating;
+          s.count += 1;
+        });
+      });
+      genreAffinity = Object.fromEntries(Array.from(genreStats.entries()).map(([name, s]) => {
+        const avg = s.count ? Number((s.sum / s.count).toFixed(2)) : 0;
+        const shrunk = shrink(avg, s.count, meanOverall);
+        return [name, {
+          avg,
+          count: s.count,
+          shrunk: Number(shrunk.toFixed(2)),
+          aff: Number((shrunk - meanOverall).toFixed(2)),
+        }];
+      }));
     }
 
     const payload = {
@@ -336,6 +410,7 @@ Deno.serve(async (req) => {
       decade_bins_json: decadeBins,
       people_affinity_json: peopleAffinity,
       subrating_weights_json: subratingWeights,
+      genre_affinity_json: genreAffinity,
     };
 
     const { error: upsertErr } = await supabaseAdmin
@@ -344,12 +419,128 @@ Deno.serve(async (req) => {
 
     if (upsertErr) throw upsertErr;
 
-    return jsonResponse({
+    return {
       ok: true,
       user_id: userId,
       ratings_count: overallRatings.length,
       people_count: Object.keys(peopleAffinity).length,
+      genres_count: Object.keys(genreAffinity).length,
+    };
+}
+
+// Pick which users to recompute in a batch run: everyone who has rated at least
+// one movie, ordered stalest-profile-first (never-computed users come first), so a
+// daily cron with a limit rotates through the whole base and backfills new users.
+async function fetchTasteRecomputeTargets(supabaseAdmin, limit) {
+  const raterIds = new Set();
+  let from = 0;
+  const pageSize = 1000;
+  while (true) {
+    const { data, error } = await supabaseAdmin
+      .from("Movie Ratings")
+      .select("user_id")
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    const page = Array.isArray(data) ? data : [];
+    page.forEach((r) => { if (r?.user_id) raterIds.add(String(r.user_id)); });
+    if (page.length < pageSize) break;
+    from += pageSize;
+  }
+
+  // When was each profile last computed? Absent = never (sorts first).
+  const computedAt = new Map();
+  const { data: profiles } = await supabaseAdmin
+    .from("Taste Profiles")
+    .select("user_id, computed_at");
+  (Array.isArray(profiles) ? profiles : []).forEach((p) => {
+    if (p?.user_id) computedAt.set(String(p.user_id), p?.computed_at || null);
+  });
+
+  const ordered = Array.from(raterIds).sort((a, b) => {
+    const ta = computedAt.has(a) ? (Date.parse(computedAt.get(a) || "") || 0) : -1;
+    const tb = computedAt.has(b) ? (Date.parse(computedAt.get(b) || "") || 0) : -1;
+    return ta - tb; // oldest / never-computed first
+  });
+  return (Number.isFinite(limit) && limit > 0) ? ordered.slice(0, limit) : ordered;
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return jsonResponse({ message: "Method not allowed" }, 405);
+
+  try {
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
+      return jsonResponse({ message: "Missing Supabase env vars." }, 500);
+    }
+
+    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const body = await req.json().catch(() => ({}));
+
+    // ---- Cron / batch mode --------------------------------------------------
+    // Gated by the shared CRON_SECRET (no user session). Recomputes many users'
+    // profiles at once — the daily safety-net sweep AND the one-time backfill.
+    // Triggered by .github/workflows/refresh-taste-profiles.yml. Body: { limit,
+    // concurrency }. limit 0/omitted = recompute everyone.
+    const cronSecret = String(req.headers.get("x-cron-secret") ?? "").trim();
+    if (cronSecret) {
+      const expectedCron = String(Deno.env.get("CRON_SECRET") ?? "").trim();
+      if (!expectedCron || cronSecret !== expectedCron) {
+        return jsonResponse({ message: "Invalid cron secret." }, 401);
+      }
+      const limit = Math.max(0, Math.min(5000, Number(body?.limit) || 0));
+      const concurrency = Math.max(1, Math.min(5, Number(body?.concurrency) || 3));
+      const targets = await fetchTasteRecomputeTargets(supabaseAdmin, limit);
+
+      let updated = 0;
+      let skipped = 0;
+      let failed = 0;
+      for (let i = 0; i < targets.length; i += concurrency) {
+        const slice = targets.slice(i, i + concurrency);
+        const settled = await Promise.allSettled(
+          slice.map((uid) => computeAndStoreTasteProfile(supabaseAdmin, uid)),
+        );
+        settled.forEach((s) => {
+          if (s.status === "fulfilled" && s.value?.ok) updated += 1;
+          else if (s.status === "fulfilled") skipped += 1;
+          else failed += 1;
+        });
+      }
+      return jsonResponse({ ok: true, mode: "batch", targets: targets.length, updated, skipped, failed });
+    }
+
+    // ---- Single-user mode (authed caller recomputes their own profile) ------
+    const authHeader = req.headers.get("Authorization")
+      ?? req.headers.get("authorization")
+      ?? "";
+    if (!authHeader.toLowerCase().startsWith("bearer ")) {
+      return jsonResponse({ message: "Missing Authorization bearer token." }, 401);
+    }
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    if (!token) {
+      return jsonResponse({ message: "Missing JWT token." }, 401);
+    }
+    const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
     });
+    const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser(token);
+    if (userErr || !userData?.user?.id) {
+      return jsonResponse({ message: userErr?.message || "Invalid or expired session." }, 401);
+    }
+    const userId = String(userData.user.id).trim();
+    const requestedUserId = String(body?.user_id || "").trim();
+    if (requestedUserId && requestedUserId !== userId) {
+      return jsonResponse({ message: "User mismatch." }, 403);
+    }
+
+    const result = await computeAndStoreTasteProfile(supabaseAdmin, userId);
+    if (!result.ok && result.reason === "no_ratings") {
+      return jsonResponse({ message: "No ratings found for user." }, 400);
+    }
+    return jsonResponse(result);
   } catch (err) {
     return jsonResponse({ message: String(err?.message || err) }, 500);
   }

@@ -230,6 +230,86 @@ function uniqStrings(arr) {
   return out;
 }
 
+// ---- Taste predictor ---------------------------------------------------------
+// One reusable scorer: given the user's taste model + a movie's features, predict
+// how this user would rate it (0-100) plus short human-readable reason fragments.
+// The taste model is built from the Taste Profiles row (see taste_profile_edge.js):
+//   { hasData, mean, imdbDelta, genres:{nameLower:aff}, decades:{decade:aff} }
+// `aff` is the shrunk per-group rating minus the user's personal mean (in points).
+// Features available at AI Picks rerank time: { genres:[names], year, vote_average }.
+// People/runtime affinity live in the profile too and will feed the per-movie
+// predictor once full movie details are available (e.g. the future swipe deck).
+const TASTE_GENRE_WEIGHT = 1.0;   // genre affinity is the strongest available signal
+const TASTE_DECADE_WEIGHT = 0.5;  // era is a weaker, noisier signal
+const TASTE_CROWD_WEIGHT = 0.35;  // nudge toward what the crowd (TMDB) + imdb_delta implies
+
+function buildTasteModel(row) {
+  if (!row || typeof row !== "object") return { hasData: false };
+  const mean = Number(row?.mean_overall);
+  if (!Number.isFinite(mean) || mean <= 0) return { hasData: false };
+
+  const genres = {};
+  const ga = row?.genre_affinity_json && typeof row.genre_affinity_json === "object" ? row.genre_affinity_json : {};
+  for (const [name, info] of Object.entries(ga)) {
+    const aff = Number(info?.aff);
+    if (Number.isFinite(aff)) genres[String(name).toLowerCase()] = aff;
+  }
+
+  const decades = {};
+  const db = row?.decade_bins_json && typeof row.decade_bins_json === "object" ? row.decade_bins_json : {};
+  for (const [decade, info] of Object.entries(db)) {
+    const aff = Number(info?.aff);
+    if (Number.isFinite(aff)) decades[String(decade)] = aff;
+  }
+
+  const hasData = Object.keys(genres).length > 0 || Object.keys(decades).length > 0;
+  return { hasData, mean, imdbDelta: Number(row?.imdb_delta) || 0, genres, decades };
+}
+
+function predictTasteScore(model, features) {
+  if (!model || !model.hasData) return null;
+  const feats = features && typeof features === "object" ? features : {};
+  let score = model.mean;
+  const reasons = [];
+
+  // Genre: average affinity across the movie's genres.
+  const genreNames = Array.isArray(feats.genres) ? feats.genres : [];
+  const gAffs = [];
+  for (const g of genreNames) {
+    const aff = model.genres[String(g || "").toLowerCase()];
+    if (typeof aff === "number") gAffs.push({ name: g, aff });
+  }
+  if (gAffs.length) {
+    const avgAff = gAffs.reduce((a, x) => a + x.aff, 0) / gAffs.length;
+    score += TASTE_GENRE_WEIGHT * avgAff;
+    const best = gAffs.slice().sort((a, b) => b.aff - a.aff)[0];
+    const worst = gAffs.slice().sort((a, b) => a.aff - b.aff)[0];
+    if (best.aff >= 3) reasons.push(`you rate ${best.name} above your average`);
+    if (worst.aff <= -4) reasons.push(`${worst.name} is usually below your average`);
+  }
+
+  // Decade.
+  const year = Number(feats.year);
+  if (Number.isFinite(year) && year > 1800) {
+    const decade = Math.floor(year / 10) * 10;
+    const aff = model.decades[String(decade)];
+    if (typeof aff === "number") {
+      score += TASTE_DECADE_WEIGHT * aff;
+      if (aff >= 4) reasons.push(`${decade}s films land well with you`);
+    }
+  }
+
+  // Crowd anchor: blend toward what TMDB's crowd rating + the user's imdb_delta imply.
+  const vote = Number(feats.vote_average);
+  if (Number.isFinite(vote) && vote > 0) {
+    const crowdPred = vote * 10 + model.imdbDelta;
+    score += TASTE_CROWD_WEIGHT * (crowdPred - model.mean);
+  }
+
+  const clamped = Math.max(0, Math.min(100, score));
+  return { score: Math.round(clamped), reasons };
+}
+
 function mapGenreNamesToIds(names) {
   const list = Array.isArray(names) ? names : [];
   const ids = [];
@@ -2462,6 +2542,8 @@ Deno.serve(async (req) => {
 
       const filters = body?.filters && typeof body.filters === "object" ? body.filters : {};
       let tasteProfile = {};
+      let tasteModel = { hasData: false };
+      let topTasteGenres = [];
       const similarMoviesRaw = Array.isArray(body?.similar_movie)
         ? body.similar_movie
         : (body?.similar_movie && typeof body.similar_movie === "object" ? [body.similar_movie] : []);
@@ -2470,11 +2552,26 @@ Deno.serve(async (req) => {
       try {
         const { data: tasteRows, error: tasteErr } = await supabaseAdmin
           .from("Taste Profiles")
-          .select("runtime_bins_json, decade_bins_json, imdb_delta, subrating_weights_json, people_affinity_json")
+          .select("mean_overall, runtime_bins_json, decade_bins_json, imdb_delta, subrating_weights_json, people_affinity_json, genre_affinity_json")
           .eq("user_id", userData.user.id)
           .limit(1);
         if (!tasteErr && Array.isArray(tasteRows) && tasteRows.length > 0) {
           const row = tasteRows[0] || {};
+
+          // The reusable per-movie predictor model (genre/decade affinity + crowd anchor).
+          tasteModel = buildTasteModel(row);
+
+          // Top positive-affinity genres — used to make "surprise me" prompts (no
+          // explicit genre) lean toward what this user actually likes.
+          const genreAff = row?.genre_affinity_json && typeof row.genre_affinity_json === "object"
+            ? row.genre_affinity_json
+            : {};
+          topTasteGenres = Object.entries(genreAff)
+            .map(([name, info]) => ({ name, aff: Number(info?.aff ?? 0), count: Number(info?.count ?? 0) }))
+            .filter((x) => x.aff > 0 && x.count >= 2)
+            .sort((a, b) => (b.aff - a.aff) || (b.count - a.count))
+            .slice(0, 3)
+            .map((x) => x.name);
 
           const runtimeBins = row?.runtime_bins_json && typeof row.runtime_bins_json === "object"
             ? row.runtime_bins_json
@@ -2516,6 +2613,7 @@ Deno.serve(async (req) => {
               people_affinity: row?.people_affinity_json && typeof row.people_affinity_json === "object"
                 ? row.people_affinity_json
                 : {},
+              genre_affinity: genreAff,
             },
           };
         }
@@ -2682,7 +2780,12 @@ Deno.serve(async (req) => {
         ...inferredGenres,
       ]);
 
-      if (includeNames.length === 0) includeNames.push("Drama");
+      if (includeNames.length === 0) {
+        // No explicit/inferred genre: bias toward the user's own top-affinity genres
+        // (taste-aware "surprise me") before falling back to Drama.
+        if (topTasteGenres.length) includeNames.push(...topTasteGenres);
+        else includeNames.push("Drama");
+      }
 
       const providerNamesFromInputs = uniqStrings([
         ...(Array.isArray(criteria.watch_providers) ? criteria.watch_providers : []),
@@ -2807,6 +2910,26 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Predicted taste score per candidate (0-100) from the user's actual rating
+      // history. All candidates already satisfy the prompt's hard filters, so this
+      // is what makes the ranking personal instead of popularity-driven.
+      if (tasteModel.hasData) {
+        for (const c of candidates) {
+          const pred = predictTasteScore(tasteModel, {
+            genres: c.genres,
+            year: c.year,
+            vote_average: c.vote_average,
+          });
+          if (pred) {
+            c.taste_score = pred.score;
+            if (pred.reasons.length) c.taste_reasons = pred.reasons;
+          }
+        }
+        // Surface the most taste-aligned candidates first (LLMs weight earlier
+        // items, and it keeps the strongest fits in view).
+        candidates.sort((a, b) => (Number(b.taste_score ?? -1) - Number(a.taste_score ?? -1)));
+      }
+
       const debugPayload = debugEnabled
         ? {
             parser_request: safeJsonParse(parserUser),
@@ -2856,16 +2979,19 @@ Deno.serve(async (req) => {
         "Use only the prompt, taste_hints, taste_profile_rerank, and candidates from the provided JSON. " +
         "Assume candidates already satisfy all user filters. " +
         "Do not expect or reference keyword fields; none are provided. " +
-        "Taste profile rerank context may be provided (imdb_delta, subrating_weights, people_affinity); use these only as tie-breakers.\n\n" +
+        "Each candidate may include a `taste_score` (0-100, the system's prediction of how THIS user would rate the movie, derived from their own rating history) " +
+        "and `taste_reasons` (short factual fragments explaining that prediction, e.g. genres/eras they favor). " +
+        "taste_profile_rerank may also include imdb_delta, subrating_weights, people_affinity, and genre_affinity.\n\n" +
         "RANKING PRINCIPLES\n" +
-        "- Optimize for alignment with the prompt's vibe and themes.\n" +
-        "- Use any provided soft preferences only as tie-breakers, not hard filters.\n" +
+        "- Balance TWO signals roughly equally: (a) alignment with the prompt's vibe/themes, and (b) the user's predicted taste (taste_score / taste_reasons / taste_profile_rerank).\n" +
+        "- taste_score and taste_reasons are STRONG EVIDENCE about this specific user — treat them as a primary ranking factor, NOT just a tie-breaker. A higher taste_score should meaningfully raise a candidate that also fits the prompt.\n" +
+        "- Never let taste override the prompt's explicit hard requirements; among candidates that fit the prompt, prefer those with higher predicted taste.\n" +
         "- Maintain variety while respecting the prompt; avoid redundant picks.\n" +
         "- Do not rank purely by popularity or ratings.\n" +
         "- Only choose from the provided candidates and always keep each candidate's tmdb_id/title/year exactly as given.\n\n" +
         "EXPLANATIONS (REASONS)\n" +
         "Each ranked item should include a concise, user-facing reason (2-4 sentences) covering: " +
-        "(1) why it matches the prompt/filters, and (2) why it aligns with the user's taste profile if provided. " +
+        "(1) why it matches the prompt/filters, and (2) why it aligns with the user's taste — weave in the candidate's taste_reasons naturally when present (speak to the user as 'you'). " +
         "Avoid claims about awards, cultural impact, or production trivia unless explicitly indicated by the prompt or provided metadata.\n\n" +
         "PROHIBITIONS\n" +
         "- Do not invent metadata.\n" +
@@ -2922,6 +3048,7 @@ Deno.serve(async (req) => {
               poster_path: poster,
               tmdb_rating: voteAvg,
               mpa_rating: mpa || "",
+              taste_score: typeof candidate.taste_score === "number" ? candidate.taste_score : null,
             };
           } catch (_) {
             return {
@@ -2929,6 +3056,7 @@ Deno.serve(async (req) => {
               tmdb_id: tmdbId,
               title: candidate.title || item?.title || "",
               year: candidate.year ?? item?.year ?? null,
+              taste_score: typeof candidate.taste_score === "number" ? candidate.taste_score : null,
             };
           }
         });
