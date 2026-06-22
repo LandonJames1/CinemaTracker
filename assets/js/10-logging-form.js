@@ -833,6 +833,9 @@
 
                     popNewlyEarnedAchievements(authedUser.id, earnedAchievementIdsBefore).catch(() => null);
 
+                    // Ratings changed → refresh my taste profile in the background.
+                    recomputeMyTasteProfile().catch(() => null);
+
                     openRatingsSuccessModal('updated');
                     return;
                 }
@@ -902,6 +905,9 @@
                 } catch (_) {}
 
                 popNewlyEarnedAchievements(authedUser.id, earnedAchievementIdsBefore).catch(() => null);
+
+                // Ratings changed → refresh my taste profile in the background.
+                recomputeMyTasteProfile().catch(() => null);
 
                 openRatingsSuccessModal('saved');
                 return;

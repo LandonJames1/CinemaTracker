@@ -1,0 +1,36 @@
+name: Refresh taste profiles
+
+# Daily safety-net sweep that recomputes users' taste profiles (genre/people/era
+# affinity) via the `swift-responder` Edge Function. Profiles are normally kept
+# fresh event-driven (recomputed right after a user saves/edits a rating), so this
+# cron exists to (a) catch drift in imdb_delta as IMDb ratings refresh and
+# (b) backfill anyone whose profile is missing/stale. The function runs the
+# stalest-profile-first batch with the service-role key; GitHub Actions is only the
+# timer + HTTP trigger.
+#
+# Required repo secrets:
+#   SUPABASE_TASTE_FUNCTION_URL  -> the .../functions/v1/swift-responder URL
+#   SUPABASE_PUBLISHABLE_KEY     -> the sb_publishable_... key (same as 01-config.js)
+#   CRON_SECRET                  -> matches the swift-responder CRON_SECRET edge secret
+on:
+  schedule:
+    - cron: '30 8 * * *'   # every day at 08:30 UTC (after the IMDb refresh at 08:00)
+  workflow_dispatch:        # also runnable on demand from the Actions tab
+    inputs:
+      limit:
+        description: 'Max profiles to recompute (0 = everyone; use 0 for a full backfill)'
+        required: false
+        default: '0'
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger taste-profile batch recompute
+        run: |
+          curl -sS -X POST "${{ secrets.SUPABASE_TASTE_FUNCTION_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -d "{\"limit\": ${{ github.event.inputs.limit || '0' }}, \"concurrency\": 3}" \
+            --fail-with-body

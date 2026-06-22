@@ -550,20 +550,9 @@
 
                     (async () => {
                         try {
-                            try {
-                                const { user, accessToken } = await requireAuthOrThrow();
-                                await fetch('https://dbxhaseoxpnmzdxbzdpj.supabase.co/functions/v1/swift-responder', {
-                                    method: 'POST',
-                                    headers: {
-                                        'Content-Type': 'application/json',
-                                        'apikey': SUPABASE_KEY,
-                                        'Authorization': `Bearer ${accessToken}`,
-                                    },
-                                    body: JSON.stringify({ user_id: user.id })
-                                });
-                            } catch (_) {
-                                // Best-effort; do not block AI picks.
-                            }
+                            // Make sure the taste profile reflects the latest ratings
+                            // before picking (shared helper, best-effort).
+                            await recomputeMyTasteProfile();
 
                             const payload = {
                                 action: 'ai_picks',

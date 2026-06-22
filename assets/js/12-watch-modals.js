@@ -1050,6 +1050,31 @@
             }
         }
 
+        // Best-effort: rebuild the signed-in user's taste profile (genre/people/era
+        // affinity, used by AI Picks + future per-movie predictions) server-side via
+        // the `swift-responder` edge function. Safe to fire-and-forget after any
+        // rating change so the profile stays fresh without waiting for an AI Picks run.
+        async function recomputeMyTasteProfile() {
+            try {
+                const { data } = (await supabaseClient?.auth?.getSession?.()) || {};
+                const session = data?.session || null;
+                const token = session?.access_token || null;
+                const uid = session?.user?.id || null;
+                if (!token || !uid) return;
+                await fetch(`${SUPABASE_URL}/functions/v1/swift-responder`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ user_id: uid }),
+                });
+            } catch (_) {
+                // Non-fatal — taste profile will refresh on the next attempt / AI Picks run.
+            }
+        }
+
         async function callSwiftApi(body, accessToken) {
             const iss = decodeJwtPayload(accessToken)?.iss;
             if (iss && typeof iss === 'string' && !iss.includes(SUPABASE_URL)) {
