@@ -405,6 +405,10 @@
             if (!tiles.length) {
                 return '<div class="account-home-taste-empty">Rate a few movies to build your taste profile.</div>';
             }
+            // Avoid an orphaned half-tile (awkward bottom-right gap): if the number of
+            // half-width tiles is odd, let the last one span the full row.
+            const halfTiles = tiles.filter((t) => !t.full);
+            if (halfTiles.length % 2 === 1) halfTiles[halfTiles.length - 1].full = true;
             return tiles.map((t) => `
                 <div class="account-home-taste-tile${t.full ? ' account-home-taste-tile-full' : ''}">
                     <span class="account-home-taste-label">${escapeHtml(t.label)}</span>
