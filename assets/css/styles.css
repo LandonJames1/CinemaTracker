@@ -6548,6 +6548,10 @@
             inset: 0;
             backface-visibility: hidden;
             -webkit-backface-visibility: hidden;
+            /* iOS Safari doesn't reliably honor backface-visibility (the reversed front
+               title/genres bleed through the back). Toggle visibility at the flip
+               midpoint as a guaranteed backstop. */
+            transition: visibility 0s linear 0.22s;
             border-radius: 1.25rem;
             overflow: hidden;
             /* Solid/opaque — NOT the translucent --glass-bg, so the back of the card
@@ -6559,7 +6563,9 @@
             flex-direction: column;
         }
         /* The back is a fixed-height flex column; only the overview text scrolls (below). */
-        .discover-back { transform: rotateY(180deg); padding: 1.3rem; justify-content: flex-start; overflow: hidden; }
+        .discover-back { transform: rotateY(180deg); padding: 1.3rem; justify-content: flex-start; overflow: hidden; visibility: hidden; }
+        .discover-card.is-flipped .discover-front { visibility: hidden; }
+        .discover-card.is-flipped .discover-back { visibility: visible; }
         .discover-back-details { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
         .discover-detail-grid { flex: 0 0 auto; }
 
@@ -6746,6 +6752,12 @@
         @media (max-width: 768px) {
             /* Header card is redundant on mobile (the top bar already says "Discover"). */
             body[data-page="discover"] #app-root .page-title-card { display: none; }
-            .discover-stage { height: min(62vh, 560px); }
+            /* Everything a touch smaller so the action row + gesture hints fit on a
+               normal phone screen above the bottom tab bar. */
+            .discover-stage { height: min(56vh, 520px); }
             .discover-title { font-size: 1.2rem; }
+            .discover-actions { margin-top: 0.8rem; gap: 1.1rem; }
+            .discover-skip, .discover-like { width: 54px; height: 54px; }
+            .discover-info { width: 42px; height: 42px; }
+            .discover-hint { top: calc(100% + 0.3rem); font-size: 0.6rem; letter-spacing: 0.1em; }
         }

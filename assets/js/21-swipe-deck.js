@@ -313,6 +313,7 @@
         // with the element on re-render), so swiping many cards doesn't leak handlers.
         let discoverDrag = null;
         let discoverWindowGesturesBound = false;
+        let discoverLastTouch = 0; // suppresses the synthetic mouse events iOS fires after a tap
 
         function discoverPointerXY(e) {
             if (e.touches && e.touches[0]) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
@@ -384,11 +385,16 @@
         function bindTopCardGestures() {
             const el = discoverTopEl();
             if (!el) return;
-            el.addEventListener('mousedown', (e) => discoverDragStart(e, el));
-            el.addEventListener('touchstart', (e) => discoverDragStart(e, el), { passive: true });
-            el.addEventListener('touchmove', discoverDragMove, { passive: false });
-            el.addEventListener('touchend', discoverDragEnd);
-            el.addEventListener('touchcancel', discoverDragEnd);
+            el.addEventListener('mousedown', (e) => {
+                // Ignore the synthetic mousedown iOS fires ~300ms after a tap — it would
+                // re-trigger discoverFlipTop and instantly undo the touch-driven flip.
+                if (Date.now() - discoverLastTouch < 700) return;
+                discoverDragStart(e, el);
+            });
+            el.addEventListener('touchstart', (e) => { discoverLastTouch = Date.now(); discoverDragStart(e, el); }, { passive: true });
+            el.addEventListener('touchmove', (e) => { discoverLastTouch = Date.now(); discoverDragMove(e); }, { passive: false });
+            el.addEventListener('touchend', (e) => { discoverLastTouch = Date.now(); discoverDragEnd(e); });
+            el.addEventListener('touchcancel', (e) => { discoverLastTouch = Date.now(); discoverDragEnd(e); });
             if (!discoverWindowGesturesBound) {
                 discoverWindowGesturesBound = true;
                 window.addEventListener('mousemove', discoverDragMove);
