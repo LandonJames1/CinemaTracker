@@ -19,6 +19,12 @@ const MIN_PEOPLE_COUNT = 2;
 // before one counts, and cap how many we keep so the stored JSON stays small.
 const MIN_KEYWORD_COUNT = 3;
 const MAX_KEYWORDS_STORED = 60;
+// Swipe-appeal (Phase 3): a genre's right-swipe RATE vs the user's overall rate,
+// shrunk toward that overall rate. Needs enough swipes before it means anything.
+const MIN_TOTAL_SWIPES = 8;       // don't compute appeal below this many swipes
+const MIN_SWIPE_GENRE_COUNT = 4;  // a genre needs this many swipes to count
+const APPEAL_SHRINK_K = 5;        // pull a genre's rate toward the overall rate
+const APPEAL_LIFT_CLAMP = 0.4;    // bound the lift so one streak can't dominate
 
 // Pull `avg` (over `count` samples) toward `prior` by SHRINK_K pseudo-counts.
 function shrink(avg, count, prior, k = SHRINK_K) {
@@ -435,6 +441,52 @@ async function computeAndStoreTasteProfile(supabaseAdmin, userId) {
       ]));
     }
 
+    // Swipe-appeal (Phase 3): a WEAK, separate signal from the Discover deck. For
+    // each genre, how much more (or less) the user RIGHT-swipes it vs their overall
+    // right-swipe rate — shrunk toward that rate. Right-swipes are the signal;
+    // left-swipes only count toward the denominator (they're "not now", not dislike).
+    // The card's genres are stored on each swipe row (swipe_appeal.sql) so left-swiped
+    // movies — which never enter the catalog — still contribute their genres.
+    let swipeGenreAffinity = {};
+    try {
+      const { data: swipeRows } = await supabaseAdmin
+        .from("swipes")
+        .select("direction, genres")
+        .eq("user_id", userId);
+      const rows2 = Array.isArray(swipeRows) ? swipeRows : [];
+      const total = rows2.length;
+      if (total >= MIN_TOTAL_SWIPES) {
+        const rightTotal = rows2.filter((r) => r?.direction === "right").length;
+        const overallRate = rightTotal / total;
+        const perGenre = new Map(); // lowerName -> { name, right, total }
+        rows2.forEach((r) => {
+          const isRight = r?.direction === "right";
+          uniqStrings(Array.isArray(r?.genres) ? r.genres : []).forEach((g) => {
+            const key = g.toLowerCase();
+            if (!perGenre.has(key)) perGenre.set(key, { name: g, right: 0, total: 0 });
+            const s = perGenre.get(key);
+            s.total += 1;
+            if (isRight) s.right += 1;
+          });
+        });
+        perGenre.forEach((s, key) => {
+          if (s.total < MIN_SWIPE_GENRE_COUNT) return;
+          const rate = s.right / s.total;
+          const shrunkRate = (s.total * rate + APPEAL_SHRINK_K * overallRate) / (s.total + APPEAL_SHRINK_K);
+          let lift = shrunkRate - overallRate;
+          lift = Math.max(-APPEAL_LIFT_CLAMP, Math.min(APPEAL_LIFT_CLAMP, lift));
+          swipeGenreAffinity[key] = {
+            name: s.name,
+            right: s.right,
+            total: s.total,
+            rate: Number(rate.toFixed(3)),
+            lift: Number(lift.toFixed(3)),
+            aff: Number((lift * 100).toFixed(1)),
+          };
+        });
+      }
+    } catch (_) { swipeGenreAffinity = {}; }
+
     const payload = {
       user_id: userId,
       computed_at: new Date().toISOString(),
@@ -449,6 +501,7 @@ async function computeAndStoreTasteProfile(supabaseAdmin, userId) {
       subrating_weights_json: subratingWeights,
       genre_affinity_json: genreAffinity,
       keyword_affinity_json: keywordAffinity,
+      swipe_genre_affinity_json: swipeGenreAffinity,
     };
 
     const { error: upsertErr } = await supabaseAdmin
@@ -464,6 +517,7 @@ async function computeAndStoreTasteProfile(supabaseAdmin, userId) {
       people_count: Object.keys(peopleAffinity).length,
       genres_count: Object.keys(genreAffinity).length,
       keywords_count: Object.keys(keywordAffinity).length,
+      swipe_genres_count: Object.keys(swipeGenreAffinity).length,
     };
 }
 

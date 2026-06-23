@@ -48,7 +48,7 @@
 
             navigate(page, mode = 'new', navMode = 'push') {
                 // If the user is not logged in, open the auth modal with demo option.
-                const authGatedPages = ['dashboard','dashboard_kpi','dashboard_pie_filter','feed','library','lists','account','leaderboard','theme_creator'];
+                const authGatedPages = ['dashboard','dashboard_kpi','dashboard_pie_filter','feed','library','lists','account','leaderboard','theme_creator','discover'];
                 if (authGatedPages.includes(page) && !cachedIsAuthed) {
                     _pendingGuestPage = page;
                     openAuthModal();
@@ -72,6 +72,11 @@
 
                 const prevPage = this.currentPage;
                 const prevMode = this.formMode;
+
+                // Leaving Discover → flush this session's swipes into the taste profile.
+                if (prevPage === 'discover' && page !== 'discover') {
+                    try { discoverFlushAppeal(); } catch (_) {}
+                }
                 if (navMode === 'push' && page !== prevPage) {
                     this.navStack.push({
                         page: prevPage,
@@ -102,6 +107,7 @@
                     if (titleEl) {
                         const MOBILE_PAGE_TITLES = {
                             home: 'Home', feed: 'Feed', library: 'My Movies', lists: 'Lists',
+                            discover: 'Discover',
                             ai_picks: 'AI Picks', dashboard: 'Data Dash', account: 'Account',
                             leaderboard: 'Leaderboard', submit: 'Log Entry', theme_creator: 'Theme Creator',
                         };
@@ -125,6 +131,7 @@
                     else if (page === 'library') label = 'movies';
                     else if (page === 'lists') label = 'lists';
                     else if (page === 'feed') label = 'feed';
+                    else if (page === 'discover') label = 'discover';
                     else if (page === 'account') label = 'account';
                     else if (page === 'ai_picks') label = 'ai picks';
                     else if (page === 'dashboard' || page === 'dashboard_kpi' || page === 'dashboard_pie_filter') label = 'data';
@@ -162,6 +169,10 @@
                     refreshAuthStateAndUI();
                     initListsPage();
                     enterListsPage();
+                } else if (page === 'discover') {
+                    root.innerHTML = this.renderDiscover();
+                    refreshAuthStateAndUI();
+                    initDiscoverPage();
                 } else if (page === 'ai_picks') {
                     root.innerHTML = this.renderAiPicks();
                     refreshAuthStateAndUI();
@@ -1553,8 +1564,9 @@
                                             <div id="feed-meta" class="text-xs text-gray" style="margin-top: 0.25rem;"></div>
                                         </div>
                                         <div class="feed-controls-actions" style="display:flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
-                                            <button type="button" class="btn btn-outline feed-follows-toggle" onclick="openFeedFollows()" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Follows</button>
-                                            <button id="feed-filter-btn" type="button" class="btn btn-outline feed-sort-btn" data-feed-action="open_filter" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Filter</button>
+                                            <button type="button" class="btn btn-outline feed-follows-toggle controls-icon-btn" onclick="openFeedFollows()" title="Follows" aria-label="Follows" style="border-radius: 0.85rem;">${icons.users}</button>
+                                            <button id="feed-filter-btn" type="button" class="btn btn-outline feed-sort-btn controls-icon-btn" data-feed-action="open_filter" title="Filter" aria-label="Filter" style="border-radius: 0.85rem;">${icons.filter}</button>
+                                            <button id="feed-clear-btn" type="button" class="btn btn-outline controls-icon-btn" data-feed-action="clear" title="Clear all filters" aria-label="Clear all filters" style="border-radius: 0.85rem;">${icons.clearX}</button>
                                             <button id="feed-search-btn" type="button" class="btn btn-outline page-search-btn" data-feed-action="open_search" title="Search by title" aria-label="Search reviews" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">${icons.search}<span class="page-search-label">Search</span></button>
                                             <button id="feed-refresh" type="button" class="btn btn-outline" data-feed-action="refresh" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Refresh</button>
                                         </div>
@@ -1593,124 +1605,126 @@
                 `;
             },
 
+            renderDiscover() {
+                return `
+                    <div class="fade-in">
+                        <div class="container discover-container" style="padding-top: 1.25rem; padding-bottom: 2.6rem; position: relative;">
+                            <div class="page-title-card glass-panel" style="padding: 1.1rem 1.2rem; border-radius: 1.1rem; margin-bottom: 1rem;">
+                                <div class="text-xs text-gray" style="letter-spacing: 0.08em; text-transform: uppercase;">Discover</div>
+                                <h1 class="text-3xl font-bold text-white" style="margin-top: 0.2rem;">Swipe to build your watchlist</h1>
+                                <p class="text-gray" style="margin-top: 0.35rem;">Right to add to your Bucket List, left to skip. We learn what you like as you go.</p>
+                            </div>
+
+                            <div id="discover-stage" class="discover-stage">
+                                <div id="discover-stack" class="discover-stack" aria-live="polite"></div>
+                            </div>
+
+                            <div id="discover-actions" class="discover-actions hidden">
+                                <div class="discover-action-col discover-col-skip">
+                                    <button type="button" class="discover-action discover-skip" onclick="discoverSwipe('left')" aria-label="Skip">
+                                        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                    </button>
+                                    <span class="discover-hint discover-hint-skip">not for me</span>
+                                </div>
+                                <button type="button" class="discover-action discover-info" onclick="discoverFlipTop()" aria-label="Details">
+                                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/><circle cx="12" cy="12" r="10"/></svg>
+                                </button>
+                                <div class="discover-action-col discover-col-like">
+                                    <button type="button" class="discover-action discover-like" onclick="discoverSwipe('right')" aria-label="Add to Bucket List">
+                                        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                                    </button>
+                                    <span class="discover-hint discover-hint-like">into the bucket</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            },
+
             renderAiPicks() {
                 return `
                     <div class="fade-in">
-                        <div class="container" style="padding-top: 1.25rem; padding-bottom: 2.6rem; position: relative;">
-                            <div class="glass-panel" style="padding: 1.1rem 1.2rem; border-radius: 1.1rem; margin-bottom: 1rem;">
-                                <div>
-                                    <div class="text-xs text-gray" style="letter-spacing: 0.08em; text-transform: uppercase;">AI Picks</div>
-                                    <h1 class="text-3xl font-bold text-white" style="margin-top: 0.2rem;">Find your next movie</h1>
-                                    <p class="text-gray" style="margin-top: 0.35rem;">Tell us the vibe, then pick a few similar movies or use Filters.</p>
-                                </div>
+                        <div class="container ai-container" style="position: relative;">
+                            <div class="glass-panel page-title-card ai-header">
+                                <div class="text-xs text-gray" style="letter-spacing: 0.08em; text-transform: uppercase;">AI Picks</div>
+                                <h1 class="text-3xl font-bold text-white" style="margin-top: 0.2rem;">Find your next movie</h1>
+                                <p class="text-gray" style="margin-top: 0.35rem;">Describe the vibe, then refine with filters or a similar movie.</p>
                             </div>
 
-                            <div id="ai-inputs-wrap" class="ai-grid-2 ai-grid-single" style="display:grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; align-items:start;">
-                                <div style="display:flex; flex-direction: column; gap: 12px;">
-                                    <div id="ai-card-describe" class="ai-card" style="padding: 1rem; border-radius: 1rem;">
-                                        <div class="text-white font-bold">Describe what you want</div>
-                                        <div id="ai-prompt-panel" class="ai-section" style="margin-top: 0.5rem;">
-                                            <div class="text-xs text-gray" style="margin-bottom: 0.35rem;">Example: “Light‑hearted, character‑driven, post‑2000, strong performances.”</div>
-                                            <textarea id="ai-prompt-input" class="textarea-field" rows="6" maxlength="2000" placeholder="Describe the movie you want..."></textarea>
-                                            <div id="ai-prompt-remaining" class="text-xs text-gray" style="margin-top: 0.25rem; text-align: right;">2000 characters remaining</div>
-                                        </div>
+                            <div id="ai-inputs-wrap" class="ai-composer">
+                                <div class="ai-card ai-prompt-card">
+                                    <div class="ai-card-title">1 &middot; Describe what you want</div>
+                                    <textarea id="ai-prompt-input" class="textarea-field ai-prompt-input" rows="6" maxlength="2000" placeholder="e.g. Light-hearted, character-driven, post-2000, strong performances…"></textarea>
+                                    <div id="ai-prompt-remaining" class="text-xs text-gray ai-prompt-remaining">2000 characters remaining</div>
+                                </div>
+
+                                <div class="ai-card ai-refine-card">
+                                    <div class="ai-card-title">2 &middot; Refine <span class="ai-card-sub">(filters or a similar movie required)</span></div>
+
+                                    <div class="ai-refine-actions">
+                                        <button id="ai-open-filters-btn" type="button" class="ai-refine-pill" onclick="openAiFiltersModal()">
+                                            <span>Filters</span>
+                                            <span id="ai-filters-count" class="ai-refine-count hidden"></span>
+                                        </button>
+                                        <label class="ai-refine-pill ai-exclude-toggle">
+                                            <input id="ai-filter-exclude-watched" type="checkbox" />
+                                            <span>Hide watched</span>
+                                        </label>
                                     </div>
 
-                                    <div id="ai-similar-search-card" class="ai-card" style="padding: 1rem; border-radius: 1rem; overflow: visible; position: relative; z-index: 100;">
-                                        <div class="text-white font-bold">Pick similar movies</div>
-                                        <div class="text-xs text-gray" style="margin-top: 0.2rem;">Optional, up to 5.</div>
-                                        <div style="margin-top: 0.6rem; display:flex; gap: 10px; align-items:flex-start; flex-wrap: wrap;">
-                                            <div style="max-width: 340px; position: relative; flex: 1 1 260px; z-index: 100;">
-                                                <div class="input-group" style="position: relative; z-index: 100;">
-                                                    <div class="input-icon">${icons.search}</div>
-                                                    <input id="ai-similar-input" type="text" class="input-field glass-input" placeholder="Search for a similar movie…" autocomplete="off" style="padding-right: 90px; width: 100%; border-radius: 0.85rem;">
-                                                    <div id="ai-similar-results" class="search-dropdown hidden"></div>
-                                                </div>
-                                                <div style="position:absolute; right: 8px; top: 50%; transform: translateY(-50%); display:flex; gap: 8px;">
-                                                    <button id="ai-similar-clear" type="button" class="btn btn-outline" style="padding: 0.35rem 0.55rem; border-radius: 0.7rem;">Clear</button>
-                                                </div>
-                                            </div>
-                                            <div id="ai-similar-selected" style="display:flex; flex-wrap: wrap; gap: 6px; align-content:flex-start; min-height: 28px; flex: 1 1 240px; padding: 0.25rem 0;">
-                                            </div>
+                                    <div class="ai-similar-block" id="ai-similar-search-card">
+                                        <div class="ai-similar-label">Similar movies <span class="ai-card-sub">— optional, up to 5</span></div>
+                                        <div class="input-group ai-similar-inputgroup">
+                                            <div class="input-icon">${icons.search}</div>
+                                            <input id="ai-similar-input" type="text" class="input-field glass-input ai-similar-input" placeholder="Search for a similar movie…" autocomplete="off">
+                                            <button id="ai-similar-clear" type="button" class="ai-similar-clear">Clear</button>
+                                            <div id="ai-similar-results" class="search-dropdown hidden"></div>
                                         </div>
+                                        <div id="ai-similar-selected" class="ai-similar-selected"></div>
                                         <input id="ai-similar-tmdb-id" type="hidden" value="">
                                     </div>
-
-                                    <div id="ai-card-generate" class="ai-card" style="padding: 0.9rem 1rem; border-radius: 1rem; display:flex; gap: 10px; flex-wrap: wrap; align-items:center; justify-content: space-between;">
-                                        <div style="display:flex; gap: 8px; flex-wrap: wrap;">
-                                            <button id="ai-generate-btn" type="button" class="btn btn-primary" style="border-radius: 0.85rem;">Generate Suggestions</button>
-                                            <button id="ai-clear-btn" type="button" class="btn btn-outline" style="border-radius: 0.85rem;">Clear</button>
-                                        </div>
-                                        <label class="text-xs text-gray" style="display:inline-flex; gap: 6px; align-items:center;">
-                                            <input id="ai-debug-toggle" type="checkbox" /> Debug
-                                        </label>
-                                    </div>
-
                                 </div>
 
-                                <div style="display:flex; flex-direction: column; gap: 12px;">
-                                    <div id="ai-card-filters" class="ai-card" style="padding: 1rem; border-radius: 1rem;">
-                                        <div class="text-white font-bold">Refine with Filters</div>
-                                        <div class="text-xs text-gray" style="margin-top: 0.35rem; line-height: 1.5;">Filters are required unless you pick at least one similar movie.</div>
-                                        <button type="button" class="btn btn-outline" style="border-radius: 0.85rem; margin-top: 0.6rem; width: 100%;" onclick="openAiFiltersModal()">Open Filters</button>
-                                    </div>
-
-                                    <div id="ai-card-exclude" class="ai-card" style="padding: 0.85rem 1rem; border-radius: 1rem; display:flex; align-items:center; justify-content: space-between; gap: 12px;">
-                                        <div>
-                                            <div class="text-white font-bold" style="font-size: 0.95rem;">Exclude already watched</div>
-                                            <div class="text-xs text-gray" style="margin-top: 0.2rem;">Hide movies you’ve already rated or logged.</div>
-                                        </div>
-                                        <label style="display:inline-flex; align-items:center; gap: 10px; padding: 0.35rem 0.6rem; border-radius: 0.8rem; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);">
-                                            <input id="ai-filter-exclude-watched" type="checkbox" style="transform: scale(1.2); accent-color: #38bdf8;" />
-                                            <span class="text-xs" style="color: #e2e8f0; font-weight: 700; letter-spacing: 0.02em;">Exclude</span>
-                                        </label>
-                                    </div>
-
-                                    <div id="ai-card-howitworks" class="ai-card" style="padding: 1rem; border-radius: 1rem;">
-                                        <div class="text-white font-bold">How it works</div>
-                                        <div class="text-xs text-gray" style="margin-top: 0.4rem; line-height: 1.5;">
-                                            1) Describe the vibe you want. <br>
-                                            2) Add similar movies or use movie detail filters. <br>
-                                            3) Generate suggestions and explore.
-                                        </div>
-                                    </div>
-
-                                    <div id="ai-card-tips" class="ai-card" style="padding: 1rem; border-radius: 1rem;">
-                                        <div class="text-white font-bold">Tips</div>
-                                        <ul class="text-xs text-gray" style="margin-top: 0.4rem; padding-left: 1rem; line-height: 1.5;">
-                                            <li>Use mood + era + pacing.</li>
-                                            <li>Combine genres for better results.</li>
-                                            <li>Add 1–3 similar movies for accuracy.</li>
-                                        </ul>
-                                    </div>
+                                <div class="ai-generate-row">
+                                    <button id="ai-generate-btn" type="button" class="btn btn-primary ai-generate-btn">${icons.star} Generate Picks</button>
+                                    <button id="ai-clear-btn" type="button" class="btn btn-outline ai-clear-btn">Clear</button>
+                                    <label id="ai-debug-wrap" class="ai-debug-label" style="display:none;">
+                                        <input id="ai-debug-toggle" type="checkbox" /> Debug
+                                    </label>
                                 </div>
                             </div>
 
-                            <div id="ai-loading" class="glass-panel hidden" style="margin-top: 1.25rem; padding: 1rem; border-radius: 1rem;">
-                                <div class="text-white font-bold">Loading…</div>
-                                <div class="text-xs text-gray" style="margin-top: 0.25rem;">We’re generating your suggestions.</div>
-                                <div class="ai-loading-visual">
-                                    <img
-                                        id="ai-loading-image"
-                                        alt="Loading animation"
-                                        loading="lazy"
-                                        decoding="async"
-                                    />
-                                </div>
-                            </div>
-
-                            <div id="ai-results-panel" class="glass-panel hidden" style="margin-top: 1.25rem; padding: 1rem; border-radius: 1rem;">
-                                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+                            <div id="ai-loading" class="ai-card ai-loading-card hidden">
+                                <div class="ai-loading-head">
+                                    <div class="discover-spinner discover-spinner-sm"></div>
                                     <div>
-                                        <div class="text-white font-bold">Top Suggestions</div>
-                                        <div class="text-xs text-gray" style="margin-top: 0.25rem;">Results will appear here after generation.</div>
+                                        <div class="text-white font-bold">Finding your picks…</div>
+                                        <div class="text-xs text-gray">Scoring candidates against your taste.</div>
                                     </div>
-                                    <button id="ai-rerun-btn" type="button" class="btn btn-primary" style="border-radius: 0.85rem; padding: 0.5rem 1rem; font-size: 0.85rem;">Edit &amp; Re‑run</button>
                                 </div>
-                                <div id="ai-results" class="ai-results" style="margin-top: 0.85rem;">
+                                <div class="ai-loading-visual">
+                                    <img id="ai-loading-image" alt="Loading animation" loading="lazy" decoding="async" />
+                                </div>
+                            </div>
+
+                            <div id="ai-results-panel" class="ai-results-panel hidden">
+                                <div class="ai-results-head">
+                                    <button id="ai-rerun-btn" type="button" class="btn btn-outline ai-rerun-btn">Edit &amp; Re-run</button>
+                                </div>
+                                <div id="ai-results" class="ai-results">
                                     <div class="text-gray">No results yet.</div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+
+                    <div id="ai-detail-overlay" class="auth-overlay" onclick="if(event.target === this) closeAiDetailModal();">
+                        <div class="auth-modal ai-detail-modal" role="dialog" aria-modal="true" aria-labelledby="ai-detail-title" style="max-width: 520px;">
+                            <div class="auth-modal-header">
+                                <div class="auth-modal-title" id="ai-detail-title">Details</div>
+                                <button class="auth-modal-close" type="button" onclick="closeAiDetailModal()">Close</button>
+                            </div>
+                            <div id="ai-detail-body" class="ai-detail-body"></div>
                         </div>
                     </div>
 
@@ -1739,7 +1753,7 @@
                                 </div>
                                 <div>
                                     <label class="text-sm text-white font-bold mb-2 label-gap submit-label block">Genres (include)</label>
-                                    <div id="ai-filter-genres-include" class="ai-genre-grid" style="display:flex; flex-wrap: wrap; gap: 8px;">
+                                    <div id="ai-filter-genres-include" class="ai-chip-grid">
                                         <button type="button" class="btn btn-outline ai-genre-btn" data-ai-genre-role="include" data-genre="Action" aria-pressed="false">Action</button>
                                         <button type="button" class="btn btn-outline ai-genre-btn" data-ai-genre-role="include" data-genre="Adventure" aria-pressed="false">Adventure</button>
                                         <button type="button" class="btn btn-outline ai-genre-btn" data-ai-genre-role="include" data-genre="Animation" aria-pressed="false">Animation</button>
@@ -1766,7 +1780,7 @@
                                     <div style="margin-bottom: 0.4rem;">
                                         <button type="button" class="btn btn-outline" style="border-radius: 0.75rem; padding: 0.35rem 0.7rem;" onclick="selectAllAiProviders()">Select all</button>
                                     </div>
-                                    <div id="ai-filter-providers" class="ai-genre-grid" style="display:flex; flex-wrap: wrap; gap: 8px;">
+                                    <div id="ai-filter-providers" class="ai-chip-grid">
                                         <button type="button" class="btn btn-outline ai-provider-btn" data-ai-provider="Netflix" aria-pressed="false">Netflix</button>
                                         <button type="button" class="btn btn-outline ai-provider-btn" data-ai-provider="Prime Video" aria-pressed="false">Prime Video</button>
                                         <button type="button" class="btn btn-outline ai-provider-btn" data-ai-provider="Hulu" aria-pressed="false">Hulu</button>
@@ -1807,9 +1821,10 @@
                                     </div>
                                     <div class="library-controls-row" style="display:flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
                                         <!-- One button that flips List/Grid (shows the view you'll switch TO). -->
-                                        <button id="library-view-toggle-btn" type="button" class="btn btn-outline" data-library-action="toggle_view" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">List View</button>
-                                        <button id="library-open-filters" type="button" class="btn btn-outline" data-library-action="open_filters" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Filters</button>
-                                        <button id="library-open-sort" type="button" class="btn btn-outline" data-library-action="open_sort" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Sort</button>
+                                        <button id="library-view-toggle-btn" type="button" class="btn btn-outline" data-library-action="toggle_view" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Grid</button>
+                                        <button id="library-open-filters" type="button" class="btn btn-outline controls-icon-btn" data-library-action="open_filters" title="Filters" aria-label="Filters" style="border-radius: 0.85rem;">${icons.filter}</button>
+                                        <button id="library-open-sort" type="button" class="btn btn-outline controls-icon-btn" data-library-action="open_sort" title="Sort" aria-label="Sort" style="border-radius: 0.85rem;">${icons.sort}</button>
+                                        <button id="library-clear-btn" type="button" class="btn btn-outline controls-icon-btn" data-library-action="clear" title="Clear all filters" aria-label="Clear all filters" style="border-radius: 0.85rem;">${icons.clearX}</button>
                                         <button id="library-search-btn" type="button" class="btn btn-outline page-search-btn" data-library-action="open_search" title="Search by title" aria-label="Search my movies" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">${icons.search}<span class="page-search-label">Search</span></button>
                                         <button id="library-refresh" type="button" class="btn btn-outline" data-library-action="refresh" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Refresh</button>
                                     </div>

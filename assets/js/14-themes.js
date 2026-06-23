@@ -885,7 +885,8 @@
             // Mobile tab bar "More" sheet auth row mirrors the same label.
             const moreAuthBtn = document.getElementById('more-auth-btn');
             if (moreAuthBtn) {
-                moreAuthBtn.textContent = isAuthed
+                const moreAuthLabel = moreAuthBtn.querySelector('.more-sheet-label') || moreAuthBtn;
+                moreAuthLabel.textContent = isAuthed
                     ? (displayName ? `${displayName} - Account` : 'Account')
                     : 'Login';
             }

@@ -558,7 +558,7 @@
                 border-bottom: none;
                 border-radius: 0;
                 box-shadow: 0 -10px 24px var(--glass-shadow);
-                padding: 9px 4px calc(9px + env(safe-area-inset-bottom)) 4px;
+                padding: 9px 2px calc(9px + env(safe-area-inset-bottom)) 2px;
             }
             .tabbar-btn {
                 position: relative;
@@ -566,7 +566,7 @@
                 min-width: 0;
                 background: transparent;
                 border: none;
-                padding: 4px 2px;
+                padding: 4px 1px;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
@@ -583,11 +583,11 @@
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                width: 29px; height: 29px;
+                width: 26px; height: 26px;
             }
-            .tabbar-icon svg { width: 27px; height: 27px; }
+            .tabbar-icon svg { width: 24px; height: 24px; }
             .tabbar-label {
-                font-size: 0.64rem;
+                font-size: 0.6rem;
                 font-weight: 700;
                 letter-spacing: 0.01em;
                 line-height: 1;
@@ -602,6 +602,7 @@
             body[data-page="feed"]      #tab-feed,
             body[data-page="library"]   #tab-library,
             body[data-page="lists"]     #tab-lists,
+            body[data-page="discover"]      #tab-more,
             body[data-page="ai_picks"]      #tab-more,
             body[data-page="dashboard"]     #tab-more,
             body[data-page="account"]       #tab-more,
@@ -685,22 +686,58 @@
             background: rgba(255,255,255,0.28);
             margin: 4px auto 8px auto;
         }
+        /* 2-up tile grid — cleaner & more app-like than a stacked text list. */
+        .more-sheet-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
         .more-sheet-item {
-            display: block;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            justify-content: center;
+            gap: 10px;
             width: 100%;
             box-sizing: border-box;
             text-align: left;
-            padding: 1rem 1.1rem;
-            font-size: 1.02rem;
+            padding: 0.95rem 1rem;
+            font-size: 0.98rem;
             font-weight: 700;
             color: rgba(255,255,255,0.92);
-            border-radius: 0.85rem;
-            border: 1px solid rgba(255,255,255,0.10);
-            background: rgba(255,255,255,0.04);
+            border-radius: 1rem;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: #202024;
             cursor: pointer;
             -webkit-tap-highlight-color: transparent;
+            transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
         }
-        .more-sheet-item:active { background: rgba(255,255,255,0.10); }
+        .more-sheet-ico {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 38px; height: 38px;
+            border-radius: 0.7rem;
+            color: var(--brand, #14b8a6);
+            background: color-mix(in srgb, var(--brand, #14b8a6) 16%, transparent);
+        }
+        .more-sheet-ico svg {
+            width: 20px; height: 20px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .more-sheet-label { line-height: 1.1; }
+        /* The auth row spans the full width as a footer action. */
+        .more-sheet-item-auth {
+            grid-column: 1 / -1;
+            flex-direction: row;
+            align-items: center;
+            gap: 12px;
+        }
+        .more-sheet-item:active { transform: scale(0.97); background: #26262b; border-color: rgba(255,255,255,0.16); }
 
         /* ===== Phase 1b — kill the "it's a website" browser tells ===== */
         /* Stop the rubber-band overscroll / browser pull-to-refresh white flash. */
@@ -1818,6 +1855,24 @@
             stroke-linejoin: round;
             flex: 0 0 auto;
         }
+
+        /* Compact icon-only control buttons (Filter / Sort on My Movies + Feed). */
+        .controls-icon-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.55rem 0.7rem;
+        }
+        .controls-icon-btn svg {
+            width: 17px;
+            height: 17px;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
         #achievement-earned-body {
             --tier-rgb: 148, 163, 184;
             border: 1px solid rgba(var(--tier-rgb), 0.45);
@@ -3200,10 +3255,9 @@
             .feed-card-actor .user-icon { width: 50px !important; height: 50px !important; }
             .feed-card-actor-name { max-width: 64px; overflow: hidden; text-overflow: ellipsis; font-size: 0.7rem !important; }
 
-            /* AI Picks result cards: constrain to the screen + wrap long text. */
-            #ai-results > .glass-panel { max-width: 100%; overflow: hidden; }
-            #ai-results .glass-panel > div { min-width: 0; }
-            #ai-results .text-xs { overflow-wrap: anywhere; }
+            /* AI Picks result cards: single column + wrap long text on phones. */
+            .ai-results { grid-template-columns: 1fr !important; }
+            .ai-pick-reason { overflow-wrap: anywhere; }
 
             /* My Movies controls (View toggle + Filters + Sort) share ONE full-width row,
                each button stretching to fill — never split across two rows. Refresh is
@@ -3240,7 +3294,9 @@
             /* `button#id` keeps specificity on par with the `> button:not(#x)` stretch
                rule above; being later in source order, this wins → compact magnifier. */
             .library-controls-row > button#library-search-btn,
-            .feed-controls-actions > button#feed-search-btn {
+            .feed-controls-actions > button#feed-search-btn,
+            .library-controls-row > button.controls-icon-btn,
+            .feed-controls-actions > button.controls-icon-btn {
                 flex: 0 0 auto;
                 padding-left: 0.7rem;
                 padding-right: 0.7rem;
@@ -3251,26 +3307,8 @@
             .achievement-filter-wrap { width: 100%; flex-wrap: nowrap !important; }
             .achievement-filter-wrap > button { flex: 1 1 0; min-width: 0; }
 
-            /* AI Picks: the inline 2-column grid overrode the responsive class, so the
-               page never stacked and hung off-screen. Force a single column, give the
-               prompt box real height, widen the similar-movie search, and make the
-               filter-modal genres flow several per row instead of one. */
-            #ai-inputs-wrap { grid-template-columns: 1fr !important; }
-            #ai-prompt-input { min-height: 150px; }
-            #ai-similar-search-card [style*="max-width: 340px"] { max-width: none !important; }
-            .ai-genre-btn { flex: 0 0 auto; width: auto !important; padding: 0.4rem 0.7rem !important; font-size: 0.82rem !important; }
-
-            /* Flatten the two column wrappers so every card is a direct grid item,
-               then set the phone-specific order (and drop Tips). !important is needed
-               because the wrappers carry an inline display:flex. */
-            #ai-inputs-wrap > div { display: contents !important; }
-            #ai-card-howitworks { order: 1; }
-            #ai-card-describe   { order: 2; }
-            #ai-similar-search-card { order: 3; }
-            #ai-card-filters    { order: 4; }
-            #ai-card-exclude    { order: 5; }
-            #ai-card-generate   { order: 6; }
-            #ai-card-tips       { display: none; }
+            /* AI Picks: tighten the filter-modal chip grid to 2 columns on phones. */
+            .ai-chip-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
             /* Lists page header: stack cleanly instead of scattering. Dropdown gets
                its own full-width row; New List + Refresh share the next row. */
@@ -4047,7 +4085,15 @@
             .log-panel { left: 1rem; bottom: 4rem; width: calc(100vw - 2rem); }
             .log-panel-header { flex-wrap: wrap; }
             .log-panel-actions { width: 100%; justify-content: flex-end; }
-            .toast { left: 1rem; right: 1rem; max-width: calc(100vw - 2rem); }
+            /* Sit just ABOVE the fixed bottom tab bar (~62px + safe area) so toasts
+               never cover it and block navigation. Applies to every toast site-wide
+               (they all use the single global #toast element via showToast). */
+            .toast {
+                left: 1rem;
+                right: 1rem;
+                max-width: calc(100vw - 2rem);
+                bottom: calc(74px + env(safe-area-inset-bottom));
+            }
         }
 
         @media (max-width: 420px) {
@@ -5821,17 +5867,6 @@
             border-radius: 0.95rem;
             padding: 1rem;
         }
-        .ai-grid-2 {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 12px;
-        }
-        .ai-grid-2.ai-grid-single {
-            grid-template-columns: minmax(0, 1fr);
-        }
-        @media (max-width: 900px) {
-            .ai-grid-2 { grid-template-columns: 1fr; }
-        }
         .ai-slider-row {
             display: grid;
             grid-template-columns: 1fr auto;
@@ -5852,8 +5887,248 @@
         }
         .ai-results {
             display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+            gap: 14px;
+        }
+
+        /* ---- AI Picks redesign: composer ---- */
+        .ai-container {
+            padding-top: 1.25rem;
+            padding-bottom: 2.6rem;
+            max-width: 760px;
+        }
+        .ai-header { margin-bottom: 1rem; }
+        .ai-composer {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        .ai-card-title {
+            color: #fff;
+            font-weight: 800;
+            font-size: 0.98rem;
+        }
+        .ai-card-sub {
+            color: var(--text-muted, rgba(255,255,255,0.6));
+            font-weight: 600;
+            font-size: 0.8rem;
+        }
+        .ai-prompt-input {
+            margin-top: 0.6rem;
+            min-height: 160px;
+            width: 100%;
+        }
+        .ai-prompt-remaining { margin-top: 0.4rem; text-align: right; }
+
+        /* Filters + Hide-watched: two matching pills, equal height, side by side. */
+        .ai-refine-actions {
+            display: flex;
+            align-items: stretch;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 0.7rem;
+        }
+        .ai-refine-pill {
+            flex: 1 1 0;
+            min-width: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            height: 44px;
+            padding: 0 1rem;
+            border-radius: 0.85rem;
+            background: #202024;
+            border: 1px solid var(--glass-border, rgba(255,255,255,0.12));
+            color: #e5e7eb;
+            font-size: 0.9rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: filter 0.12s ease, border-color 0.12s ease;
+        }
+        .ai-refine-pill:hover { border-color: var(--brand, #14b8a6); filter: brightness(1.08); }
+        .ai-refine-pill:active { transform: scale(0.98); }
+        .ai-refine-pill input { accent-color: var(--brand, #14b8a6); transform: scale(1.15); }
+        .ai-refine-count {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 5px;
+            border-radius: 999px;
+            background: var(--brand, #14b8a6);
+            color: #fff;
+            font-size: 0.72rem;
+            font-weight: 800;
+        }
+
+        /* Compact filter chips (genres + watch options): even grid, small buttons,
+           instead of a long wrapping list. */
+        .ai-chip-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+            gap: 8px;
+        }
+        .ai-chip-grid .ai-genre-btn,
+        .ai-chip-grid .ai-provider-btn {
+            width: 100%;
+            padding: 0.45rem 0.5rem !important;
+            font-size: 0.8rem !important;
+            border-radius: 0.7rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Lift the refine card (which holds the similar-movie dropdown) above the
+           generate row below it, and drop its backdrop-filter so it doesn't trap the
+           absolutely-positioned dropdown in a clipped stacking context. */
+        .ai-refine-card {
+            position: relative;
+            z-index: 50;
+            overflow: visible;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            background: #16161a;
+        }
+        .ai-similar-block { margin-top: 0.95rem; }
+        .ai-similar-label { color: #fff; font-weight: 700; font-size: 0.88rem; margin-bottom: 0.5rem; }
+        .ai-similar-inputgroup { position: relative; }
+        .ai-similar-input { width: 100%; border-radius: 0.85rem; padding-right: 76px; }
+        .ai-similar-clear {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: #202024;
+            border: 1px solid var(--glass-border, rgba(255,255,255,0.12));
+            color: #e5e7eb;
+            font-size: 0.78rem;
+            font-weight: 700;
+            padding: 0.3rem 0.6rem;
+            border-radius: 0.65rem;
+            cursor: pointer;
+        }
+        .ai-similar-selected {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 0.6rem;
+        }
+
+        .ai-generate-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .ai-generate-btn {
+            flex: 1 1 auto;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            border-radius: 0.95rem;
+            padding: 0.85rem 1.2rem;
+            font-size: 1rem;
+        }
+        .ai-generate-btn svg { width: 18px; height: 18px; }
+        .ai-clear-btn { border-radius: 0.95rem; padding: 0.85rem 1rem; }
+        .ai-debug-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-muted, rgba(255,255,255,0.55));
+            font-size: 0.78rem;
+        }
+
+        /* ---- AI Picks redesign: loading ---- */
+        .ai-loading-card { margin-top: 1.25rem; }
+        .ai-loading-head {
+            display: flex;
+            align-items: center;
             gap: 12px;
         }
+
+        /* ---- AI Picks redesign: results ---- */
+        .ai-results-panel { margin-top: 1.5rem; }
+        .ai-results-head {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 0.85rem;
+        }
+        .ai-rerun-btn { border-radius: 0.85rem; padding: 0.5rem 1rem; font-size: 0.85rem; }
+        .ai-pick-card {
+            display: flex;
+            gap: 14px;
+            background: #16161a;
+            border: 1px solid var(--glass-border, rgba(255,255,255,0.10));
+            border-radius: 1rem;
+            padding: 0.9rem;
+        }
+        .ai-pick-poster {
+            position: relative;
+            width: 84px;
+            height: 124px;
+            flex: 0 0 84px;
+            border-radius: 0.7rem;
+            overflow: hidden;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.08);
+            cursor: pointer;
+        }
+        .ai-pick-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .ai-pick-noposter {
+            width: 100%; height: 100%;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--text-muted, rgba(255,255,255,0.4));
+        }
+        .ai-pick-noposter svg { width: 24px; height: 24px; }
+        .ai-pick-rank {
+            position: absolute;
+            top: 6px; left: 6px;
+            min-width: 22px; height: 22px;
+            padding: 0 6px;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.62);
+            color: #fff; font-size: 0.78rem; font-weight: 800;
+            border-radius: 999px;
+        }
+        .ai-pick-body { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 0.4rem; }
+        .ai-pick-title {
+            color: #fff; font-weight: 800; font-size: 0.98rem;
+            line-height: 1.2;
+        }
+        .ai-pick-year { color: rgba(255,255,255,0.6); font-weight: 800; }
+        .ai-pick-badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .ai-match-badge {
+            font-size: 0.74rem; font-weight: 800; letter-spacing: 0.02em;
+            color: #fff; padding: 0.2rem 0.55rem; border-radius: 999px;
+            background: rgba(255,255,255,0.18);
+        }
+        .ai-match-badge[data-tier="high"] { background: linear-gradient(90deg, var(--brand, #14b8a6), var(--brand-2, #6366f1)); }
+        .ai-match-badge[data-tier="mid"]  { background: color-mix(in srgb, var(--brand, #14b8a6) 60%, #202024); }
+        .ai-match-badge[data-tier="low"]  { background: rgba(255,255,255,0.16); color: rgba(255,255,255,0.85); }
+        .ai-pick-chip {
+            font-size: 0.72rem; font-weight: 700;
+            color: #d1d5db;
+            padding: 0.2rem 0.5rem; border-radius: 999px;
+            background: #202024; border: 1px solid var(--glass-border, rgba(255,255,255,0.12));
+        }
+        .ai-pick-reason {
+            color: rgba(255,255,255,0.78); font-size: 0.82rem; line-height: 1.45;
+        }
+        .ai-pick-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; padding-top: 0.2rem; }
+        .ai-pick-btn { border-radius: 0.7rem; padding: 0.4rem 0.8rem; font-size: 0.82rem; }
+
+        /* ---- AI Picks redesign: detail modal ---- */
+        .ai-detail-modal .ai-detail-body { margin-top: 0.5rem; }
+        .ai-detail-body .discover-overview { max-height: 38vh; }
+
         .ai-question-grid {
             display: grid;
             grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -6230,4 +6505,247 @@
             .lb-podium-item .lb-score { font-size: 0.75rem; }
             .lb-row { gap: 9px; padding: 0.55rem 0.65rem; }
             .lb-row .lb-rank { flex-basis: 1.3rem; }
+        }
+
+        /* ===== Discover swipe deck ===== */
+        .discover-container { max-width: 560px; }
+        .discover-stage {
+            position: relative;
+            width: 100%;
+            /* Card area sized off the viewport so it fits above the action row. */
+            height: min(64vh, 600px);
+            margin: 0 auto;
+        }
+        .discover-stack { position: absolute; inset: 0; }
+        .discover-card {
+            position: absolute;
+            inset: 0;
+            border-radius: 1.25rem;
+            will-change: transform, opacity;
+            transition: transform 0.28s ease, opacity 0.28s ease;
+            cursor: grab;
+            touch-action: pan-y;
+            perspective: 1200px;
+        }
+        .discover-card:active { cursor: grabbing; }
+        /* Depth: cards behind the top one are scaled + pushed down a touch. */
+        .discover-card[data-depth="1"] { transform: translateY(12px) scale(0.96); }
+        .discover-card[data-depth="2"] { transform: translateY(24px) scale(0.92); }
+        .discover-card[data-depth="1"] .discover-card-inner,
+        .discover-card[data-depth="2"] .discover-card-inner { pointer-events: none; }
+        .discover-card[data-depth="1"] .discover-swipe-overlay,
+        .discover-card[data-depth="2"] .discover-swipe-overlay { display: none; }
+
+        .discover-card-inner {
+            position: relative;
+            width: 100%; height: 100%;
+            transform-style: preserve-3d;
+            transition: transform 0.45s ease;
+        }
+        .discover-card.is-flipped .discover-card-inner { transform: rotateY(180deg); }
+        .discover-face {
+            position: absolute;
+            inset: 0;
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
+            border-radius: 1.25rem;
+            overflow: hidden;
+            /* Solid/opaque — NOT the translucent --glass-bg, so the back of the card
+               (info side) never shows the page/cards behind it. */
+            background: #16161a;
+            border: 1px solid var(--border, rgba(255,255,255,0.08));
+            box-shadow: 0 18px 50px rgba(0,0,0,0.45);
+            display: flex;
+            flex-direction: column;
+        }
+        /* The back is a fixed-height flex column; only the overview text scrolls (below). */
+        .discover-back { transform: rotateY(180deg); padding: 1.3rem; justify-content: flex-start; overflow: hidden; }
+        .discover-back-details { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+        .discover-detail-grid { flex: 0 0 auto; }
+
+        .discover-poster {
+            position: relative;
+            flex: 1 1 auto;
+            min-height: 0;
+            background: rgba(255,255,255,0.05);
+        }
+        .discover-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .discover-poster.discover-noposter { display: flex; align-items: center; justify-content: center; }
+        .discover-noposter-label { color: var(--text-muted, rgba(255,255,255,0.5)); font-size: 0.9rem; }
+        /* Gradient so the meta overlay text is readable on bright posters. */
+        .discover-poster::after {
+            content: "";
+            position: absolute; left: 0; right: 0; bottom: 0; height: 55%;
+            background: linear-gradient(to top, rgba(0,0,0,0.82), rgba(0,0,0,0));
+            pointer-events: none;
+        }
+        .discover-meta {
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            padding: 1rem 1.1rem 1.15rem;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+        .discover-score {
+            align-self: flex-start;
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            padding: 0.22rem 0.6rem;
+            border-radius: 999px;
+            color: #fff;
+            margin-bottom: 0.15rem;
+            background: linear-gradient(90deg, var(--brand, #14b8a6), var(--brand-2, #6366f1));
+        }
+        .discover-score[data-tier="low"] { background: rgba(255,255,255,0.18); }
+        .discover-title { color: #fff; font-size: 1.35rem; font-weight: 800; line-height: 1.15; }
+        .discover-year { color: rgba(255,255,255,0.7); font-weight: 800; }
+        .discover-submeta { color: rgba(255,255,255,0.78); font-size: 0.8rem; font-weight: 600; }
+        .discover-reason { color: rgba(255,255,255,0.9); font-size: 0.82rem; font-style: italic; margin-top: 0.15rem; }
+
+        /* Social proof chip (friends who rated 90+). */
+        .discover-social { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.4rem; }
+        .discover-social-avatars { display: inline-flex; }
+        .discover-social-avatar {
+            display: inline-flex;
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 2px solid #16161a;
+            margin-left: -7px;
+            background: #2a2a30;
+        }
+        .discover-social-avatar:first-child { margin-left: 0; }
+        .discover-social-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .discover-social-label { color: #fff; font-size: 0.76rem; font-weight: 700; }
+
+        /* Back-of-card details grid. */
+        .discover-detail-grid { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.9rem; }
+        .discover-detail-row { display: flex; gap: 0.6rem; align-items: baseline; }
+        .discover-detail-label {
+            flex: 0 0 4.6rem;
+            color: var(--text-muted, rgba(255,255,255,0.55));
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .discover-detail-val { color: #fff; font-size: 0.88rem; font-weight: 600; min-width: 0; }
+        .discover-back-loading { display: flex; align-items: center; gap: 0.6rem; margin-top: 1rem; color: var(--text-muted, rgba(255,255,255,0.6)); font-size: 0.85rem; }
+        .discover-spinner-sm { width: 18px; height: 18px; border-width: 2px; }
+
+        .discover-back-title { color: #fff; font-size: 1.2rem; font-weight: 800; }
+        .discover-back-sub { color: rgba(255,255,255,0.7); font-size: 0.8rem; font-weight: 600; margin-top: 0.2rem; }
+        /* Only the overview scrolls (when the summary is long); the details grid above stays put. */
+        .discover-overview { color: rgba(255,255,255,0.85); font-size: 0.92rem; line-height: 1.5; margin-top: 0.8rem; overflow-y: auto; flex: 1 1 auto; min-height: 0; overscroll-behavior: contain; }
+
+        /* Full-card colour wash that fades in as the card is dragged — green "Add to
+           Bucket List" on a right pull, red "Dismiss" on a left pull. Opacity is driven
+           by the drag distance in JS; pointer-events:none so taps pass through. */
+        .discover-swipe-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 4;
+            border-radius: 1.25rem;
+        }
+        .discover-swipe-overlay span {
+            font-size: 1.7rem;
+            line-height: 1.1;
+            font-weight: 900;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            color: #fff;
+            text-align: center;
+            max-width: 78%;
+            padding: 0.45rem 1.1rem;
+            border: 4px solid #fff;
+            border-radius: 0.9rem;
+            text-shadow: 0 2px 12px rgba(0,0,0,0.55);
+        }
+        .discover-overlay-like { background: linear-gradient(180deg, rgba(16,185,129,0.30), rgba(16,185,129,0.72)); }
+        .discover-overlay-like span { transform: rotate(8deg); }
+        .discover-overlay-skip { background: linear-gradient(180deg, rgba(239,68,68,0.30), rgba(239,68,68,0.72)); }
+        .discover-overlay-skip span { transform: rotate(-8deg); }
+
+        /* Commit animations — fling the card off-screen. */
+        .discover-card.discover-swiped-right { transform: translateX(140%) rotate(18deg) !important; opacity: 0; }
+        .discover-card.discover-swiped-left  { transform: translateX(-140%) rotate(-18deg) !important; opacity: 0; }
+
+        .discover-actions {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1.4rem;
+            margin-top: 1.2rem;
+        }
+        /* Each Skip/Like button keeps its normal size; the artistic gesture hint is
+           absolutely positioned UNDER it so it can never shift the button layout. */
+        .discover-action-col {
+            position: relative;
+            display: inline-flex;
+        }
+        .discover-hint {
+            position: absolute;
+            top: calc(100% + 0.5rem);
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.62rem;
+            font-weight: 600;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            font-style: italic;
+            white-space: nowrap;
+            opacity: 0.72;
+            pointer-events: none;
+        }
+        .discover-hint-skip { color: #f87171; }
+        .discover-hint-like { color: #34d399; }
+        .discover-action {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            border: 1px solid var(--border, rgba(255,255,255,0.12));
+            background: #202024;
+            color: #fff;
+            cursor: pointer;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+            transition: transform 0.1s ease, background 0.15s ease;
+        }
+        .discover-action:active { transform: scale(0.9); }
+        .discover-skip { width: 60px; height: 60px; color: #f87171; }
+        .discover-like { width: 60px; height: 60px; color: #34d399; }
+        .discover-info { width: 46px; height: 46px; color: rgba(255,255,255,0.8); }
+
+        .discover-message {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 1.5rem;
+        }
+        .discover-spinner {
+            width: 34px; height: 34px;
+            border-radius: 50%;
+            border: 3px solid rgba(255,255,255,0.18);
+            border-top-color: var(--brand, #14b8a6);
+            animation: discoverSpin 0.8s linear infinite;
+        }
+        @keyframes discoverSpin { to { transform: rotate(360deg); } }
+
+        @media (max-width: 768px) {
+            /* Header card is redundant on mobile (the top bar already says "Discover"). */
+            body[data-page="discover"] #app-root .page-title-card { display: none; }
+            .discover-stage { height: min(62vh, 560px); }
+            .discover-title { font-size: 1.2rem; }
         }

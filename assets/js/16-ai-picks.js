@@ -9,6 +9,7 @@
             const overlay = document.getElementById('ai-filters-overlay');
             if (!overlay) return;
             overlay.classList.remove('open');
+            syncAiFiltersButton();
         }
 
         function syncAiTmdbRatingFilter() {
@@ -87,44 +88,128 @@
             }
         }
 
+        // Cache of the last-rendered picks so the per-card action buttons (Add to
+        // Bucket List / Details) can resolve the full movie object by tmdb_id.
+        let aiLastResults = [];
+
+        function aiMatchTier(score) {
+            if (!(typeof score === 'number' && Number.isFinite(score))) return null;
+            if (score >= 80) return 'high';
+            if (score >= 60) return 'mid';
+            return 'low';
+        }
+
         function showAiResults(items = []) {
             const panel = document.getElementById('ai-results-panel');
             const list = document.getElementById('ai-results');
             if (!panel || !list) return;
+            aiLastResults = Array.isArray(items) ? items : [];
             panel.classList.toggle('hidden', !items.length);
             list.innerHTML = items.length
                 ? items.map((it, idx) => {
                     const title = String(it?.title || '').trim() || 'Untitled';
                     const yearVal = it?.year ? String(it.year) : '';
                     const reason = String(it?.reason || '').trim();
-                    const num = String(idx + 1).padStart(2, '0');
+                    const num = idx + 1;
+                    const tmdbId = Number(it?.tmdb_id) || 0;
                     const posterPath = String(it?.poster_path || '').trim();
                     const posterUrl = posterPath ? `https://image.tmdb.org/t/p/w342${posterPath.startsWith('/') ? posterPath : `/${posterPath}`}` : '';
-                    const ratingRaw = it?.tmdb_rating ?? it?.vote_average ?? null;
-                    const ratingPct = (typeof ratingRaw === 'number' && Number.isFinite(ratingRaw)) ? ratingRaw * 10 : null;
+                    // IMDb rating is already 0-100 (from the edge OMDb lookup); no ×10.
+                    const ratingRaw = it?.imdb_rating_pct ?? null;
+                    const ratingPct = (typeof ratingRaw === 'number' && Number.isFinite(ratingRaw) && ratingRaw > 0) ? ratingRaw : null;
                     const ratingText = ratingPct !== null ? formatPctForDisplay(ratingPct) : '';
                     const mpa = String(it?.mpa_rating || '').trim();
+                    const score = (typeof it?.taste_score === 'number' && Number.isFinite(it.taste_score)) ? Math.round(it.taste_score) : null;
+                    const tier = aiMatchTier(score);
+                    const matchBadge = (score !== null)
+                        ? `<span class="ai-match-badge" data-tier="${tier}">${score}% match</span>` : '';
                     return `
-                        <div class="glass-panel" style="padding: 0.85rem; border-radius: 0.85rem; display:grid; gap: 10px;">
-                            <div style="display:flex; gap: 12px; align-items: center;">
-                                <div style="width: 54px; height: 78px; border-radius: 0.75rem; overflow:hidden; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); flex: 0 0 auto;">
-                                    ${posterUrl
-                                        ? `<img src="${posterUrl}" loading="lazy" decoding="async" alt="${escapeHtml(title)}" style="width:100%; height:100%; object-fit: cover; display:block;" onerror="this.style.display='none';">`
-                                        : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size: 12px;">No poster</div>`}
+                        <div class="ai-pick-card" data-ai-pick-id="${tmdbId}">
+                            <div class="ai-pick-poster" data-ai-detail="${tmdbId}" role="button" tabindex="0" aria-label="View details for ${escapeHtml(title)}">
+                                <span class="ai-pick-rank">${num}</span>
+                                ${posterUrl
+                                    ? `<img src="${posterUrl}" loading="lazy" decoding="async" alt="${escapeHtml(title)}" onerror="this.style.display='none';">`
+                                    : `<div class="ai-pick-noposter">${icons.film}</div>`}
+                            </div>
+                            <div class="ai-pick-body">
+                                <div class="ai-pick-title">${escapeHtml(title)}${yearVal ? ` <span class="ai-pick-year">(${escapeHtml(yearVal)})</span>` : ''}</div>
+                                <div class="ai-pick-badges">
+                                    ${matchBadge}
+                                    ${ratingText ? `<span class="ai-pick-chip">IMDb ${escapeHtml(ratingText)}</span>` : ''}
+                                    ${mpa ? `<span class="ai-pick-chip">${escapeHtml(mpa)}</span>` : ''}
                                 </div>
-                                <div style="min-width:0;">
-                                    <div class="text-white font-bold" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${num}. ${escapeHtml(title)}${yearVal ? ` <span style=\"color: rgba(255,255,255,0.65); font-weight: 800;\">(${escapeHtml(yearVal)})</span>` : ''}</div>
-                                    <div class="text-xs text-gray" style="margin-top: 0.2rem; display:flex; gap: 10px; flex-wrap: wrap;">
-                                        ${ratingText ? `<span>TMDb: <span class=\"text-white\">${escapeHtml(ratingText)}</span></span>` : ''}
-                                        ${mpa ? `<span>MPA: <span class=\"text-white\">${escapeHtml(mpa)}</span></span>` : ''}
-                                    </div>
+                                ${reason ? `<div class="ai-pick-reason">${escapeHtml(reason)}</div>` : ''}
+                                <div class="ai-pick-actions">
+                                    <button type="button" class="btn btn-primary ai-pick-btn" data-ai-bucket="${tmdbId}">+ Bucket List</button>
+                                    <button type="button" class="btn btn-outline ai-pick-btn" data-ai-detail="${tmdbId}">Details</button>
                                 </div>
                             </div>
-                            ${reason ? `<div class="text-xs text-gray">${escapeHtml(reason)}</div>` : ''}
                         </div>
                     `;
                 }).join('')
                 : '<div class="text-gray">No results yet.</div>';
+        }
+
+        // Light up the Filters refine button (app-standard .filter-active) and show a
+        // count when any filter is set, so the requirement is visible at a glance.
+        function syncAiFiltersButton() {
+            const btn = document.getElementById('ai-open-filters-btn');
+            const countEl = document.getElementById('ai-filters-count');
+            if (!btn) return;
+            const f = getAiFilters();
+            let count = 0;
+            if (Number(f.tmdb_rating_min) > 0) count += 1;
+            if (Number(f.release_year_from) > 1800 || Number(f.release_year_to) > 1800) count += 1;
+            if (Array.isArray(f.genres_include) && f.genres_include.length) count += 1;
+            if (Array.isArray(f.watch_providers) && f.watch_providers.length) count += 1;
+            btn.classList.toggle('filter-active', count > 0);
+            if (countEl) {
+                countEl.textContent = String(count);
+                countEl.classList.toggle('hidden', count === 0);
+            }
+        }
+
+        // Add a result pick to the user's Bucket List, reusing the Discover deck flow
+        // (it only needs {title, year, tmdb_id} + handles sync/dupes/toast).
+        function aiAddToBucket(tmdbId) {
+            const id = Number(tmdbId) || 0;
+            const it = aiLastResults.find((m) => Number(m?.tmdb_id) === id);
+            if (!it) return;
+            if (typeof addCardToBucketList === 'function') {
+                addCardToBucketList({ tmdb_id: id, title: it.title, year: it.year }).catch(() => null);
+            }
+        }
+
+        function closeAiDetailModal() {
+            const overlay = document.getElementById('ai-detail-overlay');
+            if (overlay) overlay.classList.remove('open');
+        }
+
+        // Open a lightweight details modal for a pick, fetching via the existing
+        // details edge action and rendering with the Discover deck's detail renderer.
+        async function openAiDetailModal(tmdbId) {
+            const id = Number(tmdbId) || 0;
+            if (!id) return;
+            const overlay = document.getElementById('ai-detail-overlay');
+            const body = document.getElementById('ai-detail-body');
+            const titleEl = document.getElementById('ai-detail-title');
+            if (!overlay || !body) return;
+            const it = aiLastResults.find((m) => Number(m?.tmdb_id) === id) || null;
+            if (titleEl) {
+                const t = String(it?.title || 'Details').trim();
+                titleEl.textContent = it?.year ? `${t} (${it.year})` : t;
+            }
+            body.innerHTML = `<div class="discover-back-loading"><div class="discover-spinner discover-spinner-sm"></div><span>Loading details…</span></div>`;
+            overlay.classList.add('open');
+            try {
+                const data = await callSwiftApiGetMovieDetails({ tmdb_id: id });
+                if (!document.getElementById('ai-detail-overlay')?.classList.contains('open')) return;
+                body.innerHTML = (typeof renderBackDetailsHtml === 'function')
+                    ? renderBackDetailsHtml({ _details: data })
+                    : `<p class="text-gray text-sm">Details unavailable.</p>`;
+            } catch (_) {
+                body.innerHTML = `<p class="text-gray text-sm">Couldn't load details.</p>`;
+            }
         }
 
         function parseCommaList(value) {
@@ -473,6 +558,15 @@
             setAiLoading(false);
             updateAiPromptCounter();
             clearAiSimilarSelection();
+            syncAiFiltersButton();
+
+            // The Debug toggle is admin-only.
+            const debugWrap = document.getElementById('ai-debug-wrap');
+            if (debugWrap) {
+                const email = String(cachedAuthUser?.email || '').trim().toLowerCase();
+                const isAdmin = !!email && email === String(ADMIN_EMAIL || '').trim().toLowerCase();
+                debugWrap.style.display = isAdmin ? '' : 'none';
+            }
 
             // Only bind document-level listeners once to prevent duplicate toggle firings
             if (_aiPicksListenersBound) return;
@@ -500,6 +594,16 @@
             });
 
             document.addEventListener('click', (e) => {
+                const bucketBtn = e?.target?.closest ? e.target.closest('[data-ai-bucket]') : null;
+                if (bucketBtn) {
+                    aiAddToBucket(bucketBtn.getAttribute('data-ai-bucket'));
+                    return;
+                }
+                const detailBtn = e?.target?.closest ? e.target.closest('[data-ai-detail]') : null;
+                if (detailBtn) {
+                    openAiDetailModal(detailBtn.getAttribute('data-ai-detail'));
+                    return;
+                }
                 const genreBtn = e?.target?.closest ? e.target.closest('.ai-genre-btn') : null;
                 if (genreBtn) {
                     toggleAiGenreSelection(genreBtn);
@@ -529,7 +633,7 @@
                     const promptEl = document.getElementById('ai-prompt-input');
                     const prompt = String(promptEl?.value || '').trim();
                     if (!prompt) {
-                        showToast('Please enter a prompt first.', { level: 'warn' });
+                        showToast('Please enter a prompt first.', { level: 'warn', durationMs: 1400 });
                         return;
                     }
 
@@ -537,7 +641,7 @@
                     const similarMovies = getAiSimilarMovie();
                     const hasCompleteFilters = areAiFiltersComplete(filters);
                     if (!similarMovies.length && !hasCompleteFilters) {
-                        showToast('Please either fill out all filters or select a similar movie.', { level: 'warn' });
+                        showToast('Add filters or pick a similar movie.', { level: 'warn', durationMs: 1400 });
                         return;
                     }
 

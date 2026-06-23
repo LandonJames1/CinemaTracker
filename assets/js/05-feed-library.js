@@ -179,6 +179,19 @@
                     return;
                 }
 
+                if (action === 'clear') {
+                    // Reset ALL feed filters (follow excludes, compare-own, in-common) +
+                    // the title search back to default.
+                    feedExcludedUserIds.clear();
+                    feedCompareOwn = false;
+                    feedInCommonOnly = false;
+                    feedSearchQuery = '';
+                    saveFeedFilterPrefs();        // persists + syncs the Filter button
+                    syncPageSearchButton('feed');
+                    await loadFeedPage();
+                    return;
+                }
+
                 if (action === 'open_search') {
                     openPageSearch('feed');
                     return;
@@ -344,6 +357,16 @@
                     return;
                 }
 
+                if (action === 'clear') {
+                    // Reset ALL filters/sort + the title search back to default.
+                    librarySortFilterState = getDefaultLibrarySortFilterState();
+                    librarySortFilterDraft = null;
+                    librarySearchQuery = '';
+                    syncPageSearchButton('library');
+                    await loadLibraryPage({ reset: true });
+                    return;
+                }
+
                 if (action === 'open_search') {
                     openPageSearch('library');
                     return;
@@ -450,7 +473,7 @@
             const btn = document.getElementById('library-view-toggle-btn');
             if (!btn) return;
             // The button shows the view you'll switch TO when you tap it.
-            btn.textContent = libraryViewMode === 'grid' ? 'List View' : 'Grid View';
+            btn.textContent = libraryViewMode === 'grid' ? 'List' : 'Grid';
             // Plain outline button — same look as Filters/Sort (no brand fill).
             btn.classList.remove('filter-active');
         }
@@ -2640,7 +2663,7 @@
             const active = excludedCount > 0 || feedCompareOwn || feedInCommonOnly;
             btn.classList.toggle('active', active);
             btn.classList.toggle('filter-active', active); // vibrant solid highlight
-            btn.textContent = active ? 'Filter' : 'Filter';
+            // NOTE: the button is now an icon — don't set textContent (it would wipe the SVG).
         }
 
         // Fetch the people the active user follows (for the Filter modal list).
