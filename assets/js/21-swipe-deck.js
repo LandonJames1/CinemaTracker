@@ -287,17 +287,23 @@
                 const top = discoverTopEl();
                 const target = (el && el.isConnected) ? el : top;
                 if (target && Number(target.getAttribute('data-tmdb')) === Number(card.tmdb_id)) {
-                    const container = target.querySelector('.discover-back-details');
-                    if (container) container.innerHTML = renderBackDetailsHtml(card);
-                    // Patch the front IMDb badge now that details (incl. imdb_rating_pct) are in.
-                    const imdbEl = target.querySelector('.discover-front-imdb');
-                    if (imdbEl) {
-                        const pct = card?._details?.imdb_rating_pct;
-                        const hasGenres = !!target.querySelector('.discover-front-genres');
-                        imdbEl.textContent = (typeof pct === 'number' && Number.isFinite(pct) && pct > 0)
-                            ? `${hasGenres ? '  •  ' : ''}IMDb ${Math.round(pct)}%` : '';
-                    }
+                    discoverPatchCardNode(target, card);
                 }
+            }
+        }
+
+        // Patch an existing card node's back-details + front IMDb badge in place (no
+        // re-render) once its `_details` (incl. imdb_rating_pct) have loaded.
+        function discoverPatchCardNode(node, card) {
+            if (!node || !card) return;
+            const container = node.querySelector('.discover-back-details');
+            if (container) container.innerHTML = renderBackDetailsHtml(card);
+            const imdbEl = node.querySelector('.discover-front-imdb');
+            if (imdbEl) {
+                const pct = card?._details?.imdb_rating_pct;
+                const hasGenres = !!node.querySelector('.discover-front-genres');
+                imdbEl.textContent = (typeof pct === 'number' && Number.isFinite(pct) && pct > 0)
+                    ? `${hasGenres ? '  •  ' : ''}IMDb ${Math.round(pct)}%` : '';
             }
         }
 
@@ -421,8 +427,59 @@
             window.setTimeout(() => {
                 discoverIndex += 1;
                 discoverBusy = false;
-                renderDiscoverStack();
+                discoverAdvanceStack();
             }, 280);
+        }
+
+        // Advance the stack by ONE without rebuilding the whole thing: drop the swiped
+        // card's node, promote the cards behind via their data-depth (so the CSS
+        // transform transition glides them forward instead of the poster reloading/
+        // flashing from a fresh innerHTML), and append one new card at the back.
+        // Falls back to a full render for the edge cases (deck end / next card's
+        // details not ready yet).
+        function discoverAdvanceStack() {
+            const stack = document.getElementById('discover-stack');
+            if (!stack) return;
+            const topCard = discoverDeck[discoverIndex];
+            // No card, or its details aren't ready → let the full path show the spinner
+            // / kick off a fetch / render the empty state.
+            if (!topCard || !discoverDetailsReady(topCard)) { renderDiscoverStack(); return; }
+
+            // Remove the swiped-away card (the top card is the LAST DOM node).
+            const oldTop = stack.querySelector('.discover-card:last-child');
+            if (oldTop) oldTop.remove();
+
+            // Append the newly-revealed third card at the BACK of the stack (front of DOM),
+            // if the deck has one to show.
+            const visible = discoverDeck.slice(discoverIndex, discoverIndex + 3);
+            const existing = stack.querySelectorAll('.discover-card').length;
+            if (visible.length > existing) {
+                const back = visible[visible.length - 1];
+                const wrap = document.createElement('div');
+                wrap.innerHTML = buildDiscoverCardHtml(back, 0).trim();
+                const node = wrap.firstElementChild;
+                if (node) stack.insertBefore(node, stack.firstChild);
+            }
+
+            // Re-assign depths: last DOM node = depth 0 (interactive top), going up.
+            const nodes = Array.from(stack.querySelectorAll('.discover-card'));
+            const count = nodes.length;
+            nodes.forEach((node, i) => {
+                node.setAttribute('data-depth', String((count - 1) - i));
+            });
+
+            // Clear any stray inline transform on the promoted top + patch its IMDb
+            // badge / details (it may have been built before its details loaded).
+            const newTop = stack.querySelector('.discover-card:last-child');
+            if (newTop) {
+                newTop.style.transform = '';
+                newTop.style.transition = '';
+                discoverPatchCardNode(newTop, topCard);
+            }
+
+            setDiscoverActionsVisible(true);
+            bindTopCardGestures();
+            discoverPreloadAhead();
         }
 
         function discoverFlipTop() {

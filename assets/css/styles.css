@@ -6549,9 +6549,11 @@
             backface-visibility: hidden;
             -webkit-backface-visibility: hidden;
             /* iOS Safari doesn't reliably honor backface-visibility (the reversed front
-               title/genres bleed through the back). Toggle visibility at the flip
-               midpoint as a guaranteed backstop. */
-            transition: visibility 0s linear 0.22s;
+               title/genres bleed through). Crossfade the faces' opacity right at the
+               flip's edge-on midpoint as a guaranteed backstop. (A hard visibility
+               switch left a blank frame mid-flip; the crossfade is seamless.) */
+            opacity: 1;
+            transition: opacity 0.12s linear 0.18s;
             border-radius: 1.25rem;
             overflow: hidden;
             /* Solid/opaque — NOT the translucent --glass-bg, so the back of the card
@@ -6563,9 +6565,9 @@
             flex-direction: column;
         }
         /* The back is a fixed-height flex column; only the overview text scrolls (below). */
-        .discover-back { transform: rotateY(180deg); padding: 1.3rem; justify-content: flex-start; overflow: hidden; visibility: hidden; }
-        .discover-card.is-flipped .discover-front { visibility: hidden; }
-        .discover-card.is-flipped .discover-back { visibility: visible; }
+        .discover-back { transform: rotateY(180deg); padding: 1.3rem; justify-content: flex-start; overflow: hidden; opacity: 0; }
+        .discover-card.is-flipped .discover-front { opacity: 0; }
+        .discover-card.is-flipped .discover-back { opacity: 1; }
         .discover-back-details { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
         .discover-detail-grid { flex: 0 0 auto; }
 
