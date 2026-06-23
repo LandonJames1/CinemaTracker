@@ -606,6 +606,7 @@
             body[data-page="ai_picks"]      #tab-more,
             body[data-page="dashboard"]     #tab-more,
             body[data-page="account"]       #tab-more,
+            body[data-page="settings"]      #tab-more,
             body[data-page="leaderboard"]   #tab-more,
             body[data-page="theme_creator"] #tab-more { color: var(--brand, #14b8a6); }
             /* Badge sits at the top-right of the individual tab BUTTON (anchored just
@@ -841,7 +842,8 @@
             }
             body[data-page="dashboard"] #app-root .page-title-card,
             body[data-page="leaderboard"] #app-root .page-title-card,
-            body[data-page="account"] #app-root .page-title-card {
+            body[data-page="account"] #app-root .page-title-card,
+            body[data-page="settings"] #app-root .page-title-card {
                 display: none !important;
             }
             /* Log/Update form: the title card is the header wrapper's only child, so
@@ -6540,7 +6542,10 @@
             position: relative;
             width: 100%; height: 100%;
             transform-style: preserve-3d;
-            transition: transform 0.45s ease;
+            /* Fast-through-the-middle easing: the card lingers on the readable near-0°/
+               near-180° angles and WHIPS through the edge-on (flat/invisible) ~90° zone,
+               so that flat instant lasts ~1 frame and never reads as a glitchy blank. */
+            transition: transform 0.5s cubic-bezier(0.83, 0, 0.17, 1);
         }
         .discover-card.is-flipped .discover-card-inner { transform: rotateY(180deg); }
         .discover-face {
@@ -6549,11 +6554,12 @@
             backface-visibility: hidden;
             -webkit-backface-visibility: hidden;
             /* iOS Safari doesn't reliably honor backface-visibility (the reversed front
-               title/genres bleed through). Crossfade the faces' opacity right at the
-               flip's edge-on midpoint as a guaranteed backstop. (A hard visibility
-               switch left a blank frame mid-flip; the crossfade is seamless.) */
+               title/genres bleed through). The faces stay FULLY opaque through the whole
+               readable arc and only swap in a tight 60ms window centered on the edge-on
+               instant (when the card is geometrically thin anyway) — so there's no long
+               dim/fade-to-blank, just a crisp face swap as it whips past 90°. */
             opacity: 1;
-            transition: opacity 0.12s linear 0.18s;
+            transition: opacity 0.06s linear 0.22s;
             border-radius: 1.25rem;
             overflow: hidden;
             /* Solid/opaque — NOT the translucent --glass-bg, so the back of the card
@@ -6762,4 +6768,181 @@
             .discover-skip, .discover-like { width: 54px; height: 54px; }
             .discover-info { width: 42px; height: 42px; }
             .discover-hint { top: calc(100% + 0.3rem); font-size: 0.6rem; letter-spacing: 0.1em; }
+        }
+
+        /* ===== Fun Account page (route `account`) ===== */
+        .account-home-container { max-width: 640px; margin: 0 auto; }
+        .account-home-gear {
+            position: absolute; top: 1.25rem; right: 0; z-index: 2;
+            display: inline-flex; align-items: center; gap: 0.4rem;
+            padding: 0.38rem 0.65rem; border-radius: 999px;
+            background: #202024; border: 1px solid var(--brand, #14b8a6);
+            color: #fff; font-size: 0.72rem; font-weight: 600; cursor: pointer;
+            transition: background 0.18s, color 0.18s, border-color 0.18s;
+        }
+        .account-home-gear:hover { background: #2a2a30; color: #fff; border-color: var(--brand-hover, var(--brand, #14b8a6)); }
+        .account-home-gear svg { width: 13px; height: 13px; }
+
+        .account-home-hero {
+            text-align: center; padding: 3.4rem 1.25rem 1.4rem; border-radius: 1.25rem;
+            background:
+                radial-gradient(120% 90% at 50% -10%, color-mix(in srgb, var(--brand) 22%, transparent), transparent 60%),
+                #16161a;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .account-home-avatar-wrap { position: relative; width: 70%; max-width: 289px; aspect-ratio: 1 / 1; margin: 0 auto 1.1rem; }
+        .account-home-avatar {
+            width: 100%; height: 100%; border-radius: 28px; overflow: hidden;
+            display: flex; align-items: center; justify-content: center;
+            background: #0e0e11;
+            border: 2px solid color-mix(in srgb, var(--brand) 45%, transparent);
+            box-shadow: 0 0 0 4px rgba(255,255,255,0.04), 0 10px 34px rgba(0,0,0,0.5);
+        }
+        .account-home-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .account-home-avatar svg { width: 50%; height: 50%; opacity: 0.5; }
+        .account-home-avatar-upload {
+            position: absolute; right: -6px; bottom: -6px;
+            width: 36px; height: 36px; border-radius: 50%;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: var(--brand, #14b8a6); color: #fff;
+            border: 3px solid #16161a; cursor: pointer;
+            transition: transform 0.15s, filter 0.15s;
+        }
+        .account-home-avatar-upload:hover { filter: brightness(1.08); }
+        .account-home-avatar-upload:active { transform: scale(0.92); }
+        .account-home-avatar-upload svg { width: 16px; height: 16px; }
+
+        .account-home-username { font-size: 1.5rem; font-weight: 800; color: #fff; line-height: 1.1; }
+        .account-home-tier {
+            margin-top: 0.5rem; display: flex; align-items: center; justify-content: center;
+            gap: 0.5rem; flex-wrap: wrap;
+        }
+        .account-home-tier-badge {
+            display: inline-block; padding: 0.2rem 0.65rem; border-radius: 999px;
+            font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em;
+            color: var(--brand, #14b8a6);
+            background: color-mix(in srgb, var(--brand) 16%, #18181b);
+            border: 1px solid color-mix(in srgb, var(--brand) 45%, transparent);
+        }
+        .account-home-points { font-size: 0.78rem; font-weight: 600; color: var(--text-muted, #a1a1aa); }
+        /* "Your taste, in a sentence" — a styled pull-quote card. */
+        .account-home-blurb-card {
+            position: relative; margin-top: 1rem; padding: 1.5rem 1.4rem 1.6rem;
+            border-radius: 1.1rem; overflow: hidden; text-align: center;
+            background:
+                radial-gradient(130% 120% at 0% 0%, color-mix(in srgb, var(--brand) 26%, transparent), transparent 55%),
+                radial-gradient(130% 120% at 100% 100%, color-mix(in srgb, var(--brand-2, #a855f7) 22%, transparent), transparent 55%),
+                #16161a;
+            border: 1px solid color-mix(in srgb, var(--brand) 30%, rgba(255,255,255,0.08));
+        }
+        .account-home-blurb-quote {
+            position: absolute; top: -0.55rem; left: 0.7rem;
+            font-family: Georgia, "Times New Roman", serif; font-size: 5rem; line-height: 1;
+            color: color-mix(in srgb, var(--brand) 45%, transparent); pointer-events: none; user-select: none;
+        }
+        .account-home-blurb-label {
+            position: relative; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em;
+            text-transform: uppercase; color: color-mix(in srgb, var(--brand) 75%, #fff);
+            margin-bottom: 0.5rem;
+        }
+        .account-home-blurb {
+            position: relative; font-size: 1.18rem; font-weight: 700; font-style: italic;
+            color: #fff; line-height: 1.4; max-width: 26ch; margin: 0 auto;
+            letter-spacing: -0.01em;
+        }
+
+        .account-home-follows {
+            margin-top: 0.95rem; display: inline-flex; align-items: stretch;
+            gap: 0.15rem; padding: 0.2rem 0.3rem; border-radius: 0.8rem;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+        }
+        .account-home-follow-stat {
+            display: flex; flex-direction: row; align-items: baseline; gap: 0.35rem;
+            padding: 0.3rem 0.75rem; background: transparent; border: none; cursor: pointer;
+            border-radius: 0.6rem; transition: background 0.15s;
+        }
+        .account-home-follow-stat:hover { background: rgba(255,255,255,0.05); }
+        .account-home-follow-num { font-size: 0.95rem; font-weight: 800; color: #fff; line-height: 1; }
+        .account-home-follow-label { font-size: 0.72rem; font-weight: 600; color: var(--text-muted, #a1a1aa); }
+        .account-home-follow-divider { width: 1px; background: rgba(255,255,255,0.1); margin: 0.25rem 0; }
+
+        .account-home-card {
+            margin-top: 1rem; padding: 1.1rem 1.2rem; border-radius: 1.1rem;
+            background: #16161a; border: 1px solid rgba(255,255,255,0.08);
+        }
+        .account-home-card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.7rem; }
+        .account-home-card-title { font-size: 0.95rem; font-weight: 800; color: #fff; }
+        .account-home-edit-btn {
+            background: transparent; border: none; cursor: pointer;
+            color: var(--brand, #14b8a6); font-size: 0.8rem; font-weight: 700;
+            padding: 0.2rem 0.35rem; border-radius: 0.5rem; transition: opacity 0.15s;
+        }
+        .account-home-edit-btn:hover { opacity: 0.8; }
+
+        .account-home-bio { font-size: 0.92rem; color: #d4d4d8; line-height: 1.5; white-space: pre-wrap; }
+        .account-home-bio-empty { color: var(--text-muted, #a1a1aa); font-style: italic; }
+
+        /* "Your Taste" — a compact bento of stat tiles. */
+        .account-home-taste { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+        .account-home-taste-tile {
+            display: flex; flex-direction: column; gap: 0.3rem; min-width: 0;
+            padding: 0.7rem 0.8rem; border-radius: 0.8rem;
+            background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.07);
+        }
+        .account-home-taste-tile-full { grid-column: 1 / -1; }
+        .account-home-taste-label {
+            font-size: 0.66rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+            color: var(--text-muted, #a1a1aa);
+        }
+        .account-home-taste-value { font-size: 1rem; font-weight: 700; color: #fff; line-height: 1.25; }
+        .account-home-taste-sub { font-weight: 600; color: var(--text-muted, #a1a1aa); font-size: 0.85rem; }
+        .account-home-chip-row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+        .account-home-genre-chip {
+            display: inline-block; padding: 0.22rem 0.7rem; border-radius: 999px;
+            font-size: 0.82rem; font-weight: 700; line-height: 1.2;
+            color: var(--brand, #14b8a6);
+            background: color-mix(in srgb, var(--brand) 14%, #18181b);
+            border: 1px solid color-mix(in srgb, var(--brand) 38%, transparent);
+        }
+        .account-home-taste-empty { font-size: 0.88rem; color: var(--text-muted, #a1a1aa); font-style: italic; padding: 0.3rem 0; }
+
+        /* Bio now lives in the hero as a tap-to-edit line under the username. */
+        .account-home-hero-bio {
+            display: block; width: 100%; max-width: 34ch; margin: 0.7rem auto 0;
+            background: transparent; border: none; cursor: pointer;
+            font-size: 0.92rem; line-height: 1.45; color: #d4d4d8; text-align: center;
+            white-space: pre-wrap; padding: 0.15rem 0.25rem; border-radius: 0.5rem;
+            transition: background 0.15s;
+        }
+        .account-home-hero-bio:hover { background: rgba(255,255,255,0.04); }
+        .account-home-hero-bio.account-home-bio-empty { color: var(--text-muted, #a1a1aa); font-style: italic; }
+
+        /* Following / Followers list modal */
+        .account-follows-list { display: grid; gap: 0.25rem; max-height: 60vh; overflow-y: auto; }
+        .account-follows-row {
+            display: flex; align-items: center; gap: 0.7rem; width: 100%;
+            padding: 0.5rem 0.6rem; border-radius: 0.7rem; cursor: pointer;
+            background: transparent; border: 1px solid transparent; text-align: left;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .account-follows-row:hover { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.08); }
+        .account-follows-name { font-size: 0.95rem; font-weight: 600; color: #fff; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .account-follows-unfollow {
+            flex: 0 0 auto; margin-left: auto; padding: 0.32rem 0.8rem; border-radius: 999px;
+            font-size: 0.78rem; font-weight: 700; cursor: pointer;
+            color: #e4e4e7; background: #202024; border: 1px solid rgba(255,255,255,0.16);
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+        }
+        .account-follows-unfollow:hover { background: #3a1a1d; color: #f87171; border-color: rgba(239,68,68,0.5); }
+        .account-follows-unfollow:disabled { opacity: 0.6; cursor: default; }
+        .account-follows-empty { font-size: 0.9rem; color: var(--text-muted, #a1a1aa); padding: 0.9rem 0.3rem; text-align: center; }
+
+        @media (max-width: 768px) {
+            .account-home-container { padding-top: 0.6rem !important; }
+            .account-home-gear { top: 0.6rem; }
+            /* The global mobile rule zeroes side padding on any .container .glass-panel;
+               re-assert real padding so these cards don't read flush-to-edge. */
+            #app-root .container .account-home-hero { padding: 1.3rem 1rem 1.2rem !important; }
+            #app-root .container .account-home-card { padding: 1rem 1.1rem !important; }
+            #app-root .container .account-home-blurb-card { padding: 1.4rem 1.2rem 1.5rem !important; }
         }

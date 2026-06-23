@@ -108,7 +108,7 @@
                         const MOBILE_PAGE_TITLES = {
                             home: 'Home', feed: 'Feed', library: 'My Movies', lists: 'Lists',
                             discover: 'Discover',
-                            ai_picks: 'AI Picks', dashboard: 'Data Dash', account: 'Account',
+                            ai_picks: 'AI Picks', dashboard: 'Data Dash', account: 'Account', settings: 'Settings',
                             leaderboard: 'Leaderboard', submit: 'Log Entry', theme_creator: 'Theme Creator',
                         };
                         // The submit page serves both new entries and rating updates; show
@@ -132,7 +132,7 @@
                     else if (page === 'lists') label = 'lists';
                     else if (page === 'feed') label = 'feed';
                     else if (page === 'discover') label = 'discover';
-                    else if (page === 'account') label = 'account';
+                    else if (page === 'account' || page === 'settings') label = 'account';
                     else if (page === 'ai_picks') label = 'ai picks';
                     else if (page === 'dashboard' || page === 'dashboard_kpi' || page === 'dashboard_pie_filter') label = 'data';
                     if (label && el.innerText.toLowerCase().includes(label)) {
@@ -180,6 +180,11 @@
                     showAiHelpPopupIfNeeded().catch(() => null);
                 } else if (page === 'account') {
                     root.innerHTML = this.renderAccount();
+                    refreshAuthStateAndUI();
+                    initAccountHome();
+                    loadAccountHome();
+                } else if (page === 'settings') {
+                    root.innerHTML = this.renderSettings();
                     refreshAuthStateAndUI();
                     initAccountPage();
                     loadAccountPage();
@@ -1942,12 +1947,93 @@
             renderAccount() {
                 return `
                     <div class="fade-in">
+                        <div class="container account-home-container" style="padding-top: 1.25rem; padding-bottom: 3rem; position: relative;">
+                            <button type="button" class="account-home-gear" data-account-home-action="open_settings" aria-label="Settings" title="Settings">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                                <span>Settings</span>
+                            </button>
+
+                            <div class="account-home-hero glass-panel">
+                                <div class="account-home-avatar-wrap">
+                                    <div id="account-home-avatar" class="user-icon account-home-avatar"></div>
+                                    <button type="button" class="account-home-avatar-upload" data-account-home-action="pick_icon" aria-label="Change photo" title="Change photo">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                    </button>
+                                    <input id="account-home-icon-file" type="file" accept="image/*" style="display:none;">
+                                </div>
+                                <div id="account-home-username" class="account-home-username">@you</div>
+                                <div id="account-home-tier" class="account-home-tier"></div>
+                                <button type="button" id="account-home-bio" class="account-home-bio account-home-hero-bio account-home-bio-empty" data-account-home-action="edit_bio">Add a bio to tell people about your taste in film.</button>
+                                <div class="account-home-follows">
+                                    <button type="button" class="account-home-follow-stat" data-account-home-action="open_following">
+                                        <span id="account-home-following" class="account-home-follow-num">–</span>
+                                        <span class="account-home-follow-label">Following</span>
+                                    </button>
+                                    <div class="account-home-follow-divider"></div>
+                                    <button type="button" class="account-home-follow-stat" data-account-home-action="open_followers">
+                                        <span id="account-home-followers" class="account-home-follow-num">–</span>
+                                        <span class="account-home-follow-label">Followers</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div id="account-home-blurb-card" class="account-home-blurb-card glass-panel" style="display:none;">
+                                <div class="account-home-blurb-quote" aria-hidden="true">“</div>
+                                <div class="account-home-blurb-label">Your taste, in a sentence</div>
+                                <div id="account-home-blurb" class="account-home-blurb"></div>
+                            </div>
+
+                            <div class="account-home-card glass-panel">
+                                <div class="account-home-card-head">
+                                    <div class="account-home-card-title">Your Taste</div>
+                                    <button type="button" class="account-home-edit-btn" data-account-home-action="open_dashboard">Data Dash →</button>
+                                </div>
+                                <div id="account-home-taste" class="account-home-taste"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="account-follows-overlay" class="auth-overlay" onclick="if(event.target === this) closeFollowsModal();">
+                        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="account-follows-title" style="max-width: 480px;">
+                            <div class="auth-modal-header">
+                                <div class="auth-modal-title" id="account-follows-title">Following</div>
+                                <button class="auth-modal-close" type="button" onclick="closeFollowsModal()">Close</button>
+                            </div>
+                            <div id="account-follows-list" class="account-follows-list" style="margin-top: 0.85rem;"></div>
+                        </div>
+                    </div>
+
+                    <div id="account-bio-overlay" class="auth-overlay" onclick="if(event.target === this) closeBioModal();">
+                        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="account-bio-title" style="max-width: 560px;">
+                            <div class="auth-modal-header">
+                                <div class="auth-modal-title" id="account-bio-title">Edit Bio</div>
+                                <button class="auth-modal-close" type="button" onclick="closeBioModal()">Close</button>
+                            </div>
+                            <div class="text-xs text-gray" style="margin-top: 0.25rem;">Tell people about your taste in movies.</div>
+                            <div style="margin-top: 0.85rem; display:grid; gap: 0.75rem;">
+                                <textarea id="account-bio-input" class="textarea-field" rows="4" maxlength="280" placeholder="e.g. Sci-fi obsessive. Will defend slow movies. Letterboxd four-stars are my five-stars."></textarea>
+                                <div class="text-xs text-gray"><span id="account-bio-remaining">280 characters remaining</span></div>
+                                <div id="account-bio-status" class="text-xs" style="color: rgba(255,255,255,0.60);"></div>
+                                <div style="display:flex; gap: 10px; flex-wrap: wrap;">
+                                    <button id="account-bio-save" type="button" class="btn btn-primary" style="border-radius: 0.85rem;" onclick="saveBio()">Save bio</button>
+                                    <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="closeBioModal()">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            },
+
+            renderSettings() {
+                return `
+                    <div class="fade-in">
                         <div class="container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
                             <div class="flex justify-between items-center mb-6" style="gap: 14px; flex-wrap: wrap;">
                                 <div class="glass-panel page-title-card">
-                                    <h1 class="text-3xl font-bold text-white">Account</h1>
-                                    <p class="text-gray mt-2">Update your profile and password.</p>
+                                    <h1 class="text-3xl font-bold text-white">Settings</h1>
+                                    <p class="text-gray mt-2">Manage your profile, notifications, and security.</p>
                                 </div>
+                                <button type="button" class="btn btn-outline" onclick="router.navigate('account')" style="padding: 0.55rem 0.9rem; border-radius: 0.85rem; flex-shrink:0;">← Back to Account</button>
                             </div>
 
                             <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; align-items: stretch;">
@@ -2156,7 +2242,7 @@
                                     <p class="text-gray mt-2">Build a theme step by step: pick mode, name it, choose backdrops, pick the AI movie, then save.</p>
                                 </div>
                                 <div style="display:flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
-                                    <button type="button" class="btn btn-outline" onclick="router.navigate('account')" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Back</button>
+                                    <button type="button" class="btn btn-outline" onclick="router.navigate('settings')" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Back</button>
                                 </div>
                             </div>
 

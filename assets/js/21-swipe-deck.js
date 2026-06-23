@@ -310,8 +310,10 @@
         function discoverTopEl() {
             const stack = document.getElementById('discover-stack');
             if (!stack) return null;
-            const cards = stack.querySelectorAll('.discover-card');
-            return cards.length ? cards[cards.length - 1] : null; // top card is last DOM node
+            // The interactive top is the last DOM node that ISN'T mid-fly-off — so while a
+            // swiped card animates out, this already points at the promoted new top.
+            const cards = stack.querySelectorAll('.discover-card:not(.discover-swiped-left):not(.discover-swiped-right)');
+            return cards.length ? cards[cards.length - 1] : null;
         }
 
         // Pointer-drag the top card (touch + mouse). Drag state is module-scoped and
@@ -424,53 +426,52 @@
             if (dir === 'right') addCardToBucketList(card).catch(() => null);
             discoverSwipesThisSession += 1; // both directions shift genre appeal rates
 
+            // Promote the cards behind RIGHT NOW (not after the fly-off) so the next card
+            // glides forward AS the top leaves, instead of lurching up 280ms later.
+            discoverIndex += 1;
+            const promoted = discoverPromoteStack(el);
+
             window.setTimeout(() => {
-                discoverIndex += 1;
+                if (el && el.parentNode) el.remove();   // retire the flown-off card
                 discoverBusy = false;
-                discoverAdvanceStack();
-            }, 280);
+                // If we couldn't promote in place (deck end / details not ready), fall back
+                // to a full render now that the flown card is gone.
+                if (!promoted) renderDiscoverStack();
+            }, 300);
         }
 
-        // Advance the stack by ONE without rebuilding the whole thing: drop the swiped
-        // card's node, promote the cards behind via their data-depth (so the CSS
-        // transform transition glides them forward instead of the poster reloading/
-        // flashing from a fresh innerHTML), and append one new card at the back.
-        // Falls back to a full render for the edge cases (deck end / next card's
-        // details not ready yet).
-        function discoverAdvanceStack() {
+        // Advance the stack by ONE in place — WITHOUT rebuilding the whole thing and
+        // WITHOUT waiting for the swiped card to finish flying off. We leave the flying
+        // card (`flyingEl`) in the DOM (its swipe transform is !important) and promote the
+        // cards behind it: bump each one's data-depth so the CSS transform transition
+        // glides it forward (no poster reload/flash), and append one fresh card at the
+        // back. Returns false (so the caller can full-render) when the new top's details
+        // aren't ready or the deck has run out.
+        function discoverPromoteStack(flyingEl) {
             const stack = document.getElementById('discover-stack');
-            if (!stack) return;
+            if (!stack) return false;
             const topCard = discoverDeck[discoverIndex];
-            // No card, or its details aren't ready → let the full path show the spinner
-            // / kick off a fetch / render the empty state.
-            if (!topCard || !discoverDetailsReady(topCard)) { renderDiscoverStack(); return; }
+            if (!topCard || !discoverDetailsReady(topCard)) return false;
 
-            // Remove the swiped-away card (the top card is the LAST DOM node).
-            const oldTop = stack.querySelector('.discover-card:last-child');
-            if (oldTop) oldTop.remove();
+            // Every card except the one flying off, in DOM order (deepest first).
+            const nodes = Array.from(stack.querySelectorAll('.discover-card'))
+                .filter((n) => n !== flyingEl);
 
-            // Append the newly-revealed third card at the BACK of the stack (front of DOM),
-            // if the deck has one to show.
+            // Append the newly-revealed third card at the BACK of the stack (front of DOM).
             const visible = discoverDeck.slice(discoverIndex, discoverIndex + 3);
-            const existing = stack.querySelectorAll('.discover-card').length;
-            if (visible.length > existing) {
+            if (visible.length > nodes.length) {
                 const back = visible[visible.length - 1];
                 const wrap = document.createElement('div');
                 wrap.innerHTML = buildDiscoverCardHtml(back, 0).trim();
                 const node = wrap.firstElementChild;
-                if (node) stack.insertBefore(node, stack.firstChild);
+                if (node) { stack.insertBefore(node, stack.firstChild); nodes.unshift(node); }
             }
 
-            // Re-assign depths: last DOM node = depth 0 (interactive top), going up.
-            const nodes = Array.from(stack.querySelectorAll('.discover-card'));
+            // Re-assign depths: last entry = depth 0 (interactive top), going up.
             const count = nodes.length;
-            nodes.forEach((node, i) => {
-                node.setAttribute('data-depth', String((count - 1) - i));
-            });
+            nodes.forEach((node, i) => node.setAttribute('data-depth', String((count - 1) - i)));
 
-            // Clear any stray inline transform on the promoted top + patch its IMDb
-            // badge / details (it may have been built before its details loaded).
-            const newTop = stack.querySelector('.discover-card:last-child');
+            const newTop = nodes[nodes.length - 1];
             if (newTop) {
                 newTop.style.transform = '';
                 newTop.style.transition = '';
@@ -480,6 +481,7 @@
             setDiscoverActionsVisible(true);
             bindTopCardGestures();
             discoverPreloadAhead();
+            return true;
         }
 
         function discoverFlipTop() {

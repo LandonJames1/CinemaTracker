@@ -35,6 +35,104 @@ function shrink(avg, count, prior, k = SHRINK_K) {
   return (n * a + k * p) / (n + k);
 }
 
+// ---- AI taste blurb -------------------------------------------------------
+// A short, punchy one-liner describing the user's taste ("Harsh grader with a
+// soft spot for sci-fi"). Generated once per recompute and cached on the Taste
+// Profile row, so the fun Account page reads it for free. Best-effort: any
+// failure (no API key, network, bad output) returns null and the existing blurb
+// is left untouched.
+async function callAnthropicBlurb(apiKey, model, summary) {
+  const system =
+    "You write a single, punchy one-line label describing a movie fan's taste, " +
+    "in the style of a personality tag. Examples: \"Harsh grader with a soft " +
+    "spot for sci-fi\", \"Generous romantic who loves the 2010s\", \"Cerebral " +
+    "slow-burn devotee\". Keep it under 10 words, no period at the end, no " +
+    "quotes, fun but not corny. Base it ONLY on the supplied stats.";
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 200,
+      system,
+      messages: [{ role: "user", content: JSON.stringify(summary) }],
+      tools: [{
+        name: "taste_blurb",
+        description: "Return the one-line taste label.",
+        input_schema: {
+          type: "object",
+          properties: { blurb: { type: "string", description: "The one-line taste label, under 10 words." } },
+          required: ["blurb"],
+        },
+      }],
+      tool_choice: { type: "tool", name: "taste_blurb" },
+    }),
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(json?.error?.message || `Anthropic HTTP ${res.status}`);
+  const content = Array.isArray(json?.content) ? json.content : [];
+  for (const block of content) {
+    if (block?.type === "tool_use" && block?.input?.blurb) {
+      return String(block.input.blurb).trim().replace(/^["']|["']$/g, "").slice(0, 120);
+    }
+  }
+  return null;
+}
+
+// Build a compact, human-readable summary of the strongest taste signals for the
+// LLM. Returns null when there isn't enough signal to bother.
+function buildBlurbSummary({ meanOverall, stdOverall, imdbDelta, genreAffinity, decadeBins, peopleAffinity, ratingsCount }) {
+  if (!ratingsCount || ratingsCount < 3) return null;
+
+  const topGenres = Object.entries(genreAffinity || {})
+    .filter(([, v]) => Number(v?.count) >= 2)
+    .sort((a, b) => (Number(b[1]?.aff) || 0) - (Number(a[1]?.aff) || 0))
+    .slice(0, 3)
+    .map(([name]) => name);
+
+  let favoriteDecade = null;
+  let bestDecadeAff = -Infinity;
+  Object.entries(decadeBins || {}).forEach(([decade, v]) => {
+    const aff = Number(v?.aff);
+    if (Number(v?.count) >= 2 && Number.isFinite(aff) && aff > bestDecadeAff) {
+      bestDecadeAff = aff;
+      favoriteDecade = `${decade}s`;
+    }
+  });
+
+  const people = Object.values(peopleAffinity || {});
+  const topDirector = people
+    .filter((p) => Array.isArray(p?.roles) && p.roles.includes("director"))
+    .sort((a, b) => (Number(b?.aff) || 0) - (Number(a?.aff) || 0))[0]?.name || null;
+  const topActor = people
+    .filter((p) => Array.isArray(p?.roles) && p.roles.includes("actor"))
+    .sort((a, b) => (Number(b?.aff) || 0) - (Number(a?.aff) || 0))[0]?.name || null;
+
+  // Translate the numeric mean into a rater-style word (ratings are 0-100).
+  let raterStyle = "balanced grader";
+  if (meanOverall <= 55) raterStyle = "harsh grader";
+  else if (meanOverall <= 68) raterStyle = "tough but fair grader";
+  else if (meanOverall >= 85) raterStyle = "very generous grader";
+  else if (meanOverall >= 78) raterStyle = "generous grader";
+  const consistency = (Number(stdOverall) || 0) <= 10 ? "very consistent" : ((Number(stdOverall) || 0) >= 22 ? "all over the map" : "moderately varied");
+  const vsCrowd = (Number(imdbDelta) || 0) <= -6 ? "rates below the crowd" : ((Number(imdbDelta) || 0) >= 6 ? "rates above the crowd" : "in line with the crowd");
+
+  return {
+    rater_style: raterStyle,
+    avg_rating_0to100: meanOverall,
+    rating_consistency: consistency,
+    vs_imdb_crowd: vsCrowd,
+    favorite_genres: topGenres,
+    favorite_decade: favoriteDecade,
+    favorite_director: topDirector,
+    favorite_actor: topActor,
+  };
+}
+
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -487,6 +585,24 @@ async function computeAndStoreTasteProfile(supabaseAdmin, userId) {
       }
     } catch (_) { swipeGenreAffinity = {}; }
 
+    // AI taste blurb (cached). Best-effort: if it fails we simply omit the
+    // column from the payload so the previous blurb (if any) is preserved.
+    let tasteBlurb = null;
+    try {
+      const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
+      if (apiKey) {
+        const summary = buildBlurbSummary({
+          meanOverall, stdOverall, imdbDelta,
+          genreAffinity, decadeBins, peopleAffinity,
+          ratingsCount: overallRatings.length,
+        });
+        if (summary) {
+          const model = Deno.env.get("ANTHROPIC_MODEL_BLURB") || "claude-haiku-4-5-20251001";
+          tasteBlurb = await callAnthropicBlurb(apiKey, model, summary);
+        }
+      }
+    } catch (_) { tasteBlurb = null; }
+
     const payload = {
       user_id: userId,
       computed_at: new Date().toISOString(),
@@ -503,6 +619,7 @@ async function computeAndStoreTasteProfile(supabaseAdmin, userId) {
       keyword_affinity_json: keywordAffinity,
       swipe_genre_affinity_json: swipeGenreAffinity,
     };
+    if (tasteBlurb) payload.taste_blurb = tasteBlurb;
 
     const { error: upsertErr } = await supabaseAdmin
       .from("Taste Profiles")
