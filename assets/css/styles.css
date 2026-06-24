@@ -6821,6 +6821,32 @@
         .account-home-gear:hover { background: #2a2a30; color: #fff; border-color: var(--brand-hover, var(--brand, #14b8a6)); }
         .account-home-gear svg { width: 13px; height: 13px; }
 
+        /* Back button (shown only when viewing someone ELSE's account) — mirrors gear. */
+        .account-home-back {
+            position: absolute; top: 1.25rem; left: 0; z-index: 2;
+            display: inline-flex; align-items: center; gap: 0.3rem;
+            padding: 0.38rem 0.65rem 0.38rem 0.5rem; border-radius: 999px;
+            background: #202024; border: 1px solid rgba(255,255,255,0.14);
+            color: #fff; font-size: 0.72rem; font-weight: 600; cursor: pointer;
+            transition: background 0.18s, border-color 0.18s;
+        }
+        .account-home-back:hover { background: #2a2a30; border-color: var(--brand, #14b8a6); }
+        .account-home-back:active { transform: scale(0.94); }
+        .account-home-back svg { width: 15px; height: 15px; }
+
+        /* Follow / Following button on another user's account hero. */
+        .account-home-follow-btn { margin-top: 1.05rem; border-radius: 999px; min-width: 150px; padding: 0.5rem 1.4rem; font-weight: 700; }
+        .account-home-follow-btn.is-following { background: #202024; border: 1px solid rgba(255,255,255,0.18); color: #fff; }
+
+        /* The profile overview (KPIs + Taste Match + grid) injected on every account page. */
+        .account-home-overview { margin-top: 1.1rem; }
+        .account-home-overview:empty { display: none; }
+
+        /* Hide self-only chrome when viewing someone else. */
+        .account-viewing-other .account-home-gear,
+        .account-viewing-other .account-home-avatar-upload { display: none !important; }
+        .account-viewing-other .account-home-bio { cursor: default; }
+
         .account-home-hero {
             text-align: center; padding: 3.4rem 1.25rem 1.4rem; border-radius: 1.25rem;
             background:

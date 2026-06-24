@@ -8,6 +8,7 @@
 
         let accountHomeBound = false;
         let accountHomeBioValue = '';
+        let accountHomeViewUserId = ''; // the user whose Account page is currently shown (self or other)
 
         function initAccountHome() {
             if (accountHomeBound) return;
@@ -17,9 +18,12 @@
                 const btn = e?.target?.closest ? e.target.closest('[data-account-home-action]') : null;
                 if (!btn) return;
                 const action = String(btn.dataset.accountHomeAction || '').trim();
+                const viewingSelf = accountHomeViewUserId === getActiveUserId();
+                if (action === 'back') { router.goBack(); return; }
                 if (action === 'open_settings') { router.navigate('settings'); return; }
-                if (action === 'pick_icon') { document.getElementById('account-home-icon-file')?.click(); return; }
-                if (action === 'edit_bio') { openBioModal(); return; }
+                if (action === 'pick_icon') { if (viewingSelf) document.getElementById('account-home-icon-file')?.click(); return; }
+                if (action === 'edit_bio') { if (viewingSelf) openBioModal(); return; }
+                if (action === 'follow') { handleAccountFollowClick(btn); return; }
                 if (action === 'open_following') { openFollowsModal('following'); return; }
                 if (action === 'open_followers') { openFollowsModal('followers'); return; }
                 if (action === 'open_dashboard') { router.navigate('dashboard'); return; }
@@ -49,18 +53,25 @@
             });
         }
 
-        async function loadAccountHome() {
+        async function loadAccountHome(viewUserId) {
             const usernameEl = document.getElementById('account-home-username');
             const tierEl = document.getElementById('account-home-tier');
             const blurbEl = document.getElementById('account-home-blurb');
             const tasteEl = document.getElementById('account-home-taste');
+            const overviewEl = document.getElementById('account-home-overview');
 
-            const uid = getActiveUserId();
+            const activeUid = getActiveUserId();
+            const uid = String(viewUserId || '').trim() || activeUid;
+            accountHomeViewUserId = uid;
+            const isSelf = !!uid && uid === activeUid;
+            setAccountHomeViewMode(isSelf);
+
             if (!supabaseClient || !uid) {
                 if (usernameEl) usernameEl.textContent = 'Not signed in';
                 if (tierEl) tierEl.textContent = '';
                 if (blurbEl) blurbEl.textContent = 'Log in to view your account.';
                 if (tasteEl) tasteEl.innerHTML = '';
+                if (overviewEl) overviewEl.innerHTML = '';
                 setAccountHomeAvatar('');
                 setAccountHomeFollows(null, null);
                 setAccountHomeBio('');
@@ -76,7 +87,7 @@
                     .limit(1);
                 const row = Array.isArray(data) && data.length ? data[0] : null;
                 const username = String(row?.username || '').trim();
-                if (usernameEl) usernameEl.textContent = username ? `@${username}` : 'Your profile';
+                if (usernameEl) usernameEl.textContent = username ? `@${username}` : (isSelf ? 'Your profile' : 'Profile');
                 setAccountHomeAvatar(String(row?.icon || '').trim());
                 setAccountHomeBio(String(row?.bio || '').trim());
 
@@ -124,6 +135,67 @@
             } catch (_) {
                 if (tasteEl) tasteEl.innerHTML = '<div class="account-home-taste-empty">Rate a few movies to build your taste profile.</div>';
             }
+
+            // --- Follow button state (only when viewing someone else) ---
+            if (!isSelf && activeUid) {
+                try {
+                    const { count } = await supabaseClient
+                        .from('Follows').select('*', { count: 'exact', head: true })
+                        .eq('follower_id', activeUid).eq('followed_id', uid);
+                    setAccountFollowButton((count || 0) > 0);
+                } catch (_) { setAccountFollowButton(false); }
+            }
+
+            // --- Profile overview (KPIs + Taste Match + grid) lives in 05-feed-library.js ---
+            if (overviewEl) {
+                try { await loadAccountProfileOverview(uid, overviewEl); }
+                catch (_) { overviewEl.innerHTML = ''; }
+            }
+        }
+
+        // Toggles the self-only chrome (gear / avatar camera / bio editability) and
+        // the other-only chrome (Back + Follow buttons) for the current view.
+        function setAccountHomeViewMode(isSelf) {
+            const container = document.querySelector('.account-home-container');
+            if (container) container.classList.toggle('account-viewing-other', !isSelf);
+            // (Bio edit is gated in the click handler; don't disable the button — a
+            //  disabled <button> can render greyed in some browsers, hiding their bio.)
+            const followBtn = document.getElementById('account-home-follow-btn');
+            if (followBtn) followBtn.style.display = isSelf ? 'none' : '';
+            const backBtn = document.getElementById('account-home-back-btn');
+            if (backBtn) backBtn.style.display = isSelf ? 'none' : '';
+            // Self-oriented copy → neutral when viewing someone else.
+            const blurbLabel = document.querySelector('#account-home-blurb-card .account-home-blurb-label');
+            if (blurbLabel) blurbLabel.textContent = isSelf ? 'Your taste, in a sentence' : 'Their taste, in a sentence';
+            const tasteTitle = document.querySelector('.account-home-card .account-home-card-title');
+            if (tasteTitle) tasteTitle.textContent = isSelf ? 'Your Taste' : 'Their Taste';
+            // "Data Dash →" only shows YOUR own data, so hide it on others' pages.
+            const dashLink = document.querySelector('.account-home-card [data-account-home-action="open_dashboard"]');
+            if (dashLink) dashLink.style.display = isSelf ? '' : 'none';
+        }
+
+        function setAccountFollowButton(isFollowing) {
+            const btn = document.getElementById('account-home-follow-btn');
+            if (!btn) return;
+            btn.disabled = false;
+            btn.dataset.following = isFollowing ? '1' : '0';
+            btn.textContent = isFollowing ? 'Following' : 'Follow';
+            btn.classList.toggle('is-following', !!isFollowing);
+        }
+
+        async function handleAccountFollowClick(btn) {
+            const targetId = accountHomeViewUserId;
+            if (!targetId || targetId === getActiveUserId()) return;
+            const isFollowing = btn?.dataset?.following === '1';
+            const result = await toggleAccountFollow(targetId, isFollowing, btn);
+            if (result === null) return; // failed; toggleAccountFollow restored the label
+            setAccountFollowButton(result);
+            // Reflect the change in this profile's Followers count.
+            const followersEl = document.getElementById('account-home-followers');
+            if (followersEl) {
+                const cur = parseInt(String(followersEl.textContent).replace(/[^0-9]/g, ''), 10) || 0;
+                followersEl.textContent = Math.max(0, cur + (result ? 1 : -1)).toLocaleString();
+            }
         }
 
         function setAccountHomeAvatar(iconVal) {
@@ -146,12 +218,20 @@
             accountHomeBioValue = String(bio || '').trim();
             const el = document.getElementById('account-home-bio');
             if (!el) return;
+            const isSelf = !accountHomeViewUserId || accountHomeViewUserId === getActiveUserId();
             if (accountHomeBioValue) {
                 el.textContent = accountHomeBioValue;
                 el.classList.remove('account-home-bio-empty');
-            } else {
+                el.style.display = '';
+            } else if (isSelf) {
                 el.textContent = 'Add a bio to tell people about your taste in film.';
                 el.classList.add('account-home-bio-empty');
+                el.style.display = '';
+            } else {
+                // Viewing someone with no bio — hide the prompt entirely.
+                el.textContent = '';
+                el.classList.add('account-home-bio-empty');
+                el.style.display = 'none';
             }
         }
 
@@ -178,7 +258,8 @@
         async function loadFollowsList(kind) {
             const listEl = document.getElementById('account-follows-list');
             if (!listEl) return;
-            const uid = getActiveUserId();
+            const uid = accountHomeViewUserId || getActiveUserId();
+            const isSelfList = uid === getActiveUserId();
             if (!supabaseClient || !uid) { listEl.innerHTML = '<div class="account-follows-empty">Log in to view this.</div>'; return; }
             try {
                 // `following` = people I follow (I'm the follower); `followers` = people who follow me.
@@ -197,7 +278,7 @@
                 const rows = Array.isArray(users) ? users : [];
                 // Keep the Follows order; sort by username for a stable list.
                 rows.sort((a, b) => String(a?.username || '').localeCompare(String(b?.username || '')));
-                const isFollowing = kind !== 'followers';
+                const canUnfollow = (kind !== 'followers') && isSelfList;
                 listEl.innerHTML = rows.map((u) => {
                     const id = String(u?.id || '').trim();
                     const name = String(u?.username || '').trim() || 'user';
@@ -205,7 +286,7 @@
                         <div class="account-follows-row" data-account-home-action="open_user" data-user-id="${escapeHtml(id)}" role="button" tabindex="0">
                             ${renderUserIconHtml(String(u?.icon || '').trim(), 38)}
                             <span class="account-follows-name">@${escapeHtml(name)}</span>
-                            ${isFollowing ? `<button type="button" class="account-follows-unfollow" data-account-home-action="unfollow" data-user-id="${escapeHtml(id)}">Unfollow</button>` : ''}
+                            ${canUnfollow ? `<button type="button" class="account-follows-unfollow" data-account-home-action="unfollow" data-user-id="${escapeHtml(id)}">Unfollow</button>` : ''}
                         </div>
                     `;
                 }).join('');

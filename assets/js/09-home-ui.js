@@ -702,6 +702,48 @@
             }, { passive: true });
         })();
 
+        // ===== Swipe-left-to-go-back on another user's Account page ================
+        // When viewing SOMEONE ELSE's account (opened from a feed/leaderboard avatar),
+        // a whole-screen left swipe returns to the exact previous page (router.goBack
+        // restores the snapshot). Scoped to that page only, so it never fights the
+        // Discover deck / Data Dash horizontal swipes or the vertical sheet gestures.
+        (function initAccountBackSwipe() {
+            const H_THRESHOLD = 70;
+            let startX = 0, startY = 0, tracking = false;
+
+            function onOtherAccount() {
+                try {
+                    if (!isMobileViewport() || document.body.dataset.page !== 'account') return false;
+                    const me = (typeof getActiveUserId === 'function') ? getActiveUserId() : '';
+                    return !!accountHomeViewUserId && accountHomeViewUserId !== me;
+                } catch (_) { return false; }
+            }
+
+            document.addEventListener('touchstart', (e) => {
+                tracking = false;
+                if (!onOtherAccount() || e.touches.length !== 1) return;
+                const t = e.target;
+                if (t && t.closest && t.closest('input, textarea, select, [contenteditable="true"], .auth-overlay, .more-sheet-overlay')) return;
+                startX = e.touches[0].clientX;
+                startY = e.touches[0].clientY;
+                tracking = true;
+            }, { passive: true });
+
+            document.addEventListener('touchend', (e) => {
+                if (!tracking) return;
+                tracking = false;
+                if (!onOtherAccount()) return;
+                const touch = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0] : null;
+                if (!touch) return;
+                const dx = touch.clientX - startX;
+                const dy = touch.clientY - startY;
+                if (dx >= 0 || Math.abs(dx) < H_THRESHOLD) return;     // only a leftward swipe
+                if (Math.abs(dx) < Math.abs(dy) * 1.3) return;          // mostly vertical → let it scroll
+                try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
+                try { router.goBack(); } catch (_) {}
+            }, { passive: true });
+        })();
+
         // Close the Lists-only movie search dropdown when clicking outside it.
         // (This is separate from the Home page search UI.)
         document.addEventListener('click', (e) => {

@@ -22,8 +22,40 @@
                 }
             },
 
+            // Snapshot the current page's rendered DOM + scroll so we can return to it
+            // EXACTLY (no refetch, no scroll reset) — used by the profile-page back flow.
+            captureSnapshot(page, mode) {
+                try {
+                    const root = document.getElementById('app-root');
+                    if (!root) return null;
+                    return { page, mode, html: root.innerHTML, scrollY: window.scrollY || window.pageYOffset || 0 };
+                } catch (_) { return null; }
+            },
+
+            // Restore a snapshot taken by captureSnapshot(). Skips the page loaders, so
+            // already-loaded content (incl. infinite-scroll pages) + scroll are preserved.
+            restoreSnapshot(snap) {
+                const root = document.getElementById('app-root');
+                if (!snap || !root) return false;
+                this.currentPage = snap.page;
+                this.formMode = snap.mode || 'new';
+                document.body.dataset.page = snap.page;
+                try { history.replaceState({ page: snap.page, mode: snap.mode || 'new' }, '', location.pathname); } catch (_) {}
+                root.innerHTML = snap.html;
+                // Keep the account-page module state in sync with a restored account
+                // snapshot (mode carries the viewed user id) so Follow/back act on the
+                // right user after a profile→profile→back chain.
+                if (snap.page === 'account') { try { accountHomeViewUserId = snap.mode || ''; } catch (_) {} }
+                try { refreshAuthStateAndUI(); } catch (_) {}
+                try { refreshNavBadges(); } catch (_) {}
+                this.osBackSnapshot = null;
+                try { window.scrollTo(0, Number(snap.scrollY) || 0); } catch (_) {}
+                return true;
+            },
+
             goBack() {
                 const prev = this.navStack.pop();
+                if (prev?.snapshot && this.restoreSnapshot(prev.snapshot)) return;
                 if (prev?.page) {
                     if (prev.page === 'dashboard') {
                         if (prev.dashboardActiveTab) dashboardActiveTab = prev.dashboardActiveTab;
@@ -70,6 +102,12 @@
                     page = 'library';
                 }
 
+                // OS/browser back returning to the page we snapshotted on the way into
+                // a profile → restore it exactly instead of re-rendering fresh.
+                if (navMode === 'pop' && this.osBackSnapshot && this.osBackSnapshot.page === page) {
+                    if (this.restoreSnapshot(this.osBackSnapshot)) return;
+                }
+
                 const prevPage = this.currentPage;
                 const prevMode = this.formMode;
 
@@ -78,7 +116,7 @@
                     try { discoverFlushAppeal(); } catch (_) {}
                 }
                 if (navMode === 'push' && page !== prevPage) {
-                    this.navStack.push({
+                    const entry = {
                         page: prevPage,
                         mode: prevMode,
                         dashboardActiveTab,
@@ -88,7 +126,18 @@
                         dashboardFavoritesLimit,
                         dashboardGeneralMode,
                         dashboardGeneralPieMode,
-                    });
+                    };
+                    // When opening ANOTHER user's Account page, snapshot the outgoing
+                    // page (DOM + scroll) so Back / left-swipe / OS-back return to the
+                    // exact spot (e.g. Feed scrolled halfway) with no refetch/reset.
+                    const selfId = (typeof getActiveUserId === 'function') ? getActiveUserId() : '';
+                    if (page === 'account' && mode && mode !== 'new' && mode !== selfId) {
+                        const snap = this.captureSnapshot(prevPage, prevMode);
+                        if (snap) { entry.snapshot = snap; this.osBackSnapshot = snap; }
+                    } else {
+                        this.osBackSnapshot = null; // moving forward elsewhere → drop any stale snapshot
+                    }
+                    this.navStack.push(entry);
                 }
 
                 this.currentPage = page;
@@ -179,10 +228,12 @@
                     initAiPicksPage();
                     showAiHelpPopupIfNeeded().catch(() => null);
                 } else if (page === 'account') {
+                    // The viewed user rides on `mode` (default = self). 'new' = self.
+                    const accountViewUserId = (mode && mode !== 'new') ? mode : (typeof getActiveUserId === 'function' ? getActiveUserId() : '');
                     root.innerHTML = this.renderAccount();
                     refreshAuthStateAndUI();
                     initAccountHome();
-                    loadAccountHome();
+                    loadAccountHome(accountViewUserId);
                 } else if (page === 'settings') {
                     root.innerHTML = this.renderSettings();
                     refreshAuthStateAndUI();
@@ -1948,6 +1999,10 @@
                 return `
                     <div class="fade-in">
                         <div class="container account-home-container" style="padding-top: 1.25rem; padding-bottom: 3rem; position: relative;">
+                            <button type="button" id="account-home-back-btn" class="account-home-back" data-account-home-action="back" aria-label="Back" title="Back" style="display:none;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                                <span>Back</span>
+                            </button>
                             <button type="button" class="account-home-gear" data-account-home-action="open_settings" aria-label="Settings" title="Settings">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                                 <span>Settings</span>
@@ -1975,7 +2030,10 @@
                                         <span class="account-home-follow-label">Followers</span>
                                     </button>
                                 </div>
+                                <button type="button" id="account-home-follow-btn" class="btn btn-primary account-home-follow-btn" data-account-home-action="follow" data-following="0" style="display:none;">Follow</button>
                             </div>
+
+                            <div id="account-home-overview" class="account-home-overview"></div>
 
                             <div id="account-home-blurb-card" class="account-home-blurb-card glass-panel" style="display:none;">
                                 <div class="account-home-blurb-quote" aria-hidden="true">“</div>
@@ -2112,6 +2170,17 @@
                                     </div>
                                     <button type="button" class="btn-glass" onclick="openAchievementBuilder()" style="flex-shrink:0;">Open</button>
                                 </div>
+                                <div style="margin-top: 0.75rem; display:flex; align-items:center; justify-content:space-between; gap:0.75rem; padding:0.65rem 0.75rem; border-radius:0.75rem; border:1px solid rgba(255,255,255,0.12); background:rgba(255,255,255,0.04);">
+                                    <div style="min-width:0;">
+                                        <div class="text-sm text-white font-bold">Discover review-count boost</div>
+                                        <div class="text-xs text-gray" style="margin-top:0.2rem;">Catalog movies with at least this many IMDb votes get a Discover ranking boost.</div>
+                                    </div>
+                                    <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
+                                        <input type="number" id="admin-discover-votes-threshold" min="0" step="1000" class="input-field" style="width:110px; text-align:right;" placeholder="25000">
+                                        <button type="button" class="btn-glass" onclick="handleAdminDiscoverVotesSave()" style="flex-shrink:0;">Save</button>
+                                    </div>
+                                </div>
+                                <div id="admin-discover-votes-status" class="text-xs" style="margin-top:0.4rem; color:var(--text-muted);"></div>
                             </div>
                             </div>
                         </div>

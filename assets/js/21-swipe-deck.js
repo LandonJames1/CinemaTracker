@@ -195,6 +195,28 @@
             }
         }
 
+        // Abbreviate an IMDb vote count: <1000 raw, thousands → "K", millions → " Mil",
+        // one decimal stripped of a trailing ".0" (1000→"1K", 500000→"500K",
+        // 5000000→"5 Mil", 6500000→"6.5 Mil", 1234567→"1.2 Mil").
+        function formatVotes(n) {
+            const v = Number(n);
+            if (!Number.isFinite(v) || v <= 0) return '';
+            const trim = (x) => { const r = Math.round(x * 10) / 10; return String(r); };
+            if (v >= 1e6) return `${trim(v / 1e6)} Mil`;
+            if (v >= 1e3) return `${trim(v / 1e3)}K`;
+            return String(Math.round(v));
+        }
+
+        // The IMDb vote count for a card: prefer the value set on the deck card (for
+        // catalog movies, from swipe_deck) then the lazily-fetched details.
+        function discoverCardVotes(card) {
+            const fromCard = Number(card?.imdb_votes);
+            if (Number.isFinite(fromCard) && fromCard > 0) return fromCard;
+            const fromDetails = Number(card?._details?.imdb_votes);
+            if (Number.isFinite(fromDetails) && fromDetails > 0) return fromDetails;
+            return null;
+        }
+
         // "2 friends rated this 90+" chip (Phase 2 social proof).
         function discoverSocialHtml(card) {
             const friends = Array.isArray(card?.friends) ? card.friends : [];
@@ -229,8 +251,9 @@
                 : '';
             const cast = Array.isArray(d.cast) ? d.cast.join(', ') : '';
             const genre = Array.isArray(d.genres) && d.genres.length ? d.genres.join(', ') : String(d.genre || '');
+            const votesStr = formatVotes(discoverCardVotes(card));
             const imdb = (typeof d.imdb_rating_pct === 'number' && Number.isFinite(d.imdb_rating_pct))
-                ? `${Math.round(d.imdb_rating_pct)}%` : '';
+                ? `${Math.round(d.imdb_rating_pct)}%${votesStr ? ` · ${votesStr} votes` : ''}` : '';
             const grid = [
                 detailRow('Director', d.director),
                 detailRow('Cast', cast),
@@ -252,8 +275,9 @@
             // IMDb rating comes from the lazily-fetched details (same source the back
             // face uses); it's empty on first paint and patched in by discoverEnsureDetails.
             const imdbPct = card?._details?.imdb_rating_pct;
+            const votesStr = formatVotes(discoverCardVotes(card));
             const rating = (typeof imdbPct === 'number' && Number.isFinite(imdbPct) && imdbPct > 0)
-                ? `IMDb ${Math.round(imdbPct)}%` : '';
+                ? `IMDb ${Math.round(imdbPct)}%${votesStr ? ` (${votesStr})` : ''}` : '';
             const score = (typeof card?.taste_score === 'number') ? card.taste_score : null;
             const scoreBadge = (score !== null)
                 ? `<div class="discover-score" data-tier="${score >= 80 ? 'high' : (score >= 60 ? 'mid' : 'low')}">Predicted Overall: ${score}%</div>`
@@ -325,8 +349,9 @@
             if (imdbEl) {
                 const pct = card?._details?.imdb_rating_pct;
                 const hasGenres = !!node.querySelector('.discover-front-genres');
+                const votesStr = formatVotes(discoverCardVotes(card));
                 imdbEl.textContent = (typeof pct === 'number' && Number.isFinite(pct) && pct > 0)
-                    ? `${hasGenres ? '  •  ' : ''}IMDb ${Math.round(pct)}%` : '';
+                    ? `${hasGenres ? '  •  ' : ''}IMDb ${Math.round(pct)}%${votesStr ? ` (${votesStr})` : ''}` : '';
             }
         }
 
@@ -358,8 +383,13 @@
             // On the BACK (details side) we don't swipe-drag — only tap-to-flip-back +
             // letting the overview text scroll. `onBack` gates the translate/swipe.
             const onBack = !!e.target.closest('.discover-back');
-            discoverDrag = { el, startX: x, startY: y, dragX: 0, decided: false, locked: false, startTarget: e.target, onBack };
-            if (!onBack) el.style.transition = 'none';
+            // Desktop (mouse) drag-to-swipe was glitchy, so it's disabled: a mouse can
+            // only TAP to flip — use the ←/→ keys or the on-screen buttons to vote.
+            // Touch (mobile) keeps the full swipe. `noSwipe` mirrors `onBack`'s gating
+            // (no translate, no swipe-commit) while still allowing the tap-to-flip.
+            const noSwipe = String(e.type || '').indexOf('mouse') === 0;
+            discoverDrag = { el, startX: x, startY: y, dragX: 0, decided: false, locked: false, startTarget: e.target, onBack, noSwipe };
+            if (!onBack && !noSwipe) el.style.transition = 'none';
         }
 
         function discoverDragMove(e) {
@@ -368,9 +398,9 @@
             const { x, y } = discoverPointerXY(e);
             const dx = x - d.startX;
             const dy = y - d.startY;
-            // On the back: only track whether they moved (so a scroll isn't a "tap");
-            // never translate or swipe the card.
-            if (d.onBack) {
+            // On the back (or a desktop mouse drag): only track whether they moved (so a
+            // scroll/drag isn't a "tap"); never translate or swipe the card.
+            if (d.onBack || d.noSwipe) {
                 if (Math.abs(dx) > 6 || Math.abs(dy) > 6) d.decided = true;
                 return;
             }
@@ -399,8 +429,8 @@
             if (!d) return;
             discoverDrag = null;
             d.el.style.transition = '';
-            if (!d.onBack && !d.locked && d.dragX > 100) { discoverSwipe('right'); return; }
-            if (!d.onBack && !d.locked && d.dragX < -100) { discoverSwipe('left'); return; }
+            if (!d.onBack && !d.noSwipe && !d.locked && d.dragX > 100) { discoverSwipe('right'); return; }
+            if (!d.onBack && !d.noSwipe && !d.locked && d.dragX < -100) { discoverSwipe('left'); return; }
             d.el.style.transform = '';
             const like = d.el.querySelector('.discover-overlay-like');
             const skip = d.el.querySelector('.discover-overlay-skip');

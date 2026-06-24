@@ -169,6 +169,15 @@ function parseImdbRatingPercent(raw) {
   return Math.max(0, Math.min(100, pct));
 }
 
+// OMDb `imdbVotes` is a comma-grouped string ("1,234,567") or "N/A".
+function parseImdbVotes(raw) {
+  const s = String(raw ?? "").trim();
+  if (!s || s.toUpperCase() === "N/A") return null;
+  const n = Number(s.replace(/,/g, ""));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n);
+}
+
 async function fetchOmdbImdbRatingPercent({ imdb_id, title, year, omdbApiKey }) {
   if (!omdbApiKey) return { ok: false, pct: null, reason: "Missing OMDB_API_KEY" };
 
@@ -193,11 +202,12 @@ async function fetchOmdbImdbRatingPercent({ imdb_id, title, year, omdbApiKey }) 
   const ok = String(json?.Response ?? "").toLowerCase() === "true";
   if (!ok) {
     const err = String(json?.Error ?? "").trim();
-    return { ok: false, pct: null, reason: err || "OMDb lookup failed" };
+    return { ok: false, pct: null, votes: null, reason: err || "OMDb lookup failed" };
   }
 
   const pct = parseImdbRatingPercent(json?.imdbRating);
-  return { ok: pct !== null, pct, reason: pct === null ? "Missing/invalid imdbRating" : null };
+  const votes = parseImdbVotes(json?.imdbVotes);
+  return { ok: pct !== null, pct, votes, reason: pct === null ? "Missing/invalid imdbRating" : null };
 }
 
 function jsonResponse(body, status = 200) {
@@ -1356,12 +1366,14 @@ Deno.serve(async (req) => {
             // (Manual rows are still re-checked every run, so the moment OMDb finally
             // has a real value it replaces the manual one.)
             if (r?.ok && r.pct !== null && Number(r.pct) > 0) {
+              // Votes ride along on the SAME OMDb call + row. Only include the key
+              // when OMDb returned a real positive count, so we never clobber a
+              // stored value with null (ON CONFLICT updates only provided columns).
+              const row = { movie_id: m.id, source: "imdb", rating: r.pct, fetched_at: new Date().toISOString() };
+              if (Number(r?.votes) > 0) row.votes = Math.round(Number(r.votes));
               const { error: upErr } = await supabaseAdmin
                 .from("Movie External Ratings")
-                .upsert(
-                  { movie_id: m.id, source: "imdb", rating: r.pct, fetched_at: new Date().toISOString() },
-                  { onConflict: "movie_id,source" },
-                );
+                .upsert(row, { onConflict: "movie_id,source" });
               upErr ? failed++ : updated++;
             } else {
               // No real OMDb value — keep whatever is stored (incl. manual values).
@@ -2565,6 +2577,7 @@ Deno.serve(async (req) => {
 
       const OMDB_API_KEY = Deno.env.get("OMDB_API_KEY");
       let imdb_rating_pct = null;
+      let imdb_votes = null;
       let imdb_rating_error = null;
       try {
         const r = await fetchOmdbImdbRatingPercent({
@@ -2574,6 +2587,7 @@ Deno.serve(async (req) => {
           omdbApiKey: OMDB_API_KEY,
         });
         imdb_rating_pct = r?.pct ?? null;
+        imdb_votes = Number(r?.votes) > 0 ? Math.round(Number(r.votes)) : null;
         imdb_rating_error = r?.ok ? null : (r?.reason ?? null);
       } catch (e) {
         imdb_rating_pct = null;
@@ -2595,18 +2609,22 @@ Deno.serve(async (req) => {
           .maybeSingle();
 
         if (movieRow?.id) {
-          // IMDb rating — stored in "Movie External Ratings" (no user_id; shared).
-          if (imdb_rating_pct === null || imdb_rating_pct === undefined) {
+          // IMDb rating + vote count — stored in "Movie External Ratings" (shared).
+          if (imdb_rating_pct === null || imdb_rating_pct === undefined || imdb_votes === null) {
             const { data: extRow } = await supabaseAdmin
               .from("Movie External Ratings")
-              .select("rating")
+              .select("rating, votes")
               .eq("movie_id", movieRow.id)
               .eq("source", "imdb")
               .maybeSingle();
             const stored = Number(extRow?.rating);
-            if (Number.isFinite(stored) && stored > 0) {
+            if ((imdb_rating_pct === null || imdb_rating_pct === undefined) && Number.isFinite(stored) && stored > 0) {
               imdb_rating_pct = stored;
               imdb_rating_error = null;
+            }
+            const storedVotes = Number(extRow?.votes);
+            if (imdb_votes === null && Number.isFinite(storedVotes) && storedVotes > 0) {
+              imdb_votes = Math.round(storedVotes);
             }
           }
 
@@ -2679,6 +2697,7 @@ Deno.serve(async (req) => {
           poster_path: tmdbJson?.poster_path ? String(tmdbJson.poster_path) : null,
           imdb_id,
           imdb_rating_pct,
+          imdb_votes,
           ...(imdb_rating_error ? { imdb_rating_error } : {}),
         },
         200,
@@ -3556,7 +3575,43 @@ Deno.serve(async (req) => {
         });
       } catch (_) { /* RPC may not exist yet */ }
 
-      // 4. Score + rank (taste score + small social boost + random jitter for variety).
+      // 3b. Well-reviewed boost: for candidates ALREADY in our catalog, look up their
+      // stored IMDb vote count and give a moderate ranking bump to films above the
+      // admin-set threshold (Settings.discover_min_imdb_votes, default 25k). Most
+      // candidates are fresh TMDb movies not in the catalog, so they get no bump.
+      let reviewThreshold = 25000;
+      try {
+        const { data: srow } = await supabaseAdmin
+          .from("Settings").select("discover_min_imdb_votes").limit(1).maybeSingle();
+        const t = Number(srow?.discover_min_imdb_votes);
+        if (Number.isFinite(t) && t > 0) reviewThreshold = Math.round(t);
+      } catch (_) { /* keep default */ }
+
+      const votesByTmdb = new Map(); // tmdb_id -> stored IMDb vote count (catalog only)
+      try {
+        const poolTmdbIds = Array.from(pool.keys());
+        if (poolTmdbIds.length) {
+          const { data: movieRows } = await supabaseAdmin
+            .from("Movies").select("id, tmdb_id").in("tmdb_id", poolTmdbIds);
+          const tmdbByMovieId = new Map();
+          (Array.isArray(movieRows) ? movieRows : []).forEach((m) => {
+            if (m?.id && Number.isFinite(Number(m?.tmdb_id))) tmdbByMovieId.set(m.id, Number(m.tmdb_id));
+          });
+          const movieIds = Array.from(tmdbByMovieId.keys());
+          if (movieIds.length) {
+            const { data: extRows } = await supabaseAdmin
+              .from("Movie External Ratings").select("movie_id, votes")
+              .eq("source", "imdb").in("movie_id", movieIds);
+            (Array.isArray(extRows) ? extRows : []).forEach((e) => {
+              const tid = tmdbByMovieId.get(e?.movie_id);
+              const v = Number(e?.votes);
+              if (tid && Number.isFinite(v) && v > 0) votesByTmdb.set(tid, Math.round(v));
+            });
+          }
+        }
+      } catch (_) { /* best-effort: no catalog-votes boost */ }
+
+      // 4. Score + rank (taste score + small social + review-count boosts + jitter).
       const cards = Array.from(pool.values()).map((c) => {
         const pred = tasteModel.hasData
           ? predictTasteScore(tasteModel, { genres: c.genres, year: c.year, vote_average: c.vote_average })
@@ -3565,7 +3620,9 @@ Deno.serve(async (req) => {
         const friends = (socialByTmdb.get(c.tmdb_id) || []).slice().sort((a, b) => b.overall - a.overall).slice(0, 3);
         const friendsCount = (socialByTmdb.get(c.tmdb_id) || []).length;
         const socialBoost = friendsCount ? 6 : 0; // socially-validated picks surface a bit
-        const rankBase = (Number.isFinite(taste_score) ? taste_score : 45) + socialBoost;
+        const imdbVotes = votesByTmdb.get(c.tmdb_id) ?? null;
+        const reviewBoost = (imdbVotes !== null && imdbVotes >= reviewThreshold) ? 6 : 0;
+        const rankBase = (Number.isFinite(taste_score) ? taste_score : 45) + socialBoost + reviewBoost;
         return {
           tmdb_id: c.tmdb_id,
           title: c.title,
@@ -3578,6 +3635,7 @@ Deno.serve(async (req) => {
           taste_reasons: pred && pred.reasons.length ? pred.reasons : [],
           friends,
           friends_count: friendsCount,
+          ...(imdbVotes !== null ? { imdb_votes: imdbVotes } : {}),
           _rank: rankBase + (Math.random() * 16 - 8),
         };
       });
@@ -4293,6 +4351,12 @@ Deno.serve(async (req) => {
           rating: external_ratings.imdb.pct,
           fetched_at: new Date().toISOString(),
         };
+        // IMDb vote count comes from the same OMDb call. Only set it when real +
+        // positive so a manual-rating save (no votes) doesn't null out a stored value.
+        if (Number(r?.votes) > 0) {
+          row.votes = Math.round(Number(r.votes));
+          external_ratings.imdb.votes = row.votes;
+        }
 
         const { error: upsertErr } = await supabaseAdmin
           .from("Movie External Ratings")

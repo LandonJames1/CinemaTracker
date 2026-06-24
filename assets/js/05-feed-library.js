@@ -2148,18 +2148,25 @@
         let profileRatedItems = []; // all rated movies (sorted/sliced per metric in render)
         let profileRecent10 = [];
 
-        async function openUserProfile(userId) {
+        // Clicking a user's avatar/name anywhere navigates to their Account page
+        // (route `account`) instead of opening a modal. The target user id rides on
+        // the router `mode` param so OS back/forward keep the right user.
+        function openUserProfile(userId) {
             const uid = String(userId || '').trim();
             if (!uid) return;
             if (!supabaseClient || !cachedIsAuthed) { openAuthModal(); return; }
+            router.navigate('account', uid);
+        }
 
-            const overlay = document.getElementById('profile-overlay');
-            const body = document.getElementById('profile-body');
-            const titleEl = document.getElementById('profile-title');
-            if (!overlay || !body) return;
-            overlay.style.display = 'flex';
-            overlay.classList.add('open');
-            if (titleEl) titleEl.textContent = 'Profile';
+        // Loads the "profile overview" (KPIs + Taste Match + Biggest Disagreements +
+        // Recent/Top-Rated grid) for a user and renders it INTO a container on the
+        // Account page. Same data + math as the old profile pop-up; the account hero
+        // already shows the avatar/name/bio so we render the body without a head.
+        async function loadAccountProfileOverview(userId, containerEl) {
+            const uid = String(userId || '').trim();
+            const body = containerEl || document.getElementById('account-home-overview');
+            if (!uid || !body) return;
+            const titleEl = null;
             body.innerHTML = `<div class="text-gray" style="padding:1rem;">Loading…</div>`;
             profileMode = 'recent';
             profileViewUserId = uid;
@@ -2372,14 +2379,14 @@
                 } catch (_) { compat = null; }
 
                 if (titleEl) titleEl.textContent = displayName;
-                body.innerHTML = renderProfileBody({ iconId, displayName, username, uniqueCount, avgOverall, highestDirector, highestDirectorAvg, compat });
+                body.innerHTML = renderProfileBody({ iconId, displayName, username, uniqueCount, avgOverall, highestDirector, highestDirectorAvg, compat, includeHead: false });
                 renderProfileGrid();
             } catch (err) {
                 body.innerHTML = `<div class="text-gray" style="padding:1rem;">Could not load profile: ${escapeHtml(String(err?.message || err))}</div>`;
             }
         }
 
-        function renderProfileBody({ iconId, displayName, username, uniqueCount, avgOverall, highestDirector, highestDirectorAvg, compat }) {
+        function renderProfileBody({ iconId, displayName, username, uniqueCount, avgOverall, highestDirector, highestDirectorAvg, compat, includeHead = true }) {
             const avgText = (avgOverall === null) ? '—' : dashFormatScore(avgOverall);
             const dirText = highestDirector
                 ? `${escapeHtml(highestDirector)}${highestDirectorAvg !== null ? ` (${dashFormatScore(highestDirectorAvg)})` : ''}`
@@ -2411,7 +2418,7 @@
                     ` : ''}
                 </div>
             `;
-            return `
+            const headHtml = includeHead ? `
                 <div class="profile-head">
                     ${renderUserIconHtml(iconId, 64)}
                     <div style="min-width:0;">
@@ -2419,6 +2426,9 @@
                         ${username ? `<div class="text-xs text-gray">@${escapeHtml(username)}</div>` : ''}
                     </div>
                 </div>
+            ` : '';
+            return `
+                ${headHtml}
                 <div class="profile-kpis">
                     <div class="profile-kpi"><div class="profile-kpi-value tabular-nums">${uniqueCount}</div><div class="profile-kpi-label">Movies Watched</div></div>
                     <div class="profile-kpi"><div class="profile-kpi-value tabular-nums">${avgText}</div><div class="profile-kpi-label">Avg Overall</div></div>
@@ -2622,9 +2632,50 @@
             if (list) list.innerHTML = renderProfileDisagreements();
         }
 
-        function closeUserProfile() {
-            const overlay = document.getElementById('profile-overlay');
-            if (overlay) { overlay.style.display = 'none'; overlay.classList.remove('open'); }
+        // Follow / unfollow from another user's Account page. Mirrors the Feed's
+        // follow handler (insert/delete on Follows + best-effort new-follower push).
+        // Returns the new follow state (true = now following) or null on failure.
+        async function toggleAccountFollow(targetUserId, isFollowing, btn) {
+            const targetId = String(targetUserId || '').trim();
+            if (!targetId) return null;
+            let authedUser = null;
+            let authedAccessToken = null;
+            try {
+                if (guardGuestWrite()) return null;
+                const { user, accessToken } = await requireAuthOrThrow();
+                authedUser = user;
+                authedAccessToken = accessToken;
+            } catch (err) {
+                showToast(String(err?.message || err), { level: 'warn' });
+                return null;
+            }
+            if (targetId === authedUser.id) {
+                showToast('You cannot follow yourself.', { level: 'warn' });
+                return null;
+            }
+            const prevLabel = btn ? btn.textContent : '';
+            if (btn) { btn.disabled = true; btn.textContent = '…'; }
+            try {
+                if (isFollowing) {
+                    const { error } = await supabaseClient
+                        .from('Follows').delete()
+                        .eq('follower_id', authedUser.id).eq('followed_id', targetId);
+                    if (error) throw error;
+                    showToast('Unfollowed.', { level: 'success' });
+                    return false;
+                } else {
+                    const { error } = await supabaseClient
+                        .from('Follows').insert({ follower_id: authedUser.id, followed_id: targetId });
+                    if (error) throw error;
+                    showToast('Followed!', { level: 'success' });
+                    try { callSwiftApi({ action: 'notify_new_follower', followed_id: targetId }, authedAccessToken).catch(() => null); } catch (_) {}
+                    return true;
+                }
+            } catch (err) {
+                if (btn) { btn.disabled = false; btn.textContent = prevLabel; }
+                showToast(`Could not update: ${String(err?.message || err)}`, { level: 'warn' });
+                return null;
+            }
         }
 
         const FEED_FILTER_EXCLUDED_KEY = 'ct_feed_excluded_user_ids';

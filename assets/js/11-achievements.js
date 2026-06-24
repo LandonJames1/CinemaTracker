@@ -119,6 +119,7 @@
         const ADMIN_EMAIL = 'landon.talus@gmail.com';
         let testAchievementEnabled = false;
         let siteSignupEnabled = false; // Global flag: is sign-up allowed?
+        let discoverVotesThreshold = 25000; // Admin: min stored IMDb votes for the Discover ranking boost
 
         // ─── Admin: Sign-Up Toggle (stored in Setting table) ───
         async function loadSiteSignupSetting() {
@@ -126,11 +127,13 @@
             try {
                 const { data, error } = await supabaseClient
                     .from('Settings')
-                    .select('allow_signups')
+                    .select('allow_signups, discover_min_imdb_votes')
                     .limit(1)
                     .single();
                 if (!error && data) {
                     siteSignupEnabled = data.allow_signups === true;
+                    const t = Number(data.discover_min_imdb_votes);
+                    if (Number.isFinite(t) && t > 0) discoverVotesThreshold = Math.round(t);
                 } else {
                     siteSignupEnabled = false;
                 }
@@ -146,7 +149,7 @@
             const target = ADMIN_EMAIL.toLowerCase();
             const isAdmin = Boolean(current && current === target);
             panel.style.display = isAdmin ? 'block' : 'none';
-            if (isAdmin) { syncAdminSignupToggleUI(); syncAdminHideLogsToggleUI(); }
+            if (isAdmin) { syncAdminSignupToggleUI(); syncAdminHideLogsToggleUI(); syncAdminDiscoverVotesUI(); }
         }
 
         // ─── Admin: show/hide the bottom-left debug "Logs" button (per-device) ───
@@ -225,6 +228,36 @@
                 siteSignupEnabled = checked;
                 syncAdminSignupToggleUI();
                 if (statusEl) statusEl.textContent = siteSignupEnabled ? 'Sign-ups enabled. Changes are immediate.' : 'Sign-ups disabled. Changes are immediate.';
+            } catch (err) {
+                if (statusEl) statusEl.textContent = `Error: ${String(err?.message || err)}`;
+            }
+        }
+
+        // ─── Admin: Discover review-count boost threshold (Settings table) ───
+        function syncAdminDiscoverVotesUI() {
+            const input = document.getElementById('admin-discover-votes-threshold');
+            if (input && document.activeElement !== input) input.value = String(discoverVotesThreshold || 25000);
+        }
+
+        async function handleAdminDiscoverVotesSave() {
+            const input = document.getElementById('admin-discover-votes-threshold');
+            const statusEl = document.getElementById('admin-discover-votes-status');
+            const n = Math.round(Number(input?.value));
+            if (!Number.isFinite(n) || n < 0) {
+                if (statusEl) statusEl.textContent = 'Enter a non-negative whole number.';
+                return;
+            }
+            try {
+                if (!supabaseClient || !cachedIsAuthed) return;
+                const { data: row } = await supabaseClient
+                    .from('Settings').select('id').limit(1).single();
+                if (!row?.id) throw new Error('No Settings row found.');
+                const { error } = await supabaseClient
+                    .from('Settings').update({ discover_min_imdb_votes: n }).eq('id', row.id);
+                if (error) throw error;
+                discoverVotesThreshold = n;
+                syncAdminDiscoverVotesUI();
+                if (statusEl) statusEl.textContent = `Saved. Movies with ${n.toLocaleString()}+ IMDb votes now get the Discover boost.`;
             } catch (err) {
                 if (statusEl) statusEl.textContent = `Error: ${String(err?.message || err)}`;
             }
