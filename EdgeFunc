@@ -1350,7 +1350,12 @@ Deno.serve(async (req) => {
               year: m.release_year,
               omdbApiKey: OMDB_API_KEY,
             });
-            if (r?.ok && r.pct !== null) {
+            // Only overwrite when OMDb returns a REAL, positive rating. If OMDb has
+            // nothing (null / 0 / "N/A"), leave the stored row untouched — this is what
+            // protects a user's MANUALLY-entered IMDb rating from being reset to 0.
+            // (Manual rows are still re-checked every run, so the moment OMDb finally
+            // has a real value it replaces the manual one.)
+            if (r?.ok && r.pct !== null && Number(r.pct) > 0) {
               const { error: upErr } = await supabaseAdmin
                 .from("Movie External Ratings")
                 .upsert(
@@ -1359,6 +1364,7 @@ Deno.serve(async (req) => {
                 );
               upErr ? failed++ : updated++;
             } else {
+              // No real OMDb value — keep whatever is stored (incl. manual values).
               failed++;
             }
           } catch (_) { failed++; }
@@ -2537,22 +2543,22 @@ Deno.serve(async (req) => {
       const tmdbJson = await tmdbRes.json();
 
       const title = String(tmdbJson?.title ?? "").trim();
-      const year = tmdbJson?.release_date ? Number(String(tmdbJson.release_date).slice(0, 4)) : null;
-      const runtime = Number.isFinite(Number(tmdbJson?.runtime)) ? Number(tmdbJson.runtime) : null;
-      const isSeries = Boolean(tmdbJson?.belongs_to_collection);
-      const director = extractDirectorNameFromCredits(tmdbJson?.credits);
+      let year = tmdbJson?.release_date ? Number(String(tmdbJson.release_date).slice(0, 4)) : null;
+      let runtime = Number.isFinite(Number(tmdbJson?.runtime)) && Number(tmdbJson.runtime) > 0 ? Number(tmdbJson.runtime) : null;
+      let isSeries = Boolean(tmdbJson?.belongs_to_collection);
+      let director = extractDirectorNameFromCredits(tmdbJson?.credits);
       const cast = uniqStrings(
         (Array.isArray(tmdbJson?.credits?.cast) ? tmdbJson.credits.cast : [])
           .slice(0, 4)
           .map((c) => String(c?.name ?? "").trim()),
       );
 
-      const genres = uniqStrings(
+      let genres = uniqStrings(
         (Array.isArray(tmdbJson?.genres) ? tmdbJson.genres : []).map((g) => String(g?.name ?? "").trim()),
       );
-      const genre = genres.length ? genres.join(", ") : "";
+      let genre = genres.length ? genres.join(", ") : "";
 
-      const mpa = extractUsCertification(tmdbJson?.release_dates);
+      let mpa = extractUsCertification(tmdbJson?.release_dates);
 
       const imdb_id_raw = String(tmdbJson?.external_ids?.imdb_id ?? "").trim();
       const imdb_id = imdb_id_raw ? imdb_id_raw : null;
@@ -2573,6 +2579,89 @@ Deno.serve(async (req) => {
         imdb_rating_pct = null;
         imdb_rating_error = `OMDb fetch crashed: ${String(e?.message ?? e)}`;
       }
+
+      // If this movie is ALREADY in our catalog, merge in the stored DB record so a
+      // later user sees whatever the FIRST user contributed — including any details
+      // they had to enter MANUALLY because TMDb/OMDb lacked them (MPA for foreign
+      // films, IMDb rating, runtime, year, genre, etc.). The rule is "fill the gaps":
+      // we always prefer fresh TMDb/OMDb data when it has a value, and only fall back
+      // to the stored value where the live source came up blank. This means only the
+      // first person to log a movie ever has to type a missing detail.
+      try {
+        const { data: movieRow } = await supabaseAdmin
+          .from("Movies")
+          .select("id, release_year, runtime_minutes, mpa_rating, is_series")
+          .eq("tmdb_id", tmdb_id)
+          .maybeSingle();
+
+        if (movieRow?.id) {
+          // IMDb rating — stored in "Movie External Ratings" (no user_id; shared).
+          if (imdb_rating_pct === null || imdb_rating_pct === undefined) {
+            const { data: extRow } = await supabaseAdmin
+              .from("Movie External Ratings")
+              .select("rating")
+              .eq("movie_id", movieRow.id)
+              .eq("source", "imdb")
+              .maybeSingle();
+            const stored = Number(extRow?.rating);
+            if (Number.isFinite(stored) && stored > 0) {
+              imdb_rating_pct = stored;
+              imdb_rating_error = null;
+            }
+          }
+
+          // Plain Movies columns.
+          if ((year === null || !Number.isFinite(year)) && Number.isFinite(Number(movieRow.release_year))) {
+            year = Number(movieRow.release_year);
+          }
+          if ((runtime === null || !Number.isFinite(runtime) || runtime <= 0) && Number(movieRow.runtime_minutes) > 0) {
+            runtime = Number(movieRow.runtime_minutes);
+          }
+          if (!String(mpa || "").trim() && String(movieRow.mpa_rating || "").trim()) {
+            mpa = String(movieRow.mpa_rating).trim();
+          }
+          if (!isSeries && movieRow.is_series === true) {
+            isSeries = true;
+          }
+
+          // Director — stored in "Movie Crew" (job='Director') → "People".
+          if (!String(director || "").trim()) {
+            try {
+              const { data: crewRows } = await supabaseAdmin
+                .from("Movie Crew")
+                .select("job, People(name)")
+                .eq("movie_id", movieRow.id)
+                .eq("job", "Director")
+                .limit(1);
+              const peopleRel = crewRows?.[0]?.People;
+              const dbDirector = String(
+                (Array.isArray(peopleRel) ? peopleRel[0]?.name : peopleRel?.name) ?? "",
+              ).trim();
+              if (dbDirector) director = dbDirector;
+            } catch (_) { /* best-effort */ }
+          }
+
+          // Genre — stored in "Movie Genres" → "Genres".
+          if (genres.length === 0) {
+            try {
+              const { data: genreRows } = await supabaseAdmin
+                .from("Movie Genres")
+                .select("Genres(name)")
+                .eq("movie_id", movieRow.id);
+              const dbGenres = uniqStrings(
+                (Array.isArray(genreRows) ? genreRows : []).map((r) => {
+                  const rel = r?.Genres;
+                  return String((Array.isArray(rel) ? rel[0]?.name : rel?.name) ?? "").trim();
+                }),
+              );
+              if (dbGenres.length) {
+                genres = dbGenres;
+                genre = dbGenres.join(", ");
+              }
+            } catch (_) { /* best-effort */ }
+          }
+        }
+      } catch (_) { /* best-effort DB merge — never block prefill */ }
 
       return jsonResponse(
         {
@@ -3515,6 +3604,42 @@ Deno.serve(async (req) => {
       return allowed.has(raw) ? raw : "";
     })();
 
+    // Optional client-provided IMDb rating (0–100 percent). Used ONLY to fill a
+    // missing external rating (e.g. films OMDb has no rating for). Like the MPA
+    // override it never overwrites a real value — only used when OMDb returns
+    // nothing AND no rating is already stored. Persisted into "Movie External
+    // Ratings" so it survives editing/updating the entry.
+    const imdbOverride = (() => {
+      const n = Number(body?.imdb);
+      return Number.isFinite(n) && n > 0 && n <= 100 ? Math.round(n) : null;
+    })();
+
+    // More optional client-provided details, used the SAME way as the MPA override:
+    // only to fill a blank/missing value on the SHARED movie record, never to
+    // overwrite real TMDb data. This is what lets the FIRST person who logs a movie
+    // contribute any detail TMDb is missing so later users don't have to re-enter it.
+    const yearOverride = (() => {
+      const n = Number(body?.year);
+      return Number.isFinite(n) && n >= 1870 && n <= 2100 ? Math.round(n) : null;
+    })();
+    const runtimeOverride = (() => {
+      const n = Number(body?.runtime);
+      return Number.isFinite(n) && n > 0 && n <= 1200 ? Math.round(n) : null;
+    })();
+    const seriesOverride = (() => {
+      const raw = String(body?.is_series ?? body?.series ?? "").trim().toUpperCase();
+      if (raw === "TRUE") return true;
+      if (raw === "FALSE") return false;
+      return null; // not provided / unknown
+    })();
+    const genreOverride = (() => {
+      const raw = String(body?.genre ?? "").trim();
+      if (!raw) return [];
+      return Array.from(new Set(
+        raw.split(",").map((s) => s.trim()).filter(Boolean),
+      ));
+    })();
+
     if (!movie_uuid && !title) {
       return jsonResponse(
         { code: 400, message: 'Missing "title" (or provide "movie_id").' },
@@ -3870,7 +3995,7 @@ Deno.serve(async (req) => {
     if (movie_uuid) {
       const { data: m, error: mErr } = await supabaseAdmin
         .from("Movies")
-        .select("id, tmdb_id, title, release_year, runtime_minutes, mpa_rating, imdb_id, poster_path")
+        .select("id, tmdb_id, title, release_year, runtime_minutes, mpa_rating, is_series, imdb_id, poster_path")
         .eq("id", movie_uuid)
         .single();
 
@@ -3907,18 +4032,45 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Failsafe: if this existing movie has no MPA rating (e.g. TMDb has no US
-      // certification) and the client supplied a valid one, persist the user's value.
-      // Only fills a blank — never overwrites an existing rating.
-      if (mpaOverride && !String(movieData?.mpa_rating ?? "").trim()) {
+      // Failsafe: if this existing movie is missing any detail TMDb couldn't supply
+      // (MPA for foreign films, year, runtime, series flag) and the client supplied a
+      // value, persist it. Only fills a BLANK column — never overwrites real data — so
+      // the first user to fill a gap shares it with everyone, and nobody's value gets
+      // clobbered. (Genre/IMDb live in their own tables and are handled separately.)
+      const detailFix = {};
+      if (mpaOverride && !String(movieData?.mpa_rating ?? "").trim()) detailFix.mpa_rating = mpaOverride;
+      if (yearOverride !== null && !(Number(movieData?.release_year) > 0)) detailFix.release_year = yearOverride;
+      if (runtimeOverride !== null && !(Number(movieData?.runtime_minutes) > 0)) detailFix.runtime_minutes = runtimeOverride;
+      // is_series has no "blank" — only set it if the stored value is null/undefined.
+      if (seriesOverride !== null && (movieData?.is_series === null || movieData?.is_series === undefined)) {
+        detailFix.is_series = seriesOverride;
+      }
+      if (Object.keys(detailFix).length > 0) {
         try {
-          const { data: fixedMovie, error: fixMpaErr } = await supabaseAdmin
+          const { data: fixedMovie, error: fixErr } = await supabaseAdmin
             .from("Movies")
-            .update({ mpa_rating: mpaOverride })
+            .update(detailFix)
             .eq("id", movie_uuid)
-            .select("id, tmdb_id, title, release_year, runtime_minutes, mpa_rating, imdb_id, poster_path")
+            .select("id, tmdb_id, title, release_year, runtime_minutes, mpa_rating, is_series, imdb_id, poster_path")
             .single();
-          if (!fixMpaErr && fixedMovie) movieData = fixedMovie;
+          if (!fixErr && fixedMovie) movieData = fixedMovie;
+        } catch (_) {
+          // Best-effort only.
+        }
+      }
+
+      // Genre failsafe: if this existing movie has NO genres yet and the client
+      // supplied some, populate "Movie Genres" from the override (matched against the
+      // existing Genres table by name). Only fills when empty — never replaces.
+      if (genreOverride.length > 0) {
+        try {
+          const { count: existingGenreCount } = await supabaseAdmin
+            .from("Movie Genres")
+            .select("movie_id", { count: "exact", head: true })
+            .eq("movie_id", movie_uuid);
+          if (!existingGenreCount) {
+            for (const gName of genreOverride) tmdbGenreNames.add(gName);
+          }
         } catch (_) {
           // Best-effort only.
         }
@@ -3981,15 +4133,24 @@ Deno.serve(async (req) => {
     }
 
     const detailsJson = await detailsRes.json();
-    const runtime_minutes = Number(detailsJson?.runtime ?? 0);
+    let runtime_minutes = Number(detailsJson?.runtime ?? 0);
     if (!Number.isFinite(runtime_minutes) || runtime_minutes <= 0) {
-      return jsonResponse({ code: 404, message: "TMDb did not return a usable runtime." }, 404);
+      // TMDb has no runtime — fall back to the user's manually-entered value rather
+      // than refusing to create the movie. (Only blocks if neither source has one.)
+      if (runtimeOverride !== null) {
+        runtime_minutes = runtimeOverride;
+      } else {
+        return jsonResponse({ code: 404, message: "TMDb did not return a usable runtime." }, 404);
+      }
     }
 
     const tmdbTitle = String(detailsJson?.title ?? best?.title ?? title).trim();
-    const tmdbReleaseYear = detailsJson?.release_date
+    let tmdbReleaseYear = detailsJson?.release_date
       ? Number(String(detailsJson.release_date).slice(0, 4))
       : (release_year ?? null);
+    if (!(Number(tmdbReleaseYear) > 0) && yearOverride !== null) {
+      tmdbReleaseYear = yearOverride;
+    }
 
     const tmdbReleaseDate = detailsJson?.release_date
       ? String(detailsJson.release_date)
@@ -4034,6 +4195,18 @@ Deno.serve(async (req) => {
         .filter(Boolean),
     );
 
+    // If TMDb returned no genres, fall back to the user's manually-selected genres so
+    // they get persisted to "Movie Genres" (matched by name) and shared with everyone.
+    if (tmdbGenreNames.size === 0 && genreOverride.length > 0) {
+      for (const gName of genreOverride) tmdbGenreNames.add(gName);
+    }
+
+    // is_series: TMDb's belongs_to_collection is a weak proxy, so let the user's
+    // explicit answer win when they provided one.
+    const is_series_value = seriesOverride !== null
+      ? seriesOverride
+      : Boolean(detailsJson?.belongs_to_collection);
+
     // Requires a UNIQUE constraint on Movies.tmdb_id for onConflict to work cleanly
     const poster_path_raw = String(detailsJson?.poster_path ?? best?.poster_path ?? "").trim();
     const poster_path = poster_path_raw
@@ -4046,6 +4219,7 @@ Deno.serve(async (req) => {
       release_year: tmdbReleaseYear,
       runtime_minutes,
       mpa_rating,
+      is_series: is_series_value,
       imdb_id,
       poster_path,
       // Optional convenience field if you have it in your schema; safe to remove if not.
@@ -4093,6 +4267,24 @@ Deno.serve(async (req) => {
       external_ratings.imdb.pct = r?.pct ?? null;
       external_ratings.imdb.ok = Boolean(r?.ok) && r?.pct !== null;
       external_ratings.imdb.error = external_ratings.imdb.ok ? null : (r?.reason ?? null);
+
+      // OMDb had no rating, but the user supplied one manually — fall back to it,
+      // but ONLY if nothing is already stored (never overwrite a real value).
+      if (!external_ratings.imdb.ok && imdbOverride !== null && movieData?.id) {
+        const { data: existingExt } = await supabaseAdmin
+          .from("Movie External Ratings")
+          .select("rating")
+          .eq("movie_id", movieData.id)
+          .eq("source", "imdb")
+          .maybeSingle();
+        const existing = Number(existingExt?.rating);
+        if (!(Number.isFinite(existing) && existing > 0)) {
+          external_ratings.imdb.pct = imdbOverride;
+          external_ratings.imdb.ok = true;
+          external_ratings.imdb.error = null;
+          external_ratings.imdb.source = "manual";
+        }
+      }
 
       if (external_ratings.imdb.ok && movieData?.id) {
         const row = {

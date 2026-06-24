@@ -1514,6 +1514,34 @@
             border-radius: 2px;
         }
 
+        /* Mobile: make the Detailed Scoring rating sliders (Log New Entry +
+           Update Ratings) easier to grab — bigger thumb + slightly taller track. */
+        @media (max-width: 768px) {
+            .detailed-scoring input[type=range]::-webkit-slider-thumb {
+                height: 30px;
+                width: 30px;
+                margin-top: -12px;
+            }
+            .detailed-scoring input[type=range]::-moz-range-thumb {
+                height: 30px;
+                width: 30px;
+                border: none;
+                border-radius: 50%;
+                background: var(--brand);
+            }
+            .detailed-scoring input[type=range]::-webkit-slider-runnable-track {
+                height: 6px;
+            }
+            .detailed-scoring input[type=range]::-moz-range-track {
+                height: 6px;
+                background: var(--border);
+                border-radius: 3px;
+            }
+            .detailed-scoring input[type=range] {
+                padding: 6px 0;
+            }
+        }
+
         /* Toast */
         .toast {
             position: fixed;
@@ -3145,6 +3173,16 @@
            visible when collapsed. */
         .submit-details-body { display: none; }
         .submit-details-panel.open .submit-details-body { display: block; }
+        /* Desktop (≥901px, matching the JS breakpoint): the collapse/expand feature
+           makes no sense with room to spare — the Movie Details panel is ALWAYS
+           expanded and the toggle affordance (caret + Expand/Collapse label) is
+           hidden + non-interactive (the heading stays as a plain heading). */
+        @media (min-width: 901px) {
+            .submit-details-body { display: block; }
+            .submit-details-toggle { cursor: default; pointer-events: none; }
+            .submit-details-caret,
+            .submit-details-toggle-label { display: none; }
+        }
         /* Red highlight around any auto-filled detail that's missing. */
         .submit-field-missing {
             position: relative;

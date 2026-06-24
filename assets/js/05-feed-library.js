@@ -405,6 +405,10 @@
                     e.preventDefault?.();
                     e.stopPropagation?.();
 
+                    // Close the diary popup so it doesn't sit on top of the
+                    // Update Ratings page we're about to open.
+                    closeLibraryMovieModal();
+
                     (async () => {
                         try {
                             // Reuse the exact same update-ratings flow as the Home search dropdown

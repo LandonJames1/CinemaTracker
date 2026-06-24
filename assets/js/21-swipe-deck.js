@@ -41,7 +41,30 @@
             discoverExhausted = false;
             discoverBusy = false;
             discoverSwipesThisSession = 0;
+            ensureDiscoverKeyNav();
             loadDiscoverDeck({ append: false }).catch(() => null);
+        }
+
+        // Desktop keyboard navigation: ONLY while the Discover page is showing,
+        // ← = swipe left (dismiss), → = swipe right (add to Bucket List). Bound once
+        // to the window; the handler self-gates on the active page + viewport.
+        let discoverKeyNavBound = false;
+        function ensureDiscoverKeyNav() {
+            if (discoverKeyNavBound) return;
+            discoverKeyNavBound = true;
+            window.addEventListener('keydown', (e) => {
+                if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+                // Discover page only, desktop only.
+                if (document.body.dataset.page !== 'discover') return;
+                if (typeof isMobileViewport === 'function' && isMobileViewport()) return;
+                // Don't hijack arrows while typing in a field or with a modal open.
+                const t = e.target;
+                if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+                if (document.querySelector('.auth-overlay[style*="flex"]')) return;
+                if (discoverBusy || !discoverCurrentCard()) return;
+                e.preventDefault();
+                discoverSwipe(e.key === 'ArrowRight' ? 'right' : 'left');
+            });
         }
 
         async function loadDiscoverDeck({ append = false } = {}) {

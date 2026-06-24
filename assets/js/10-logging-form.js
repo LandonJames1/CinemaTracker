@@ -625,11 +625,27 @@
 
                 const shouldSyncPeople = entryType === 'new';
 
-                // Movie details the user may have entered that TMDb can lack (e.g. the MPA
-                // rating for some foreign films). Sent to the Edge Function as an override —
-                // it persists this into Movies ONLY when that field is blank, so it never
-                // overwrites real TMDb data.
+                // Movie details the user may have entered that TMDb/OMDb can lack (e.g.
+                // MPA for foreign films, the IMDb rating, runtime/year for obscure titles).
+                // These are all sent to the Edge Function as OVERRIDES — the server only
+                // uses each to fill a BLANK/missing value on the SHARED movie record, never
+                // to overwrite real data. Because they're stored on the shared Movies row
+                // (+ Movie External Ratings / Movie Genres), the FIRST person to log a
+                // movie fills any gap once and every later user gets it pre-filled.
                 const mpaFromForm = String(document.getElementById('fld-mpa')?.value || '').trim();
+                const imdbFromForm = String(document.getElementById('fld-imdb')?.value || '').trim();
+                const yearFromForm = String(document.getElementById('fld-year')?.value || '').trim();
+                const runtimeFromForm = String(document.getElementById('fld-runtime')?.value || '').trim();
+                const seriesFromForm = String(document.getElementById('fld-series')?.value || '').trim();
+                const genreFromForm = String(document.getElementById('fld-genre')?.value || '').trim();
+                const detailOverrides = {
+                    mpa: mpaFromForm,
+                    imdb: imdbFromForm,
+                    year: yearFromForm,
+                    runtime: runtimeFromForm,
+                    is_series: seriesFromForm,
+                    genre: genreFromForm,
+                };
 
                 if (!movie_id) {
                     const title = String(document.getElementById('fld-title')?.value || '').trim();
@@ -640,7 +656,7 @@
                     // TMDb lookup + Movies upsert happens server-side in an Edge Function.
                     // This avoids exposing a TMDb key in the browser and allows Movies to remain read-only under RLS.
                     const tmdbData = await callSwiftApi(
-                        { title, release_year: release_year ?? null, sync_people: shouldSyncPeople, mpa: mpaFromForm },
+                        { title, release_year: release_year ?? null, sync_people: shouldSyncPeople, ...detailOverrides },
                         accessToken
                     );
 
@@ -659,7 +675,7 @@
                 // Avoid calling twice when we just created/resolved the movie via title lookup.
                 if (movieIdWasSelected && movie_id && shouldSyncPeople && uuidLike(movie_id)) {
                     try {
-                        const peopleRes = await callSwiftApi({ movie_id, sync_people: true, mpa: mpaFromForm }, accessToken);
+                        const peopleRes = await callSwiftApi({ movie_id, sync_people: true, ...detailOverrides }, accessToken);
                         if (peopleRes?.people_sync && peopleRes.people_sync.ok === false) {
                             const msg = peopleRes.people_sync.details
                                 ? `${peopleRes.people_sync.message} (${peopleRes.people_sync.details})`
@@ -678,7 +694,7 @@
                 // NOTE: Only after strict validation passes do we run any server-side sync that writes to DB.
                 // ("Movie External Ratings" has no user_id; it should be written from the Edge Function.)
                 try {
-                    const syncRes = await callSwiftApi({ movie_id, sync_people: false, mpa: mpaFromForm }, accessToken);
+                    const syncRes = await callSwiftApi({ movie_id, sync_people: false, ...detailOverrides }, accessToken);
                     const imdbPct = syncRes?.imdb_rating_pct;
                     if (imdbPct !== null && imdbPct !== undefined) {
                         const imdbEl = document.getElementById('fld-imdb');
