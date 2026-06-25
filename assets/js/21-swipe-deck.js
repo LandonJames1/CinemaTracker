@@ -15,6 +15,7 @@
         let discoverExhausted = false;  // the server returned no new cards
         let discoverBusy = false;       // a swipe animation is playing
         let discoverSwipesThisSession = 0; // swipes since the last appeal recompute
+        let discoverBatchCount = 0;     // # of deck fetches this session → server pages deeper each time
         const DISCOVER_BATCH = 25;
         const DISCOVER_PREFETCH_AT = 5; // fetch more when this many cards remain
         const DISCOVER_DETAILS_AHEAD = 10; // preload full details this many cards ahead
@@ -41,6 +42,7 @@
             discoverExhausted = false;
             discoverBusy = false;
             discoverSwipesThisSession = 0;
+            discoverBatchCount = 0;
             ensureDiscoverKeyNav();
             loadDiscoverDeck({ append: false }).catch(() => null);
         }
@@ -72,7 +74,8 @@
             discoverLoading = true;
             if (!append) showDiscoverLoading();
             try {
-                const data = await callSwiftApiPublic({ action: 'swipe_deck', limit: DISCOVER_BATCH });
+                const data = await callSwiftApiPublic({ action: 'swipe_deck', limit: DISCOVER_BATCH, batch: discoverBatchCount });
+                discoverBatchCount += 1; // next fetch pages deeper on the server
                 const incoming = Array.isArray(data?.cards) ? data.cards : [];
                 // De-dupe against anything already in the deck.
                 const have = new Set(discoverDeck.map((c) => Number(c.tmdb_id)));

@@ -255,6 +255,25 @@ const TASTE_DECADE_WEIGHT = 0.5;       // era is a weaker, noisier signal
 const TASTE_CROWD_WEIGHT = 0.35;       // nudge toward what the crowd (TMDB) + imdb_delta implies
 const TASTE_SWIPE_GENRE_WEIGHT = 0.2;  // Phase 3: right-swipe APPEAL — deliberately weak (aff is in ±100 lift-points, so this maxes ~±8)
 
+// Discover deck: original languages to EXCLUDE from the candidate pool. The Indian
+// subcontinent's commercial film industries draw enormous local audiences, so their
+// films rack up huge TMDB vote/popularity counts and flood the popularity/trending
+// sources regardless of the user's taste. This denylist removes them while keeping
+// every OTHER foreign language (Korean/Japanese/French/Spanish/…) eligible. Friends-
+// rated films are intentionally exempt from this filter. Edit this set to taste.
+const DISCOVER_EXCLUDED_LANGS = new Set([
+  "hi", // Hindi (Bollywood)
+  "ta", // Tamil (Kollywood)
+  "te", // Telugu (Tollywood)
+  "ml", // Malayalam (Mollywood)
+  "kn", // Kannada (Sandalwood)
+  "mr", // Marathi
+  "pa", // Punjabi
+  "bn", // Bengali
+  "gu", // Gujarati
+  "ur", // Urdu
+]);
+
 function buildTasteModel(row) {
   if (!row || typeof row !== "object") return { hasData: false };
   const mean = Number(row?.mean_overall);
@@ -3422,6 +3441,10 @@ Deno.serve(async (req) => {
       const tmdbHeaders = { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` };
       const limit = Math.max(5, Math.min(40, Number(body?.limit) || 25));
       const uid = userData.user.id;
+      // Batch cursor: the client increments this each time it fetches another deck this
+      // session, so we walk DEEPER TMDB pages instead of re-returning the same top pages.
+      // (0 → pages 1-2, 1 → pages 3-4, …). Without this the pool repeats and runs dry.
+      const batch = Math.max(0, Math.min(50, Math.floor(Number(body?.batch) || 0)));
 
       // 1. Taste model + top genres to seed discover.
       let tasteModel = { hasData: false };
@@ -3443,6 +3466,40 @@ Deno.serve(async (req) => {
             .map((x) => x.name);
         }
       } catch (_) { /* new user: no profile yet */ }
+
+      // Cold start: a user with no taste profile (or one too sparse to surface genre
+      // affinities) gets no taste-seeded source — the deck collapses to trending +
+      // popular. Fall back to the genres they've actually rated HIGHEST so Discover is
+      // personalized from day one. Count the genres of their top-rated movies and take
+      // the 3 most common.
+      if (!topGenres.length) {
+        try {
+          const { data: rated } = await supabaseAdmin
+            .from("Movie Ratings")
+            .select("movie_id, overall_rating")
+            .eq("user_id", uid)
+            .gte("overall_rating", 70)
+            .order("overall_rating", { ascending: false })
+            .limit(60);
+          const movieIds = uniqStrings((Array.isArray(rated) ? rated : []).map((r) => r?.movie_id).filter(Boolean));
+          if (movieIds.length) {
+            const { data: genreRows } = await supabaseAdmin
+              .from("Movie Genres")
+              .select("Genres(name)")
+              .in("movie_id", movieIds);
+            const counts = new Map();
+            (Array.isArray(genreRows) ? genreRows : []).forEach((r) => {
+              const rel = r?.Genres;
+              const name = String((Array.isArray(rel) ? rel[0]?.name : rel?.name) ?? "").trim();
+              if (name) counts.set(name, (counts.get(name) || 0) + 1);
+            });
+            topGenres = Array.from(counts.entries())
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 3)
+              .map((x) => x[0]);
+          }
+        } catch (_) { /* no ratings yet → trending + popular only */ }
+      }
 
       // 2. Exclusions: watched + already-swiped (right ever, left within 30 days).
       let watched = new Set();
@@ -3491,6 +3548,11 @@ Deno.serve(async (req) => {
         const title = String(r?.title ?? "").trim();
         if (!Number.isFinite(id) || id <= 0 || !title) return;
         if (watched.has(id) || swipedExclude.has(id)) return;
+        // Drop Indian-subcontinent commercial films that flood the popularity/trending
+        // sources (see DISCOVER_EXCLUDED_LANGS). The friends source bypasses addCand,
+        // so a followed user's pick in one of these languages still gets through.
+        const lang = String(r?.original_language ?? "").trim().toLowerCase();
+        if (lang && DISCOVER_EXCLUDED_LANGS.has(lang)) return;
         if (pool.has(id)) { pool.get(id).sources.push(source); return; }
         const year = r?.release_date ? Number(String(r.release_date).slice(0, 4)) : null;
         const ids = Array.isArray(r?.genre_ids) ? r.genre_ids : [];
@@ -3503,6 +3565,7 @@ Deno.serve(async (req) => {
           genres,
           vote_average: Number(r?.vote_average ?? 0) || 0,
           overview: String(r?.overview ?? "").trim(),
+          original_language: lang || null,
           sources: [source],
         });
       };
@@ -3518,24 +3581,32 @@ Deno.serve(async (req) => {
         return Array.isArray(j?.results) ? j.results : [];
       };
 
+      // Each batch walks two fresh pages deeper so successive decks don't repeat.
+      const pageA = batch * 2 + 1;
+      const pageB = batch * 2 + 2;
+
       // Source 1 — your taste (top-affinity genres, popular within them).
       const genreIds = mapGenreNamesToIds(topGenres);
       if (genreIds.length) {
-        for (let p = 1; p <= 2; p += 1) {
+        for (const p of [pageA, pageB]) {
           const r = await tmdbDiscover({ sort_by: "popularity.desc", with_genres: genreIds.join("|"), "vote_count.gte": 100, page: p });
           r.forEach((x) => addCand(x, "taste"));
         }
       }
-      // Source 2 — trending this week.
+      // Source 2 — trending this week (only paginate the first couple batches; TMDB's
+      // trending list is short and deeper pages just repeat).
       try {
-        const res = await fetch("https://api.themoviedb.org/3/trending/movie/week", { headers: tmdbHeaders });
-        if (res.ok) {
-          const j = await res.json().catch(() => null);
-          (Array.isArray(j?.results) ? j.results : []).forEach((x) => addCand(x, "trending"));
+        const trendPage = batch < 2 ? batch + 1 : null;
+        if (trendPage) {
+          const res = await fetch(`https://api.themoviedb.org/3/trending/movie/week?page=${trendPage}`, { headers: tmdbHeaders });
+          if (res.ok) {
+            const j = await res.json().catch(() => null);
+            (Array.isArray(j?.results) ? j.results : []).forEach((x) => addCand(x, "trending"));
+          }
         }
       } catch (_) { /* best-effort */ }
       // Source 3 — all-time popular (highly-voted classics, not just current hits).
-      for (let p = 1; p <= 2; p += 1) {
+      for (const p of [pageA, pageB]) {
         const r = await tmdbDiscover({ sort_by: "vote_count.desc", "vote_count.gte": 5000, page: p });
         r.forEach((x) => addCand(x, "popular"));
       }
