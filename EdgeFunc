@@ -3381,6 +3381,7 @@ Deno.serve(async (req) => {
             // Pull the IMDb rating (0-100) for this pick. IMDb ratings live in OMDb, one
             // lookup per movie — fine here since this only runs for the ~10 final picks.
             let imdb_rating_pct = null;
+            let imdb_votes = null;
             try {
               const imdbId = String(json?.external_ids?.imdb_id ?? "").trim() || null;
               const r = await fetchOmdbImdbRatingPercent({
@@ -3390,7 +3391,8 @@ Deno.serve(async (req) => {
                 omdbApiKey: OMDB_API_KEY,
               });
               imdb_rating_pct = r?.pct ?? null;
-            } catch (_) { imdb_rating_pct = null; }
+              imdb_votes = Number(r?.votes) > 0 ? Math.round(Number(r.votes)) : null;
+            } catch (_) { imdb_rating_pct = null; imdb_votes = null; }
             return {
               ...item,
               tmdb_id: tmdbId,
@@ -3399,6 +3401,7 @@ Deno.serve(async (req) => {
               poster_path: poster,
               tmdb_rating: voteAvg,
               imdb_rating_pct,
+              imdb_votes,
               mpa_rating: mpa || "",
               taste_score: typeof candidate.taste_score === "number" ? candidate.taste_score : null,
             };

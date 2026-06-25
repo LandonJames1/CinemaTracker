@@ -154,6 +154,10 @@
                     const ratingRaw = it?.imdb_rating_pct ?? null;
                     const ratingPct = (typeof ratingRaw === 'number' && Number.isFinite(ratingRaw) && ratingRaw > 0) ? ratingRaw : null;
                     const ratingText = ratingPct !== null ? formatPctForDisplay(ratingPct) : '';
+                    // IMDb vote count (e.g. "1.2 Mil") so each pick shows how many
+                    // ratings back its IMDb score — reuses the Discover deck formatter.
+                    const votesRaw = Number(it?.imdb_votes);
+                    const votesText = (typeof formatVotes === 'function' && Number.isFinite(votesRaw) && votesRaw > 0) ? formatVotes(votesRaw) : '';
                     const mpa = String(it?.mpa_rating || '').trim();
                     const score = (typeof it?.taste_score === 'number' && Number.isFinite(it.taste_score)) ? Math.round(it.taste_score) : null;
                     const tier = aiMatchTier(score);
@@ -171,7 +175,7 @@
                                 <div class="ai-pick-title">${escapeHtml(title)}${yearVal ? ` <span class="ai-pick-year">(${escapeHtml(yearVal)})</span>` : ''}</div>
                                 <div class="ai-pick-badges">
                                     ${matchBadge}
-                                    ${ratingText ? `<span class="ai-pick-chip">IMDb ${escapeHtml(ratingText)}</span>` : ''}
+                                    ${ratingText ? `<span class="ai-pick-chip">IMDb ${escapeHtml(ratingText)}${votesText ? ` (${escapeHtml(votesText)})` : ''}</span>` : ''}
                                     ${mpa ? `<span class="ai-pick-chip">${escapeHtml(mpa)}</span>` : ''}
                                 </div>
                                 ${reason ? `<div class="ai-pick-reason">${escapeHtml(reason)}</div>` : ''}

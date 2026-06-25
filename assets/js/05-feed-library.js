@@ -236,6 +236,46 @@
                     return;
                 }
 
+                // Add a feed movie straight to the user's Bucket List. The movie is
+                // already in the catalog (it came from a Movie Ratings row), so we add
+                // by movie_id directly — no TMDB sync needed. Blocks duplicates with a
+                // quick, brief toast instead of inserting twice.
+                if (action === 'add_bucket') {
+                    const movieId = String(btn.dataset.feedMovieId || '').trim();
+                    const movieTitle = String(btn.dataset.feedMovieTitle || '').trim() || 'This movie';
+                    if (!movieId) return;
+                    try {
+                        const bucketId = await ensureBucketListForUser({ user_id: authedUser.id });
+                        if (!bucketId) return;
+                        const { count, error: dupErr } = await supabaseClient
+                            .from('Movie Lists')
+                            .select('movie_id', { count: 'exact', head: true })
+                            .eq('list_id', bucketId)
+                            .eq('movie_id', movieId);
+                        if (dupErr) throw dupErr;
+                        if (Number(count) > 0) {
+                            feedBucketMovieIds.add(movieId);
+                            markFeedBucketButtons(movieId);  // solid star on every card for this movie
+                            showToast(`${movieTitle} is already in your Bucket List`, { level: 'info', durationMs: 1600 });
+                            return;
+                        }
+                        await addMovieToList({ user_id: authedUser.id, list_id: bucketId, movie_id: movieId });
+                        feedBucketMovieIds.add(movieId);
+                        markFeedBucketButtons(movieId);      // solid star: just added
+                        showToast(`Added ${movieTitle} to Bucket List`, { level: 'success', durationMs: 1600 });
+                    } catch (err) {
+                        const msg = String(err?.message || err);
+                        if (/duplicate|unique/i.test(msg)) {
+                            feedBucketMovieIds.add(movieId);
+                            markFeedBucketButtons(movieId);  // already there — reflect it
+                            showToast(`${movieTitle} is already in your Bucket List`, { level: 'info', durationMs: 1600 });
+                            return;
+                        }
+                        showToast(`Could not add to Bucket List: ${msg}`, { level: 'warn' });
+                    }
+                    return;
+                }
+
                 if (!targetUserId) return;
                 if (targetUserId === authedUser.id) {
                     showToast('You cannot follow yourself.', { level: 'warn' });
@@ -1968,6 +2008,69 @@
 
         let feedHighlightSince = ''; // items with created_at (original post time) newer than this glow as "new" for one view
 
+        // Movie ids known to be in the viewer's Bucket List, so the feed "Bucket List"
+        // button renders pre-filled (solid star). Seeded each feed load from a DB query
+        // and augmented when the user adds one via the button, so it stays correct across
+        // re-renders / navigating back without re-querying.
+        const feedBucketMovieIds = new Set();
+        // Same, keyed by tmdb_id — a robustness backstop so the star still pre-fills when
+        // the catalog happens to hold the movie under a different Movies.id than the one in
+        // the bucket list (matches by tmdb_id when the movie_id match misses).
+        const feedBucketTmdbIds = new Set();
+
+        // Fill the star on EVERY currently-rendered feed button for a movie (a movie can
+        // appear on multiple grouped cards), so adding it once updates all of them.
+        function markFeedBucketButtons(movieId) {
+            const mid = String(movieId || '').trim();
+            if (!mid) return;
+            document.querySelectorAll(`.feed-bucket-btn[data-feed-movie-id="${(window.CSS && CSS.escape) ? CSS.escape(mid) : mid}"]`)
+                .forEach((el) => el.classList.add('is-added'));
+        }
+
+        // Load the viewer's ENTIRE Bucket List into feedBucketMovieIds (+ a tmdb backstop),
+        // so every feed card whose movie is already in the bucket renders a solid star.
+        // Resolves the Bucket List via ensureBucketListForUser — the SAME path the
+        // add-button click handler uses — so the list id is guaranteed identical (this is
+        // the fix: a direct `Lists` name query was returning a different/empty id, so the
+        // pre-fill never matched even though the click handler found the movie).
+        async function seedFeedBucketMovieIds(preferredUserId) {
+            try {
+                const uid = String(preferredUserId || '').trim()
+                    || ((typeof getActiveUserId === 'function') ? String(getActiveUserId() || '').trim() : '');
+                if (!uid || uid === DEMO_USER_ID) return;
+                if (typeof ensureBucketListForUser !== 'function') return;
+
+                const bucketId = await ensureBucketListForUser({ user_id: uid });
+                if (!bucketId) return;
+
+                const { data: bmovies } = await supabaseClient
+                    .from('Movie Lists')
+                    .select('movie_id')
+                    .eq('list_id', bucketId);
+
+                const bucketMovieIds = [];
+                for (const row of (Array.isArray(bmovies) ? bmovies : [])) {
+                    const mid = String(row?.movie_id || '').trim();
+                    if (!mid) continue;
+                    feedBucketMovieIds.add(mid);
+                    bucketMovieIds.push(mid);
+                }
+
+                // Backstop: also key by tmdb_id, so the star still fills if the feed movie
+                // ever resolves to a different Movies.id than the stored bucket row.
+                if (bucketMovieIds.length) {
+                    const { data: bmrows } = await supabaseClient
+                        .from('Movies')
+                        .select('tmdb_id')
+                        .in('id', bucketMovieIds);
+                    for (const m of (Array.isArray(bmrows) ? bmrows : [])) {
+                        const t = (m?.tmdb_id === null || m?.tmdb_id === undefined) ? '' : String(m.tmdb_id);
+                        if (t) feedBucketTmdbIds.add(t);
+                    }
+                }
+            } catch (_) { /* best-effort: stars just won't pre-fill on failure */ }
+        }
+
         // ===== Nav notification badges (Feed = new follow activity, Lists = new recs) =====
         const FEED_LAST_SEEN_KEY = 'ct_feed_last_seen';
         const RECS_LAST_SEEN_KEY = 'ct_recs_last_seen';
@@ -3243,6 +3346,15 @@
                 for (const u of urows) usersById.set(u.id, u);
             }
 
+            // Which of these feed movies are ALREADY in the viewer's Bucket List, so
+            // their add-button renders pre-filled (solid star). Resolve the Bucket List
+            // the EXACT same way the add-button's click handler does — via
+            // ensureBucketListForUser — so the list id is guaranteed identical (an earlier
+            // direct Lists query was resolving to nothing/another id, which is why the star
+            // never pre-filled even though the click handler found the movie). Then read
+            // the WHOLE list once and cache every movie_id.
+            await seedFeedBucketMovieIds(authedUserId);
+
             // Posters are lazy-loaded from stored DB poster_path; no TMDb calls.
 
             // Title search (magnifier popup): narrow the already-loaded rows to movies
@@ -3273,6 +3385,10 @@
                 const actorIconId = String(actor?.icon || '').trim();
 
                 const movie = moviesById.get(r?.movie_id) || null;
+                const movieIdStr = String(r?.movie_id || '').trim();
+                const movieTmdbStr = (movie?.tmdb_id === null || movie?.tmdb_id === undefined) ? '' : String(movie.tmdb_id);
+                const inBucket = (movieIdStr && feedBucketMovieIds.has(movieIdStr))
+                    || (movieTmdbStr && feedBucketTmdbIds.has(movieTmdbStr));
                 const title = String(movie?.title || '').trim() || 'Untitled';
                 const year = (movie?.release_year === null || movie?.release_year === undefined) ? '' : String(movie.release_year);
 
@@ -3353,6 +3469,13 @@
                                     <div class="text-white" style="line-height: 1.4; white-space: pre-wrap;">${escapeHtml(notes)}</div>
                                 </div>
                             ` : ''}
+
+                            ${(movieIdStr && actorId !== authedUserId) ? `
+                                <div class="feed-card-bucket-slot">
+                                    <button type="button" class="feed-bucket-btn${inBucket ? ' is-added' : ''}" data-feed-action="add_bucket" data-feed-movie-id="${escapeHtml(movieIdStr)}" data-feed-movie-title="${escapeHtml(title)}" title="${inBucket ? 'In your Bucket List' : 'Add to Bucket List'}" aria-label="${inBucket ? `${escapeHtml(title)} is in your Bucket List` : `Add ${escapeHtml(title)} to Bucket List`}">
+                                        <svg class="feed-bucket-star" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><span>Bucket List</span>
+                                    </button>
+                                </div>` : ''}
                         </div>
                     </div>
                 `;

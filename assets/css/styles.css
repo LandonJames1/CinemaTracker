@@ -3320,6 +3320,15 @@
             .feed-card-actor { flex: 0 0 auto !important; min-width: 0 !important; max-width: 64px !important; margin-left: 6px !important; }
             .feed-card-actor .user-icon { width: 50px !important; height: 50px !important; }
             .feed-card-actor-name { max-width: 64px; overflow: hidden; text-overflow: ellipsis; font-size: 0.7rem !important; }
+            /* Mobile: the Bucket List button is a normal horizontal pill at the BOTTOM of
+               the expanded card (under Notes) — same as desktop, just a touch larger tap
+               target. NOT tall, NOT a column. */
+            .feed-bucket-btn {
+                padding: 9px 16px;
+                border-radius: 10px;
+                font-size: 0.8rem;
+            }
+            .feed-bucket-star { width: 15px; height: 15px; }
 
             /* AI Picks result cards: single column + wrap long text on phones. */
             .ai-results { grid-template-columns: 1fr !important; }
@@ -5496,12 +5505,59 @@
             letter-spacing: 0.01em;
         }
 
+        /* "Add to Bucket List" action — only visible when the card is EXPANDED (it lives
+           inside .feed-card-details). On desktop it's a clean bottom-right pill; on mobile
+           it's repositioned into the empty gap to the RIGHT of the sub-rating chips
+           (see the ≤768px block) — absolutely placed there so it never moves the ratings. */
+        .feed-card-bucket-slot {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 0.9rem;
+        }
+        .feed-bucket-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            border: 1px solid color-mix(in srgb, var(--brand) 55%, transparent);
+            background: color-mix(in srgb, var(--brand) 16%, #202024);
+            color: #fff;
+            font-size: 0.78rem;
+            font-weight: 800;
+            letter-spacing: 0.01em;
+            line-height: 1;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+        }
+        /* Star: OUTLINE by default, FULLY FILLED once the movie is in the Bucket List. */
+        .feed-bucket-star {
+            width: 14px;
+            height: 14px;
+            flex: 0 0 auto;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linejoin: round;
+        }
+        .feed-bucket-btn.is-added .feed-bucket-star {
+            fill: currentColor;
+            stroke: currentColor;
+        }
+        .feed-bucket-btn:hover {
+            background: color-mix(in srgb, var(--brand) 30%, #202024);
+            border-color: var(--brand);
+        }
+        .feed-bucket-btn:active { transform: scale(0.96); }
+
         .feed-item-card {
             cursor: pointer;
         }
         .feed-card-details {
             display: none;
             margin-top: 0.75rem;
+            position: relative;
         }
         .feed-item-card.is-open .feed-card-details {
             display: block;
