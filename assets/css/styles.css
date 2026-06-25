@@ -1540,6 +1540,32 @@
             .detailed-scoring input[type=range] {
                 padding: 6px 0;
             }
+
+            /* AI Picks "Minimum rating" slider — bigger thumb + taller track so
+               it's easy to grab with a thumb on mobile. */
+            .ai-slider-row input[type=range]::-webkit-slider-thumb {
+                height: 30px;
+                width: 30px;
+                margin-top: -12px;
+            }
+            .ai-slider-row input[type=range]::-moz-range-thumb {
+                height: 30px;
+                width: 30px;
+                border: none;
+                border-radius: 50%;
+                background: var(--brand);
+            }
+            .ai-slider-row input[type=range]::-webkit-slider-runnable-track {
+                height: 6px;
+            }
+            .ai-slider-row input[type=range]::-moz-range-track {
+                height: 6px;
+                background: var(--border);
+                border-radius: 3px;
+            }
+            .ai-slider-row input[type=range] {
+                padding: 8px 0;
+            }
         }
 
         /* Toast */
@@ -5948,6 +5974,14 @@
             font-weight: 800;
             font-size: 0.98rem;
         }
+        .ai-wizard-step {
+            color: var(--brand, #14b8a6);
+            font-weight: 800;
+            font-size: 0.72rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 0.4rem;
+        }
         .ai-card-sub {
             color: var(--text-muted, rgba(255,255,255,0.6));
             font-weight: 600;
@@ -6846,6 +6880,36 @@
         .account-viewing-other .account-home-gear,
         .account-viewing-other .account-home-avatar-upload { display: none !important; }
         .account-viewing-other .account-home-bio { cursor: default; }
+        /* Achievements is a self-only tab — hide the tab bar (+ panel) for others. */
+        .account-viewing-other .account-home-tabs,
+        .account-viewing-other #account-panel-achievements { display: none !important; }
+
+        /* Profile | Achievements tab bar (mirrors the leaderboard sub-tabs). */
+        .account-home-tabs {
+            display: flex;
+            gap: 4px;
+            padding: 4px;
+            margin: 1.1rem 0;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 0.9rem;
+        }
+        .account-home-tab {
+            flex: 1 1 0;
+            padding: 0.55rem 0.7rem;
+            border: 0;
+            border-radius: 0.7rem;
+            background: transparent;
+            color: var(--text-muted, #b8b8c0);
+            font-weight: 700;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+        .account-home-tab.is-active {
+            background: linear-gradient(135deg, var(--brand, #6366f1), var(--brand-2, #a855f7));
+            color: #fff;
+        }
 
         .account-home-hero {
             text-align: center; padding: 3.4rem 1.25rem 1.4rem; border-radius: 1.25rem;

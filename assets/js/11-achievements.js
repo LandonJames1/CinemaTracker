@@ -327,8 +327,8 @@
 
             userAchievementIds = new Set(data.map((row) => String(row?.achievement_id || '')).filter(Boolean));
             // Keep earned_at per achievement so the "This Month" timeframe filter
-            // (Achievements sub-tab of the Leaderboard route) can show only badges
-            // earned in the current calendar month.
+            // (Achievements tab on the Account page) can show only badges earned
+            // in the current calendar month.
             userAchievementEarnedAt = new Map();
             data.forEach((row) => {
                 const id = String(row?.achievement_id || '').trim();

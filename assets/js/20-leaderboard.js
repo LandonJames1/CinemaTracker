@@ -1,17 +1,15 @@
         // ============================================================
-        // Leaderboard page — the "Leaderboard" sub-tab of the renamed
-        // Leaderboard route (the other sub-tab is the existing Achievements
-        // UI, loaded by loadAchievementsPage in 18-account-page.js).
+        // Leaderboard page (route `leaderboard`).
         //
-        // Each board is scoped to YOU + the people you FOLLOW (a friends
-        // leaderboard) via the get_follow_leaderboard() SECURITY DEFINER RPC
-        // (leaderboard.sql), so no global stats are exposed and privacy_level
-        // never has to be consulted. Controls: metric (Movies Rated / Points)
-        // × timeframe (This Month / All-Time; hidden for the all-time-only
-        // Points metric). Rows reuse renderUserIconHtml + openUserProfile.
+        // A friends leaderboard scoped to YOU + the people you FOLLOW via the
+        // get_follow_leaderboard() SECURITY DEFINER RPC (leaderboard.sql), so no
+        // global stats are exposed and privacy_level never has to be consulted.
+        // Controls: metric (Movies Rated / Points) × timeframe (This Month /
+        // All-Time) — BOTH metrics support BOTH timeframes (for Points, month =
+        // points earned this calendar month). Rows reuse renderUserIconHtml +
+        // openUserProfile. (Achievements moved to its own tab on the Account page.)
         // ============================================================
 
-        let leaderboardSubtab = 'leaderboard';      // 'leaderboard' | 'achievements'
         let leaderboardMetric = 'movies_rated';     // 'movies_rated' | 'achievement_points'
         let leaderboardTimeframe = 'month';         // 'month' | 'all_time'
         let _leaderboardBound = false;
@@ -21,18 +19,11 @@
             if (_leaderboardBound) return;
             _leaderboardBound = true;
 
-            // One delegated listener (the panels are re-rendered on each navigate,
+            // One delegated listener (the controls are re-rendered on each navigate,
             // but this document-level binding persists).
             document.addEventListener('click', (e) => {
                 const t = e.target;
                 if (!t || !t.closest) return;
-
-                const subtabBtn = t.closest('.lb-subtab');
-                if (subtabBtn && document.getElementById('lb-panel-leaderboard')) {
-                    e.preventDefault();
-                    setLeaderboardSubtab(subtabBtn.dataset.lbtab);
-                    return;
-                }
 
                 const metricBtn = t.closest('[data-lb-metric]');
                 if (metricBtn) {
@@ -48,14 +39,6 @@
                     return;
                 }
 
-                // Achievements sub-tab "This Month / All-Time" filter.
-                const achTfBtn = t.closest('[data-ach-timeframe]');
-                if (achTfBtn) {
-                    e.preventDefault();
-                    setAchievementTimeframe(achTfBtn.dataset.achTimeframe);
-                    return;
-                }
-
                 const rowEl = t.closest('.lb-row, .lb-podium-item');
                 if (rowEl && rowEl.dataset.userId) {
                     e.preventDefault();
@@ -65,20 +48,15 @@
             });
         }
 
-        function setLeaderboardSubtab(tab) {
-            leaderboardSubtab = (tab === 'achievements') ? 'achievements' : 'leaderboard';
-            const lbPanel = document.getElementById('lb-panel-leaderboard');
-            const achPanel = document.getElementById('lb-panel-achievements');
-            // Each panel carries its own controls (below the sub-tabs), so the sub-tab
-            // buttons stay on the same Y on both sub-tabs — just toggle whole panels.
-            if (lbPanel) lbPanel.style.display = (leaderboardSubtab === 'leaderboard') ? '' : 'none';
-            if (achPanel) achPanel.style.display = (leaderboardSubtab === 'achievements') ? '' : 'none';
-
-            document.querySelectorAll('.lb-subtab').forEach(b => {
-                b.classList.toggle('is-active', b.dataset.lbtab === leaderboardSubtab);
+        // Re-sync the metric/timeframe pills to the persisted state (the markup
+        // resets its active classes to defaults on each navigate).
+        function syncLeaderboardControls() {
+            document.querySelectorAll('[data-lb-metric]').forEach(b => {
+                b.classList.toggle('is-active', b.dataset.lbMetric === leaderboardMetric);
             });
-
-            if (leaderboardSubtab === 'leaderboard') loadLeaderboard();
+            document.querySelectorAll('[data-lb-timeframe]').forEach(b => {
+                b.classList.toggle('is-active', b.dataset.lbTimeframe === leaderboardTimeframe);
+            });
         }
 
         function setLeaderboardMetric(metric) {
@@ -86,9 +64,6 @@
             document.querySelectorAll('[data-lb-metric]').forEach(b => {
                 b.classList.toggle('is-active', b.dataset.lbMetric === leaderboardMetric);
             });
-            // Achievement points is an all-time running total — hide the timeframe toggle.
-            const tfWrap = document.getElementById('lb-timeframe-wrap');
-            if (tfWrap) tfWrap.style.display = (leaderboardMetric === 'achievement_points') ? 'none' : '';
             loadLeaderboard();
         }
 
@@ -108,9 +83,10 @@
                 return;
             }
 
-            // Points is all-time only; force the timeframe arg accordingly.
+            // Both metrics honor the timeframe (Points month = points earned this
+            // calendar month, computed in the get_follow_leaderboard RPC).
             const metric = leaderboardMetric;
-            const timeframe = (metric === 'achievement_points') ? 'all_time' : leaderboardTimeframe;
+            const timeframe = leaderboardTimeframe;
             const token = ++_leaderboardReqToken;
 
             content.innerHTML = `<div class="text-xs text-gray" style="padding:0.5rem;">Loading leaderboard…</div>`;

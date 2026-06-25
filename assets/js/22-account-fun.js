@@ -9,12 +9,16 @@
         let accountHomeBound = false;
         let accountHomeBioValue = '';
         let accountHomeViewUserId = ''; // the user whose Account page is currently shown (self or other)
+        let accountHomeActiveTab = 'profile'; // 'profile' | 'achievements'
+        let accountHomePendingTab = '';       // set before navigate() to land on a specific tab
 
         function initAccountHome() {
             if (accountHomeBound) return;
             accountHomeBound = true;
 
             document.addEventListener('click', (e) => {
+                const tabBtn = e?.target?.closest ? e.target.closest('[data-account-home-tab]') : null;
+                if (tabBtn) { setAccountHomeTab(tabBtn.dataset.accountHomeTab); return; }
                 const btn = e?.target?.closest ? e.target.closest('[data-account-home-action]') : null;
                 if (!btn) return;
                 const action = String(btn.dataset.accountHomeAction || '').trim();
@@ -65,6 +69,9 @@
             accountHomeViewUserId = uid;
             const isSelf = !!uid && uid === activeUid;
             setAccountHomeViewMode(isSelf);
+            // Achievements is a self-only tab; honor a pending tab request on your own page.
+            setAccountHomeTab(isSelf ? (accountHomePendingTab || 'profile') : 'profile');
+            accountHomePendingTab = '';
 
             if (!supabaseClient || !uid) {
                 if (usernameEl) usernameEl.textContent = 'Not signed in';
@@ -172,6 +179,27 @@
             // "Data Dash →" only shows YOUR own data, so hide it on others' pages.
             const dashLink = document.querySelector('.account-home-card [data-account-home-action="open_dashboard"]');
             if (dashLink) dashLink.style.display = isSelf ? '' : 'none';
+        }
+
+        // Switch between the Profile and Achievements tabs (self-only; viewing
+        // someone else is forced to the Profile panel — see setAccountHomeViewMode).
+        function setAccountHomeTab(tab) {
+            const t = (tab === 'achievements') ? 'achievements' : 'profile';
+            accountHomeActiveTab = t;
+            const profilePanel = document.getElementById('account-panel-profile');
+            const achPanel = document.getElementById('account-panel-achievements');
+            if (profilePanel) profilePanel.style.display = (t === 'profile') ? '' : 'none';
+            if (achPanel) achPanel.style.display = (t === 'achievements') ? '' : 'none';
+            document.querySelectorAll('.account-home-tab').forEach((b) => {
+                b.classList.toggle('is-active', b.dataset.accountHomeTab === t);
+            });
+        }
+
+        // Jump straight to YOUR Account page's Achievements tab (used by the
+        // achievement-earned popup's "View Achievements" button).
+        function openAchievementsTab() {
+            accountHomePendingTab = 'achievements';
+            router.navigate('account');
         }
 
         function setAccountFollowButton(isFollowing) {

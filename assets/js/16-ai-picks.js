@@ -12,6 +12,42 @@
             syncAiFiltersButton();
         }
 
+        function openAiSimilarModal() {
+            const overlay = document.getElementById('ai-similar-overlay');
+            if (overlay) overlay.classList.add('open');
+        }
+
+        function closeAiSimilarModal() {
+            const overlay = document.getElementById('ai-similar-overlay');
+            if (overlay) overlay.classList.remove('open');
+        }
+
+        // --- Guided wizard navigation (Step 1 prompt → Step 2 filters → Step 3 similar) ---
+        function aiWizardStart() {
+            const promptEl = document.getElementById('ai-prompt-input');
+            const prompt = String(promptEl?.value || '').trim();
+            if (!prompt) {
+                showToast('Please describe what you want first.', { level: 'warn', durationMs: 1400 });
+                return;
+            }
+            openAiFiltersModal();
+        }
+
+        function aiFiltersBack() {
+            // Back to Step 1 (the prompt card on the page).
+            closeAiFiltersModal();
+        }
+
+        function aiFiltersNext() {
+            closeAiFiltersModal();
+            openAiSimilarModal();
+        }
+
+        function aiSimilarBack() {
+            closeAiSimilarModal();
+            openAiFiltersModal();
+        }
+
         function syncAiTmdbRatingFilter() {
             const input = document.getElementById('ai-filter-tmdb');
             const num = document.getElementById('ai-filter-tmdb-num');
@@ -639,14 +675,13 @@
 
                     const filters = getAiFilters();
                     const similarMovies = getAiSimilarMovie();
-                    const hasCompleteFilters = areAiFiltersComplete(filters);
-                    if (!similarMovies.length && !hasCompleteFilters) {
-                        showToast('Add filters or pick a similar movie.', { level: 'warn', durationMs: 1400 });
-                        return;
-                    }
 
                     const debugToggle = document.getElementById('ai-debug-toggle');
                     const debug = Boolean(debugToggle?.checked);
+
+                    // Close the wizard step modals before showing loading on the page.
+                    closeAiFiltersModal();
+                    closeAiSimilarModal();
 
                     showAiResults([]);
                     setAiInputsHidden(true);

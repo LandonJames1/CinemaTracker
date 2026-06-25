@@ -64,6 +64,16 @@
                 }
             });
 
+            // Achievements "This Month / All-Time" timeframe pills (the Achievements
+            // tab lives on the fun Account page now).
+            document.addEventListener('click', (e) => {
+                const achTfBtn = e?.target?.closest ? e.target.closest('[data-ach-timeframe]') : null;
+                if (achTfBtn) {
+                    e.preventDefault();
+                    setAchievementTimeframe(achTfBtn.dataset.achTimeframe);
+                }
+            });
+
             document.addEventListener('click', (e) => {
                 const sortBtn = e?.target?.closest ? e.target.closest('#account-achievement-sort-btn') : null;
                 const filterBtn = e?.target?.closest ? e.target.closest('#account-achievement-filter-btn') : null;

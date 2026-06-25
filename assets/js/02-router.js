@@ -229,11 +229,15 @@
                     showAiHelpPopupIfNeeded().catch(() => null);
                 } else if (page === 'account') {
                     // The viewed user rides on `mode` (default = self). 'new' = self.
-                    const accountViewUserId = (mode && mode !== 'new') ? mode : (typeof getActiveUserId === 'function' ? getActiveUserId() : '');
+                    const selfUid = (typeof getActiveUserId === 'function') ? getActiveUserId() : '';
+                    const accountViewUserId = (mode && mode !== 'new') ? mode : selfUid;
                     root.innerHTML = this.renderAccount();
                     refreshAuthStateAndUI();
                     initAccountHome();
+                    initAccountPage();        // binds the Achievements tab's sort/filter + card-click handlers (idempotent)
                     loadAccountHome(accountViewUserId);
+                    // The Achievements tab is self-only; load its content only on your own page.
+                    if (accountViewUserId && accountViewUserId === selfUid) loadAchievementsPage();
                 } else if (page === 'settings') {
                     root.innerHTML = this.renderSettings();
                     refreshAuthStateAndUI();
@@ -242,10 +246,9 @@
                 } else if (page === 'leaderboard') {
                     root.innerHTML = this.renderLeaderboard();
                     refreshAuthStateAndUI();
-                    initAccountPage();        // binds the shared sort/filter + card-click handlers (idempotent)
-                    initLeaderboardPage();    // binds sub-tab + metric/timeframe controls (idempotent)
-                    loadAchievementsPage();   // Achievements sub-tab content
-                    setLeaderboardSubtab('leaderboard'); // default to the Leaderboard sub-tab + loads it
+                    initLeaderboardPage();    // binds metric/timeframe controls (idempotent)
+                    syncLeaderboardControls(); // reflect persisted metric/timeframe in the pills
+                    loadLeaderboard();
                 } else if (page === 'theme_creator') {
                     root.innerHTML = this.renderThemeCreator();
                     refreshAuthStateAndUI();
@@ -1709,44 +1712,14 @@
 
                             <div id="ai-inputs-wrap" class="ai-composer">
                                 <div class="ai-card ai-prompt-card">
-                                    <div class="ai-card-title">1 &middot; Describe what you want</div>
+                                    <div class="ai-wizard-step">Step 1 of 3</div>
+                                    <div class="ai-card-title">Describe what you want</div>
+                                    <p class="ai-card-sub" style="margin-top: 0.3rem;">Tell the AI the vibe, mood, or anything specific you're after.</p>
                                     <textarea id="ai-prompt-input" class="textarea-field ai-prompt-input" rows="6" maxlength="2000" placeholder="e.g. Light-hearted, character-driven, post-2000, strong performances…"></textarea>
                                     <div id="ai-prompt-remaining" class="text-xs text-gray ai-prompt-remaining">2000 characters remaining</div>
-                                </div>
-
-                                <div class="ai-card ai-refine-card">
-                                    <div class="ai-card-title">2 &middot; Refine <span class="ai-card-sub">(filters or a similar movie required)</span></div>
-
-                                    <div class="ai-refine-actions">
-                                        <button id="ai-open-filters-btn" type="button" class="ai-refine-pill" onclick="openAiFiltersModal()">
-                                            <span>Filters</span>
-                                            <span id="ai-filters-count" class="ai-refine-count hidden"></span>
-                                        </button>
-                                        <label class="ai-refine-pill ai-exclude-toggle">
-                                            <input id="ai-filter-exclude-watched" type="checkbox" />
-                                            <span>Hide watched</span>
-                                        </label>
+                                    <div class="ai-generate-row">
+                                        <button id="ai-next-1-btn" type="button" class="btn btn-primary ai-generate-btn" onclick="aiWizardStart()">Next &rarr;</button>
                                     </div>
-
-                                    <div class="ai-similar-block" id="ai-similar-search-card">
-                                        <div class="ai-similar-label">Similar movies <span class="ai-card-sub">— optional, up to 5</span></div>
-                                        <div class="input-group ai-similar-inputgroup">
-                                            <div class="input-icon">${icons.search}</div>
-                                            <input id="ai-similar-input" type="text" class="input-field glass-input ai-similar-input" placeholder="Search for a similar movie…" autocomplete="off">
-                                            <button id="ai-similar-clear" type="button" class="ai-similar-clear">Clear</button>
-                                            <div id="ai-similar-results" class="search-dropdown hidden"></div>
-                                        </div>
-                                        <div id="ai-similar-selected" class="ai-similar-selected"></div>
-                                        <input id="ai-similar-tmdb-id" type="hidden" value="">
-                                    </div>
-                                </div>
-
-                                <div class="ai-generate-row">
-                                    <button id="ai-generate-btn" type="button" class="btn btn-primary ai-generate-btn">${icons.star} Generate Picks</button>
-                                    <button id="ai-clear-btn" type="button" class="btn btn-outline ai-clear-btn">Clear</button>
-                                    <label id="ai-debug-wrap" class="ai-debug-label" style="display:none;">
-                                        <input id="ai-debug-toggle" type="checkbox" /> Debug
-                                    </label>
                                 </div>
                             </div>
 
@@ -1790,7 +1763,13 @@
                                 <div class="auth-modal-title" id="ai-filters-title">Filters</div>
                                 <button class="auth-modal-close" type="button" onclick="closeAiFiltersModal()">Close</button>
                             </div>
-                            <div class="text-xs text-gray" style="margin-top: 0.25rem;">Required unless you pick a similar movie. If you choose filters, fill out all fields.</div>
+                            <div class="ai-wizard-step">Step 2 of 3</div>
+                            <div class="text-xs text-gray" style="margin-top: 0.25rem;">All optional — narrow things down, or just continue.</div>
+
+                            <label class="ai-refine-pill ai-exclude-toggle" style="width: 100%; margin-top: 0.9rem;">
+                                <input id="ai-filter-exclude-watched" type="checkbox" checked />
+                                <span>Hide movies I've already seen</span>
+                            </label>
 
                             <div class="ai-section" style="margin-top: 0.85rem;">
                                 <div>
@@ -1850,9 +1829,39 @@
                             </div>
 
                             <div class="auth-modal-actions" style="margin-top: 1rem;">
-                                <button type="button" class="btn btn-primary" style="flex:1; border-radius: 0.85rem;" onclick="closeAiFiltersModal()">Save</button>
-                                <button type="button" class="btn btn-outline" style="flex:1; border-radius: 0.85rem;" onclick="closeAiFiltersModal()">Cancel</button>
+                                <button type="button" class="btn btn-outline" style="flex:1; border-radius: 0.85rem;" onclick="aiFiltersBack()">Back</button>
+                                <button type="button" class="btn btn-primary" style="flex:1; border-radius: 0.85rem;" onclick="aiFiltersNext()">Next &rarr;</button>
                             </div>
+                        </div>
+                    </div>
+
+                    <div id="ai-similar-overlay" class="auth-overlay" onclick="if(event.target === this) closeAiSimilarModal();">
+                        <div class="auth-modal ai-refine-card" role="dialog" aria-modal="true" aria-labelledby="ai-similar-title" style="max-width: 560px;">
+                            <div class="auth-modal-header">
+                                <div class="auth-modal-title" id="ai-similar-title">Similar movies</div>
+                                <button class="auth-modal-close" type="button" onclick="closeAiSimilarModal()">Close</button>
+                            </div>
+                            <div class="ai-wizard-step">Step 3 of 3</div>
+                            <div class="text-xs text-gray" style="margin-top: 0.25rem;">Optional — add up to 5 movies you'd like the picks to resemble, or skip and generate.</div>
+
+                            <div class="ai-similar-block" id="ai-similar-search-card">
+                                <div class="input-group ai-similar-inputgroup">
+                                    <div class="input-icon">${icons.search}</div>
+                                    <input id="ai-similar-input" type="text" class="input-field glass-input ai-similar-input" placeholder="Search for a similar movie…" autocomplete="off">
+                                    <button id="ai-similar-clear" type="button" class="ai-similar-clear">Clear</button>
+                                    <div id="ai-similar-results" class="search-dropdown hidden"></div>
+                                </div>
+                                <div id="ai-similar-selected" class="ai-similar-selected"></div>
+                                <input id="ai-similar-tmdb-id" type="hidden" value="">
+                            </div>
+
+                            <div class="auth-modal-actions" style="margin-top: 1.1rem;">
+                                <button type="button" class="btn btn-outline" style="flex:1; border-radius: 0.85rem;" onclick="aiSimilarBack()">Back</button>
+                                <button id="ai-generate-btn" type="button" class="btn btn-primary ai-generate-btn" style="flex:2;">${icons.star} Generate Picks</button>
+                            </div>
+                            <label id="ai-debug-wrap" class="ai-debug-label" style="display:none; justify-content:center; margin-top: 0.7rem;">
+                                <input id="ai-debug-toggle" type="checkbox" /> Debug
+                            </label>
                         </div>
                     </div>
                 `;
@@ -1907,88 +1916,86 @@
                                 </div>
                             </div>
 
-                            <div class="lb-subtabs" role="tablist">
-                                <button type="button" class="lb-subtab is-active" data-lbtab="leaderboard">Leaderboard</button>
-                                <button type="button" class="lb-subtab" data-lbtab="achievements">Achievements</button>
+                            <div class="lb-controls">
+                                <div class="lb-pillgroup" id="lb-metric-wrap" role="group" aria-label="Leaderboard metric">
+                                    <button type="button" class="lb-pill is-active" data-lb-metric="movies_rated">Movies Rated</button>
+                                    <button type="button" class="lb-pill" data-lb-metric="achievement_points">Points</button>
+                                </div>
+                                <div class="lb-pillgroup" id="lb-timeframe-wrap" role="group" aria-label="Leaderboard timeframe">
+                                    <button type="button" class="lb-pill is-active" data-lb-timeframe="month">This Month</button>
+                                    <button type="button" class="lb-pill" data-lb-timeframe="all_time">All-Time</button>
+                                </div>
                             </div>
+                            <div id="lb-content">
+                                <div class="text-xs text-gray">Loading leaderboard…</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            },
 
-                            <div id="lb-panel-leaderboard" class="lb-panel">
-                                <div class="lb-controls">
-                                    <div class="lb-pillgroup" id="lb-metric-wrap" role="group" aria-label="Leaderboard metric">
-                                        <button type="button" class="lb-pill is-active" data-lb-metric="movies_rated">Movies Rated</button>
-                                        <button type="button" class="lb-pill" data-lb-metric="achievement_points">Points</button>
-                                    </div>
-                                    <div class="lb-pillgroup" id="lb-timeframe-wrap" role="group" aria-label="Leaderboard timeframe">
-                                        <button type="button" class="lb-pill is-active" data-lb-timeframe="month">This Month</button>
-                                        <button type="button" class="lb-pill" data-lb-timeframe="all_time">All-Time</button>
-                                    </div>
+            // The Achievements panel markup (tier summary + toolbar + badge grid +
+            // admin test panel) — lives in a tab on the fun Account page now
+            // (renderAccount), loaded by loadAchievementsPage in 18-account-page.js.
+            renderAccountAchievementsPanel() {
+                return `
+                    <div class="lb-ach-toolbar">
+                        <div class="lb-pillgroup" id="account-achievement-timeframe-wrap" role="group" aria-label="Achievements timeframe">
+                            <button type="button" class="lb-pill is-active" data-ach-timeframe="all_time">All-Time</button>
+                            <button type="button" class="lb-pill" data-ach-timeframe="month">This Month</button>
+                        </div>
+                        <div id="lb-ach-controls" class="achievement-filter-wrap" style="gap: 10px; align-items:center; flex-wrap: wrap; justify-content:flex-end;">
+                            <button id="account-achievement-filter-btn" type="button" class="btn btn-outline" style="padding: 0.45rem 0.7rem; border-radius: 0.85rem;">Filter</button>
+                            <button id="account-achievement-sort-btn" type="button" class="btn btn-outline" style="padding: 0.45rem 0.7rem; border-radius: 0.85rem;">Sort</button>
+                            <div id="account-achievement-filters-pop" class="achievement-filters-pop" aria-hidden="true">
+                                <div class="achievement-filters-row" data-af="sort">
+                                    <div class="achievement-filters-label">Sort</div>
+                                    <select id="account-achievement-sort" class="input-field">
+                                        <option value="points_asc" selected>Points: Low to High</option>
+                                        <option value="points_desc">Points: High to Low</option>
+                                    </select>
                                 </div>
-                                <div id="lb-content">
-                                    <div class="text-xs text-gray">Loading leaderboard…</div>
+                                <div class="achievement-filters-row" data-af="filter">
+                                    <div class="achievement-filters-label">Type</div>
+                                    <select id="account-achievement-filter" class="input-field">
+                                        <option value="all">All types</option>
+                                    </select>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                    <div class="account-achievements-layout">
+                        <div id="account-tier-summary" class="tier-summary-card" aria-live="polite" data-tier="Extra">
+                            <div class="tier-summary-header">
+                                <div class="tier-summary-title">Current Tier</div>
+                                <div class="tier-summary-name" id="account-tier-name">—</div>
+                            </div>
+                            <div class="tier-summary-body">
+                                <div class="tier-summary-icon" id="account-tier-icon">?</div>
+                                <div class="tier-summary-stats">
+                                    <div class="tier-summary-points" id="account-tier-points">0 pts</div>
+                                    <div class="tier-summary-next" id="account-tier-next">Earn more points to level up.</div>
+                                </div>
+                            </div>
+                            <div class="tier-summary-bar">
+                                <div class="tier-summary-progress" id="account-tier-progress"></div>
+                            </div>
+                        </div>
+                        <div id="account-achievements-count" class="achievements-count"></div>
+                        <div id="account-achievements-list" class="achievement-grid">
+                            <div class="text-xs text-gray">Loading achievements…</div>
+                        </div>
+                    </div>
 
-                            <div id="lb-panel-achievements" class="lb-panel" style="display:none;">
-                            <div class="lb-ach-toolbar">
-                                <div class="lb-pillgroup" id="account-achievement-timeframe-wrap" role="group" aria-label="Achievements timeframe">
-                                    <button type="button" class="lb-pill is-active" data-ach-timeframe="all_time">All-Time</button>
-                                    <button type="button" class="lb-pill" data-ach-timeframe="month">This Month</button>
-                                </div>
-                                <div id="lb-ach-controls" class="achievement-filter-wrap" style="gap: 10px; align-items:center; flex-wrap: wrap; justify-content:flex-end;">
-                                    <button id="account-achievement-filter-btn" type="button" class="btn btn-outline" style="padding: 0.45rem 0.7rem; border-radius: 0.85rem;">Filter</button>
-                                    <button id="account-achievement-sort-btn" type="button" class="btn btn-outline" style="padding: 0.45rem 0.7rem; border-radius: 0.85rem;">Sort</button>
-                                    <div id="account-achievement-filters-pop" class="achievement-filters-pop" aria-hidden="true">
-                                        <div class="achievement-filters-row" data-af="sort">
-                                            <div class="achievement-filters-label">Sort</div>
-                                            <select id="account-achievement-sort" class="input-field">
-                                                <option value="points_asc" selected>Points: Low to High</option>
-                                                <option value="points_desc">Points: High to Low</option>
-                                            </select>
-                                        </div>
-                                        <div class="achievement-filters-row" data-af="filter">
-                                            <div class="achievement-filters-label">Type</div>
-                                            <select id="account-achievement-filter" class="input-field">
-                                                <option value="all">All types</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
+                    <div class="glass-panel" id="account-achievement-test-panel" style="margin-top: 1rem; padding: 1rem; border-radius: 1rem; display:none;">
+                        <div style="display:flex; align-items:center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap;">
+                            <div>
+                                <div class="text-white font-bold">Achievement Testing</div>
+                                <div class="text-xs text-gray" style="margin-top: 0.35rem;">Trigger a test popup on demand.</div>
                             </div>
-                            <div class="account-achievements-layout">
-                                <div id="account-tier-summary" class="tier-summary-card" aria-live="polite" data-tier="Extra">
-                                    <div class="tier-summary-header">
-                                        <div class="tier-summary-title">Current Tier</div>
-                                        <div class="tier-summary-name" id="account-tier-name">—</div>
-                                    </div>
-                                    <div class="tier-summary-body">
-                                        <div class="tier-summary-icon" id="account-tier-icon">?</div>
-                                        <div class="tier-summary-stats">
-                                            <div class="tier-summary-points" id="account-tier-points">0 pts</div>
-                                            <div class="tier-summary-next" id="account-tier-next">Earn more points to level up.</div>
-                                        </div>
-                                    </div>
-                                    <div class="tier-summary-bar">
-                                        <div class="tier-summary-progress" id="account-tier-progress"></div>
-                                    </div>
-                                </div>
-                                <div id="account-achievements-count" class="achievements-count"></div>
-                                <div id="account-achievements-list" class="achievement-grid">
-                                    <div class="text-xs text-gray">Loading achievements…</div>
-                                </div>
-                            </div>
-
-                            <div class="glass-panel" id="account-achievement-test-panel" style="margin-top: 1rem; padding: 1rem; border-radius: 1rem; display:none;">
-                                <div style="display:flex; align-items:center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap;">
-                                    <div>
-                                        <div class="text-white font-bold">Achievement Testing</div>
-                                        <div class="text-xs text-gray" style="margin-top: 0.35rem;">Trigger a test popup on demand.</div>
-                                    </div>
-                                    <div style="display:flex; gap: 0.4rem; align-items:center; flex-wrap: wrap;">
-                                        <select id="account-test-achievement-select" class="input-field" style="min-width: 180px;"></select>
-                                        <button id="account-test-achievement-btn" type="button" class="btn btn-outline" style="padding: 0.35rem 0.6rem; border-radius: 0.75rem;" onclick="triggerTestAchievementPopup()">Test Achievement</button>
-                                    </div>
-                                </div>
-                            </div>
+                            <div style="display:flex; gap: 0.4rem; align-items:center; flex-wrap: wrap;">
+                                <select id="account-test-achievement-select" class="input-field" style="min-width: 180px;"></select>
+                                <button id="account-test-achievement-btn" type="button" class="btn btn-outline" style="padding: 0.35rem 0.6rem; border-radius: 0.75rem;" onclick="triggerTestAchievementPopup()">Test Achievement</button>
                             </div>
                         </div>
                     </div>
@@ -2033,20 +2040,31 @@
                                 <button type="button" id="account-home-follow-btn" class="btn btn-primary account-home-follow-btn" data-account-home-action="follow" data-following="0" style="display:none;">Follow</button>
                             </div>
 
-                            <div id="account-home-overview" class="account-home-overview"></div>
-
-                            <div id="account-home-blurb-card" class="account-home-blurb-card glass-panel" style="display:none;">
-                                <div class="account-home-blurb-quote" aria-hidden="true">“</div>
-                                <div class="account-home-blurb-label">Your taste, in a sentence</div>
-                                <div id="account-home-blurb" class="account-home-blurb"></div>
+                            <div id="account-home-tabs" class="account-home-tabs" role="tablist">
+                                <button type="button" class="account-home-tab is-active" data-account-home-tab="profile">Profile</button>
+                                <button type="button" class="account-home-tab" data-account-home-tab="achievements">Achievements</button>
                             </div>
 
-                            <div class="account-home-card glass-panel">
-                                <div class="account-home-card-head">
-                                    <div class="account-home-card-title">Your Taste</div>
-                                    <button type="button" class="account-home-edit-btn" data-account-home-action="open_dashboard">Data Dash →</button>
+                            <div id="account-panel-profile" class="account-home-panel">
+                                <div id="account-home-overview" class="account-home-overview"></div>
+
+                                <div id="account-home-blurb-card" class="account-home-blurb-card glass-panel" style="display:none;">
+                                    <div class="account-home-blurb-quote" aria-hidden="true">“</div>
+                                    <div class="account-home-blurb-label">Your taste, in a sentence</div>
+                                    <div id="account-home-blurb" class="account-home-blurb"></div>
                                 </div>
-                                <div id="account-home-taste" class="account-home-taste"></div>
+
+                                <div class="account-home-card glass-panel">
+                                    <div class="account-home-card-head">
+                                        <div class="account-home-card-title">Your Taste</div>
+                                        <button type="button" class="account-home-edit-btn" data-account-home-action="open_dashboard">Data Dash →</button>
+                                    </div>
+                                    <div id="account-home-taste" class="account-home-taste"></div>
+                                </div>
+                            </div>
+
+                            <div id="account-panel-achievements" class="account-home-panel" style="display:none;">
+                                ${this.renderAccountAchievementsPanel()}
                             </div>
                         </div>
                     </div>
@@ -2113,7 +2131,7 @@
                                 </button>
                                 <button type="button" class="glass-panel" data-account-action="open_achievements" style="padding: 1rem; border-radius: 1rem; text-align: left;">
                                     <div class="text-white font-bold">Leaderboard</div>
-                                    <div class="text-xs text-gray" style="margin-top: 0.35rem;">Rank vs. friends, plus your tier and badges.</div>
+                                    <div class="text-xs text-gray" style="margin-top: 0.35rem;">Rank vs. friends by movies rated and points.</div>
                                 </button>
                                 <button type="button" class="glass-panel" data-account-action="open_feature" style="padding: 1rem; border-radius: 1rem; text-align: left;">
                                     <div class="text-white font-bold">Feature Requests</div>

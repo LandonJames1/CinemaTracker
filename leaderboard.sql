@@ -9,8 +9,10 @@
 -- profile columns — never any review content.
 --
 -- p_metric:    'movies_rated' | 'achievement_points' | 'watches'
--- p_timeframe: 'all_time' | 'month'  (ignored for 'achievement_points', which is
---              an all-time running total on Users.achievement_points)
+-- p_timeframe: 'all_time' | 'month'  (honored for ALL metrics — for
+--              'achievement_points', all_time = the running total on
+--              Users.achievement_points, month = points from achievements
+--              EARNED this calendar month via User Achievements.earned_at)
 create or replace function public.get_follow_leaderboard(
   p_metric text default 'movies_rated',
   p_timeframe text default 'all_time'
@@ -49,7 +51,19 @@ as $$
       s.id as user_id,
       case
         when p_metric = 'achievement_points'
-          then coalesce(u.achievement_points, 0)::numeric
+          then case
+                 when p_timeframe = 'month' then (
+                   -- points from achievements EARNED this calendar month
+                   select coalesce(sum(a.points), 0)
+                   from public."User Achievements" ua
+                   join public."Achievements" a on a.id = ua.achievement_id
+                   cross join bounds b
+                   where ua.user_id = s.id
+                     and b.start_ts is not null
+                     and ua.earned_at >= b.start_ts
+                 )::numeric
+                 else coalesce(u.achievement_points, 0)::numeric
+               end
         when p_metric = 'watches'
           then (
             select count(*)
