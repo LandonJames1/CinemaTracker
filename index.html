@@ -201,6 +201,23 @@
         </div>
     </div>
 
+    <!-- Restore unsaved log-form draft prompt -->
+    <div id="diary-draft-overlay" class="auth-overlay" onclick="if(event.target === this) closeDiaryDraftModal();" style="display:none;">
+        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="diary-draft-title" style="max-width: 460px;">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="diary-draft-title">Unsaved Draft Found</div>
+                <button class="auth-modal-close" type="button" onclick="closeDiaryDraftModal()">Close</button>
+            </div>
+            <div class="text-sm" style="margin-top: 0.5rem; color: rgba(255,255,255,0.85); line-height: 1.5;">
+                You have an unsaved draft for this movie<span id="diary-draft-when"></span>. Want to pick up where you left off?
+            </div>
+            <div class="auth-modal-actions" style="margin-top: 0.85rem;">
+                <button type="button" class="btn btn-primary" onclick="diaryDraftRestore()" style="border-radius: 0.85rem;">Restore draft</button>
+                <button type="button" class="btn btn-outline" onclick="diaryDraftDiscard()" style="border-radius: 0.85rem;">Discard</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Shared title-search popup for My Movies + Feed (opened by the magnifier button) -->
     <div id="page-search-overlay" class="auth-overlay" onclick="if(event.target === this) closePageSearch();" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="page-search-title" style="max-width: 440px;">

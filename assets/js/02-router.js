@@ -257,6 +257,7 @@
                     root.innerHTML = this.renderSubmit();
                     initializeWatchMethodToggle();
                     try { initSubmitDetailsCollapse(); } catch (_) {}
+                    try { initDiaryDraftAutosave(); } catch (_) {}
                     refreshAuthStateAndUI();
                 } else if (page === 'dashboard') {
                     root.innerHTML = this.renderDashboard();

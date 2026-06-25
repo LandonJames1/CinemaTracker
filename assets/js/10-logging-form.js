@@ -459,6 +459,252 @@
             } catch (_) {}
         }
 
+        // ── Diary draft auto-save ────────────────────────────────────────────
+        // Persist a NEW-entry log form to localStorage as the user types, so a
+        // half-written review survives an accidental navigation / refresh / app
+        // backgrounding. Keyed per movie (tmdb id, else title); on returning to
+        // log the SAME movie we offer to restore. Cleared on a successful save.
+        // Front-end only — no DB, no schema, scoped to "new" entries (updates
+        // already carry their values from the DB).
+        const DIARY_DRAFT_LS_KEY = 'ct_diary_drafts_v1';
+        const DIARY_DRAFT_MAX = 8;                       // keep the newest N drafts
+        const DIARY_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // expire after 7 days
+        let diaryDraftSaveTimer = null;
+        let diaryDraftGlobalsBound = false;
+
+        function readDiaryDraftStore() {
+            try {
+                const raw = localStorage.getItem(DIARY_DRAFT_LS_KEY);
+                const obj = raw ? JSON.parse(raw) : {};
+                if (!obj || typeof obj !== 'object') return {};
+                const now = Date.now();
+                let changed = false;
+                for (const k of Object.keys(obj)) {
+                    const ts = Number(obj[k]?.ts || 0);
+                    if (!ts || (now - ts) > DIARY_DRAFT_TTL_MS) { delete obj[k]; changed = true; }
+                }
+                if (changed) { try { localStorage.setItem(DIARY_DRAFT_LS_KEY, JSON.stringify(obj)); } catch (_) {} }
+                return obj;
+            } catch (_) { return {}; }
+        }
+
+        function writeDiaryDraftStore(store) {
+            try {
+                const keys = Object.keys(store).sort((a, b) => Number(store[b]?.ts || 0) - Number(store[a]?.ts || 0));
+                const trimmed = {};
+                keys.slice(0, DIARY_DRAFT_MAX).forEach(k => { trimmed[k] = store[k]; });
+                localStorage.setItem(DIARY_DRAFT_LS_KEY, JSON.stringify(trimmed));
+            } catch (_) {}
+        }
+
+        // The current submit form's draft identity — null unless it's a NEW entry.
+        function diaryDraftContext() {
+            const entryType = String(document.querySelector('#app-root input[name="entryType"]')?.value || '').trim().toLowerCase();
+            if (entryType !== 'new') return null;
+            const tmdb = String(document.getElementById('fld-tmdb-id')?.value || '').trim();
+            const title = String(document.getElementById('fld-title')?.value || '').trim().toLowerCase();
+            const key = tmdb ? ('tmdb:' + tmdb) : (title ? ('title:' + title) : '');
+            if (!key) return null;
+            return { mode: 'new', key };
+        }
+
+        // A field we should round-trip in the draft (skip locked/auto-filled ones).
+        function diaryFieldEditable(el) {
+            if (!el) return false;
+            if (el.disabled) return false;
+            if (el.tagName === 'SELECT') return true;
+            if (el.type === 'hidden') return false; // mirror of a locked detail value
+            if (el.readOnly) return false;
+            if (el.classList && el.classList.contains('input-readonly')) return false;
+            return true;
+        }
+
+        function collectDiaryDraftFields() {
+            const f = { scores: {}, tier: '', quote: '', notes: '', genre: null, details: {} };
+            ['overall', 'sound', 'pace', 'imagery', 'acting', 'plot', 'dialogue'].forEach(k => {
+                const el = document.getElementById('num-' + k);
+                if (el) f.scores[k] = String(el.value);
+            });
+            f.tier = String(document.getElementById('fld-tier')?.value || '');
+            f.quote = String(document.getElementById('fld-quote')?.value || '');
+            f.notes = String(document.getElementById('fld-notes')?.value || '');
+            // Genre is only editable when the chip picker is present (else it's locked).
+            if (document.getElementById('genre-chip-wrap')) {
+                f.genre = String(document.getElementById('fld-genre')?.value || '');
+            }
+            [['year', 'fld-year'], ['mpa', 'fld-mpa'], ['runtime', 'fld-runtime'],
+             ['series', 'fld-series'], ['director', 'fld-director'], ['imdb', 'fld-imdb']].forEach(([k, id]) => {
+                const el = document.getElementById(id);
+                if (diaryFieldEditable(el)) f.details[k] = String(el.value);
+            });
+            return f;
+        }
+
+        // Only treat a draft as worth saving/restoring when the user has actually
+        // entered review content (so a pristine form doesn't create a draft).
+        function diaryDraftHasContent(f) {
+            if (!f) return false;
+            if (String(f.notes || '').trim()) return true;
+            if (String(f.quote || '').trim()) return true;
+            if (String(f.tier || '').trim()) return true;
+            const sc = f.scores || {};
+            if (Object.keys(sc).some(k => String(sc[k]) !== '50')) return true;
+            return false;
+        }
+
+        function saveDiaryDraftNow() {
+            try {
+                const ctx = diaryDraftContext();
+                if (!ctx) return;
+                const fields = collectDiaryDraftFields();
+                const store = readDiaryDraftStore();
+                if (!diaryDraftHasContent(fields)) {
+                    if (store[ctx.key]) { delete store[ctx.key]; writeDiaryDraftStore(store); }
+                    return;
+                }
+                store[ctx.key] = { ts: Date.now(), mode: ctx.mode, fields };
+                writeDiaryDraftStore(store);
+            } catch (_) {}
+        }
+
+        function scheduleDiaryDraftSave() {
+            try { clearTimeout(diaryDraftSaveTimer); } catch (_) {}
+            diaryDraftSaveTimer = setTimeout(saveDiaryDraftNow, 600);
+        }
+
+        function clearDiaryDraftForCurrentForm() {
+            try {
+                const ctx = diaryDraftContext();
+                if (!ctx) return;
+                const store = readDiaryDraftStore();
+                if (store[ctx.key]) { delete store[ctx.key]; writeDiaryDraftStore(store); }
+            } catch (_) {}
+        }
+
+        function applyDiaryDraft(fields) {
+            if (!fields) return;
+            try {
+                const sc = fields.scores || {};
+                Object.keys(sc).forEach(k => {
+                    const el = document.getElementById('num-' + k);
+                    if (!el) return;
+                    const v = String(sc[k]);
+                    el.value = v;
+                    el.setAttribute('data-last-valid', v);
+                    const cont = el.closest('.slider-container');
+                    const range = cont ? cont.querySelector('input[type="range"]') : null;
+                    if (range) range.value = v;
+                });
+                if (typeof fields.tier === 'string' && fields.tier.trim()) {
+                    const btn = document.querySelector(`.tier-btn-group .tier-btn[data-tier="${fields.tier}"]`);
+                    if (btn) setTierFromButton(btn);
+                }
+                const q = document.getElementById('fld-quote');
+                if (q && typeof fields.quote === 'string') q.value = fields.quote;
+                const n = document.getElementById('fld-notes');
+                if (n && typeof fields.notes === 'string') n.value = fields.notes;
+                if (typeof fields.genre === 'string' && document.getElementById('genre-chip-wrap')) {
+                    setGenreSelection(parseGenreString(fields.genre));
+                }
+                const det = fields.details || {};
+                [['year', 'fld-year'], ['mpa', 'fld-mpa'], ['runtime', 'fld-runtime'],
+                 ['series', 'fld-series'], ['director', 'fld-director'], ['imdb', 'fld-imdb']].forEach(([k, id]) => {
+                    if (!(k in det)) return;
+                    const el = document.getElementById(id);
+                    if (diaryFieldEditable(el)) {
+                        el.value = String(det[k]);
+                        if (id === 'fld-imdb') {
+                            const r = document.getElementById('fld-imdb-range');
+                            if (r) r.value = String(det[k]);
+                        }
+                    }
+                });
+                try { refreshMovieDetailMissingHighlights(); } catch (_) {}
+            } catch (_) {}
+        }
+
+        function diaryDraftRelativeTime(ts) {
+            const n = Number(ts || 0);
+            if (!n) return '';
+            const diff = Date.now() - n;
+            const min = Math.round(diff / 60000);
+            if (min < 1) return 'just now';
+            if (min < 60) return `${min} min ago`;
+            const hr = Math.round(min / 60);
+            if (hr < 24) return `${hr} hr ago`;
+            const d = Math.round(hr / 24);
+            return `${d} day${d === 1 ? '' : 's'} ago`;
+        }
+
+        // The draft awaiting a Restore/Discard decision (set when the modal opens).
+        let diaryDraftPending = null;
+
+        function openDiaryDraftModal(draft) {
+            try {
+                const overlay = document.getElementById('diary-draft-overlay');
+                if (!overlay) return;
+                diaryDraftPending = draft || null;
+                const when = diaryDraftRelativeTime(draft?.ts);
+                const whenEl = document.getElementById('diary-draft-when');
+                if (whenEl) whenEl.textContent = when ? ` from ${when}` : '';
+                overlay.style.display = 'flex';
+            } catch (_) {}
+        }
+
+        function closeDiaryDraftModal() {
+            try {
+                const overlay = document.getElementById('diary-draft-overlay');
+                if (overlay) overlay.style.display = 'none';
+            } catch (_) {}
+            // Dismissing without choosing leaves the draft intact on purpose.
+            diaryDraftPending = null;
+        }
+
+        function diaryDraftRestore() {
+            const draft = diaryDraftPending;
+            closeDiaryDraftModal();
+            if (draft && draft.fields) {
+                applyDiaryDraft(draft.fields);
+                showToast('Draft restored.');
+            }
+        }
+
+        function diaryDraftDiscard() {
+            closeDiaryDraftModal();
+            clearDiaryDraftForCurrentForm();
+            showToast('Draft discarded.', { level: 'warn' });
+        }
+
+        function ensureDiaryDraftGlobalListeners() {
+            if (diaryDraftGlobalsBound) return;
+            diaryDraftGlobalsBound = true;
+            const flush = () => { try { clearTimeout(diaryDraftSaveTimer); } catch (_) {} saveDiaryDraftNow(); };
+            // saveDiaryDraftNow no-ops off the submit page (no entryType input), so
+            // these can stay bound for the app's lifetime.
+            window.addEventListener('pagehide', flush);
+            document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+        }
+
+        // Wire up autosave + the restore banner. Called from the router's submit
+        // dispatch after the form is rendered.
+        function initDiaryDraftAutosave() {
+            const form = document.querySelector('#app-root form');
+            if (!form) return;
+            const ctx = diaryDraftContext();
+            if (!ctx) return; // new entries only
+            ensureDiaryDraftGlobalListeners();
+            // Typed fields fire 'input'; tier/genre are button clicks, so catch those too.
+            form.addEventListener('input', scheduleDiaryDraftSave);
+            form.addEventListener('click', (e) => {
+                if (e.target.closest('.tier-btn') || e.target.closest('[data-genre]')) scheduleDiaryDraftSave();
+            });
+            const store = readDiaryDraftStore();
+            const draft = store[ctx.key];
+            if (draft && draft.fields && diaryDraftHasContent(draft.fields)) {
+                openDiaryDraftModal(draft);
+            }
+        }
+
         async function handleFormSubmit(e) {
             e.preventDefault();
             if (guardGuestWrite()) return;
@@ -924,6 +1170,9 @@
 
                 // Ratings changed → refresh my taste profile in the background.
                 recomputeMyTasteProfile().catch(() => null);
+
+                // Saved successfully → drop the autosaved draft for this movie.
+                try { clearDiaryDraftForCurrentForm(); } catch (_) {}
 
                 openRatingsSuccessModal('saved');
                 return;
