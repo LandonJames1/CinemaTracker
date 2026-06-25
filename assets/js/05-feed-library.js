@@ -2034,19 +2034,63 @@
         // the fix: a direct `Lists` name query was returning a different/empty id, so the
         // pre-fill never matched even though the click handler found the movie).
         async function seedFeedBucketMovieIds(preferredUserId) {
+            // Diagnostics go through addMessageToLog (the on-screen "Message Log" panel) —
+            // NOT emitLog, which only writes to the browser DevTools console — so the load
+            // count / any failure is visible IN THE APP while we verify the pre-filled star.
+            const blog = (level, msg) => {
+                try {
+                    if (typeof addMessageToLog === 'function') addMessageToLog(level, msg);
+                    else emitLog(level, msg);
+                } catch (_) {}
+            };
             try {
-                const uid = String(preferredUserId || '').trim()
-                    || ((typeof getActiveUserId === 'function') ? String(getActiveUserId() || '').trim() : '');
-                if (!uid || uid === DEMO_USER_ID) return;
-                if (typeof ensureBucketListForUser !== 'function') return;
+                // Resolve the viewer id from every available source, capturing what each
+                // one returns so the warning below can pinpoint WHY it failed.
+                const preferredVal = String(preferredUserId || '').trim();
+                const activeVal = (typeof getActiveUserId === 'function') ? String(getActiveUserId() || '').trim() : '';
+                let sessionVal = '';
+                try {
+                    const { data: sdata } = await supabaseClient.auth.getSession();
+                    sessionVal = String(sdata?.session?.user?.id || '').trim();
+                } catch (e) { blog('warn', 'Bucket pre-fill v2: getSession threw — ' + String(e?.message || e)); }
+                let userVal = '';
+                if (!preferredVal && !activeVal && !sessionVal) {
+                    try {
+                        const { data: udata } = await supabaseClient.auth.getUser();
+                        userVal = String(udata?.user?.id || '').trim();
+                    } catch (_) {}
+                }
+                const uid = preferredVal || activeVal || sessionVal || userVal;
+                // Only skip for an ACTUAL guest session. Do NOT skip on uid === DEMO_USER_ID:
+                // a real signed-in account can legitimately have that id (the owner's own
+                // account doubles as the demo user), and excluding it blanked the bucket
+                // pre-fill for that account.
+                if (!uid || (guestMode && uid === DEMO_USER_ID)) {
+                    blog('warn', `Bucket pre-fill v2: no usable user id — uid="${uid || '∅'}" guest=${guestMode} preferred="${preferredVal || '∅'}" active="${activeVal || '∅'}" session="${sessionVal || '∅'}" getUser="${userVal || '∅'}".`);
+                    return;
+                }
+                blog('info', `Bucket pre-fill v2: using uid="${uid}".`);
 
-                const bucketId = await ensureBucketListForUser({ user_id: uid });
-                if (!bucketId) return;
+                // Find EVERY "Bucket List" this user owns by reading ALL their lists and
+                // matching the name case-insensitively in JS — covers odd-cased / duplicate
+                // rows and avoids relying on an exact-name query or a cached list id (the
+                // fragile parts that the previous versions depended on).
+                const { data: lists, error: lErr } = await supabaseClient
+                    .from('Lists')
+                    .select('id, list_name')
+                    .eq('user_id', uid);
+                if (lErr) { blog('warn', 'Bucket pre-fill: could not read your Lists — ' + (lErr.message || lErr)); return; }
+                const bucketIds = (Array.isArray(lists) ? lists : [])
+                    .filter((l) => String(l?.list_name || '').trim().toLowerCase() === 'bucket list')
+                    .map((l) => String(l.id))
+                    .filter(Boolean);
+                if (!bucketIds.length) { blog('warn', 'Bucket pre-fill: no "Bucket List" found on your account.'); return; }
 
-                const { data: bmovies } = await supabaseClient
+                const { data: bmovies, error: mErr } = await supabaseClient
                     .from('Movie Lists')
                     .select('movie_id')
-                    .eq('list_id', bucketId);
+                    .in('list_id', bucketIds);
+                if (mErr) { blog('warn', 'Bucket pre-fill: could not read Bucket List movies — ' + (mErr.message || mErr)); return; }
 
                 const bucketMovieIds = [];
                 for (const row of (Array.isArray(bmovies) ? bmovies : [])) {
@@ -2055,6 +2099,7 @@
                     feedBucketMovieIds.add(mid);
                     bucketMovieIds.push(mid);
                 }
+                blog('info', `Bucket pre-fill: loaded ${bucketMovieIds.length} movie(s) from your Bucket List.`);
 
                 // Backstop: also key by tmdb_id, so the star still fills if the feed movie
                 // ever resolves to a different Movies.id than the stored bucket row.
@@ -2068,7 +2113,35 @@
                         if (t) feedBucketTmdbIds.add(t);
                     }
                 }
-            } catch (_) { /* best-effort: stars just won't pre-fill on failure */ }
+            } catch (e) {
+                blog('error', 'Bucket pre-fill crashed: ' + String(e?.message || e));
+            }
+        }
+
+        // Re-apply the solid-star (.is-added) class to EVERY rendered feed bucket button
+        // whose movie is in the viewer's Bucket List. The inline render already does this,
+        // but this is a cheap self-healing pass run right after render so the stars are
+        // correct even if the seed populated late or a card was re-rendered. Matches by
+        // BOTH movie_id and the tmdb_id backstop (read off each button's data attrs).
+        function reconcileFeedBucketStars() {
+            try {
+                let total = 0;
+                let filled = 0;
+                document.querySelectorAll('.feed-bucket-btn[data-feed-movie-id]').forEach((btn) => {
+                    total++;
+                    const mid = String(btn.dataset.feedMovieId || '').trim();
+                    const tmdb = String(btn.dataset.feedMovieTmdb || '').trim();
+                    if ((mid && feedBucketMovieIds.has(mid)) || (tmdb && feedBucketTmdbIds.has(tmdb))) {
+                        btn.classList.add('is-added');
+                        filled++;
+                    }
+                });
+                // Visible in the on-screen Message Log so we can see match vs load at a glance.
+                try {
+                    const log = (typeof addMessageToLog === 'function') ? addMessageToLog : emitLog;
+                    log('info', `Bucket pre-fill: filled ${filled} of ${total} feed star(s) — bucket set has ${feedBucketMovieIds.size} id(s) / ${feedBucketTmdbIds.size} tmdb.`);
+                } catch (_) {}
+            } catch (_) {}
         }
 
         // ===== Nav notification badges (Feed = new follow activity, Lists = new recs) =====
@@ -3139,16 +3212,28 @@
                 return;
             }
 
-            // Logged-in user's id — needed for "Compare Own" and to mark your own cards.
+            // Logged-in user's id — needed for "Compare Own", to mark your own cards, and
+            // to seed the Bucket List star pre-fill. Resolve from the LOCAL session first
+            // (auth.getSession, the same source the working add-to-bucket path uses):
+            // auth.getUser() validates server-side and was coming back EMPTY here, which
+            // left authedUserId blank, so the bucket-star seed bailed with "no signed-in
+            // user id resolved" and no star ever pre-filled.
             let authedUserId = '';
             if (guestMode) {
                 authedUserId = DEMO_USER_ID;
             } else {
                 try {
-                    const { data: udata } = await supabaseClient.auth.getUser();
-                    authedUserId = String(udata?.user?.id || '').trim();
-                } catch (_) {
-                    authedUserId = '';
+                    const { data: sdata } = await supabaseClient.auth.getSession();
+                    authedUserId = String(sdata?.session?.user?.id || '').trim();
+                } catch (_) {}
+                if (!authedUserId) {
+                    try {
+                        const { data: udata } = await supabaseClient.auth.getUser();
+                        authedUserId = String(udata?.user?.id || '').trim();
+                    } catch (_) {}
+                }
+                if (!authedUserId && typeof getActiveUserId === 'function') {
+                    authedUserId = String(getActiveUserId() || '').trim();
                 }
             }
 
@@ -3472,7 +3557,7 @@
 
                             ${(movieIdStr && actorId !== authedUserId) ? `
                                 <div class="feed-card-bucket-slot">
-                                    <button type="button" class="feed-bucket-btn${inBucket ? ' is-added' : ''}" data-feed-action="add_bucket" data-feed-movie-id="${escapeHtml(movieIdStr)}" data-feed-movie-title="${escapeHtml(title)}" title="${inBucket ? 'In your Bucket List' : 'Add to Bucket List'}" aria-label="${inBucket ? `${escapeHtml(title)} is in your Bucket List` : `Add ${escapeHtml(title)} to Bucket List`}">
+                                    <button type="button" class="feed-bucket-btn${inBucket ? ' is-added' : ''}" data-feed-action="add_bucket" data-feed-movie-id="${escapeHtml(movieIdStr)}" data-feed-movie-tmdb="${escapeHtml(movieTmdbStr)}" data-feed-movie-title="${escapeHtml(title)}" title="${inBucket ? 'In your Bucket List' : 'Add to Bucket List'}" aria-label="${inBucket ? `${escapeHtml(title)} is in your Bucket List` : `Add ${escapeHtml(title)} to Bucket List`}">
                                         <svg class="feed-bucket-star" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><span>Bucket List</span>
                                     </button>
                                 </div>` : ''}
@@ -3500,6 +3585,10 @@
                 if (entries.length <= 1) return renderFeedCard(entries[0]);
                 return `<div class="feed-group">${entries.map(renderFeedCard).join('')}</div>`;
             }).join('');
+
+            // Self-healing pass: make sure every bucket-list movie's star is filled,
+            // even if the seed populated late or a card got re-rendered.
+            reconcileFeedBucketStars();
 
             // In-common mode: offer "Load More" if there may be more watch logs to scan.
             renderFeedInCommonLoadMore(elList);
