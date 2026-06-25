@@ -643,18 +643,19 @@
             if (profileStatus) profileStatus.textContent = 'Saving…';
 
             try {
-                // Display name is no longer editable in the UI; leave the existing
-                // column value untouched (don't send it, so a blank field can't wipe it).
-                const payload = {
-                    id: uid,
-                    username: desiredUsername,
-                };
-
+                // UPDATE the existing profile row's username only — do NOT upsert.
+                // Display name is no longer editable in the UI, so it isn't in the payload;
+                // but `display_name` is a NOT NULL column, and upsert's INSERT path would
+                // try to write it as null and fail ("null value in column display_name
+                // violates not-null constraint"). The Users row always exists for a
+                // signed-in account (created by the signup trigger), so a plain update is
+                // correct and leaves display_name (and every other column) untouched.
                 let data = null;
                 try {
                     const r1 = await supabaseClient
                         .from('Users')
-                        .upsert(payload, { onConflict: 'id' })
+                        .update({ username: desiredUsername })
+                        .eq('id', uid)
                         .select('username, display_name, icon')
                         .limit(1);
                     if (r1.error) throw r1.error;
@@ -662,10 +663,10 @@
                 } catch (err1) {
                     const msg1 = String(err1?.message || err1);
                     if (/column\s+"?icon"?\s+does\s+not\s+exist/i.test(msg1)) {
-                        const payload2 = { id: uid, username: desiredUsername };
                         const r2 = await supabaseClient
                             .from('Users')
-                            .upsert(payload2, { onConflict: 'id' })
+                            .update({ username: desiredUsername })
+                            .eq('id', uid)
                             .select('username, display_name')
                             .limit(1);
                         if (r2.error) throw r2.error;

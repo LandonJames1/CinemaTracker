@@ -1960,6 +1960,24 @@
             }
         }
 
+        // Demo/guest mode: never expose real identities in the public demo. Map a user id
+        // to a STABLE fake display name (same id → same name every render) so the feed
+        // reads naturally without revealing who anyone actually is.
+        const DEMO_FAKE_NAMES = [
+            'Movie Fan', 'Cinephile', 'Film Buff', 'Reel Critic', 'Screen Junkie',
+            'Popcorn Pro', 'Frame Fanatic', 'Flick Picker', 'Cinema Sage', 'Matinee Maven',
+            'Director Dreamer', 'Plot Hunter', 'Scene Stealer', 'Reel Deal', 'Night Owl',
+            'Binge Master', 'Late Show Larry', 'Indie Insider', 'Blockbuster Bea', 'Cult Classic Kid'
+        ];
+        function demoFakeNameForId(userId) {
+            const s = String(userId || '');
+            let h = 0;
+            for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+            const name = DEMO_FAKE_NAMES[h % DEMO_FAKE_NAMES.length];
+            const num = (h % 89) + 10; // 2-digit suffix so distinct users rarely collide
+            return `${name} ${num}`;
+        }
+
         async function loadFeedPage() {
             // Bind per-render DOM elements.
             loadFeedFilterPrefs();
@@ -3529,7 +3547,8 @@
                             </div>
 
                             <div class="feed-card-actor" title="View ${escapeHtml(actorUsernameRaw || 'profile')}" data-feed-action="open_profile" data-feed-user-id="${escapeHtml(actorId)}" role="button" tabindex="0" style="cursor:pointer;">
-                                ${renderUserIconHtml(actorIconId, 52)}
+                                ${/* Demo/guest mode: hide real profile photos — show the default avatar for everyone so no one's identity is exposed in the public demo. */ ''}
+                                ${renderUserIconHtml(guestMode ? '' : actorIconId, 52)}
                                 <span class="feed-card-actor-name">${(authedUserId && actorId === authedUserId) ? 'You' : escapeHtml(actorUsername)}</span>
                             </div>
                         </div>
