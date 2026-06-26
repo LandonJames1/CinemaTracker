@@ -3400,24 +3400,36 @@
             .lists-top-controls { gap: 0.55rem !important; }
             .lists-action-controls { gap: 0.55rem !important; }
 
-            /* Filters & Sort modals (Lists + My Movies): condense so they fit better.
-               Shorter fields, tighter sections, and two fields per row. */
+            /* Filters & Sort modals (Lists + My Movies): condense the labeled+pills
+               layout so a whole section fits the sheet without scrolling. */
             #lists-sortfilter-overlay .auth-modal,
             #library-sortfilter-overlay .auth-modal { padding: 1rem; }
-            #lists-sortfilter-overlay .glass-panel,
-            #library-sortfilter-overlay .glass-panel { padding: 0.7rem !important; }
+            #lists-sortfilter-overlay .sf-panel,
+            #library-sortfilter-overlay .sf-panel { padding: 0.7rem !important; }
             #lists-sortfilter-overlay .input-field,
             #lists-sortfilter-overlay .select-field,
             #library-sortfilter-overlay .input-field,
             #library-sortfilter-overlay .select-field {
-                padding: 0.4rem 0.6rem !important;
+                padding: 0.42rem 0.6rem !important;
                 border-radius: 0.7rem !important;
             }
-            #lists-sortfilter-overlay [style*="minmax(180px"],
-            #library-sortfilter-overlay [style*="minmax(180px"] {
-                grid-template-columns: 1fr 1fr !important;
-                gap: 8px !important;
+            #lists-sortfilter-overlay .sf-field,
+            #library-sortfilter-overlay .sf-field { margin-bottom: 0.55rem; }
+            #lists-sortfilter-overlay .sf-grid,
+            #library-sortfilter-overlay .sf-grid { gap: 0.5rem 0.6rem; margin-bottom: 0.55rem; }
+            #lists-sortfilter-overlay .sf-seg button,
+            #library-sortfilter-overlay .sf-seg button { padding: 0.42rem 0.45rem; font-size: 0.82rem; }
+            /* Tier pills: grow to fill the full container width (override the
+               sf-seg-wrap content-width sizing) and give them a bigger tap target. */
+            #lists-sortfilter-overlay .sf-seg-tier button,
+            #library-sortfilter-overlay .sf-seg-tier button {
+                flex: 1 1 0;
+                min-width: 0;
+                padding: 0.6rem 0.2rem;
+                font-size: 0.9rem;
             }
+            #lists-sortfilter-overlay .sf-field-label,
+            #library-sortfilter-overlay .sf-field-label { margin-bottom: 0.26rem; }
 
             /* Feed: hide the inline "Follow People" panel; the "Follows" button opens
                it as a bottom sheet (same look as the Filter modal) instead. */
@@ -5678,6 +5690,166 @@
             font-weight: 600;
             font-size: 0.9rem;
         }
+
+        /* Feed filter: people render as tap-to-toggle avatar chips (a wrap grid).
+           Scoped to #feed-filter-list so the rec modals' row layout is unaffected. */
+        #feed-filter-list {
+            flex-direction: row;
+            flex-wrap: wrap;
+            align-content: flex-start;
+            gap: 8px;
+            /* Bounded so a long follow list scrolls WITHIN this area instead of
+               stretching the whole modal. */
+            max-height: min(46vh, 360px);
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+        .feed-filter-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 5px 13px 5px 5px;
+            border-radius: 999px;
+            background: #202024;
+            border: 1px solid rgba(255,255,255,0.10);
+            color: rgba(255,255,255,0.68);
+            font-size: 0.86rem;
+            font-weight: 600;
+            cursor: pointer;
+            opacity: 0.62;
+            transition: background .12s ease, border-color .12s ease, color .12s ease, opacity .12s ease;
+        }
+        .feed-filter-chip .user-icon { flex: 0 0 auto; }
+        .feed-filter-chip .feed-filter-chip-name {
+            max-width: 130px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .feed-filter-chip:hover { opacity: 1; color: #fff; }
+        .feed-filter-chip.is-selected {
+            opacity: 1;
+            color: #fff;
+            background: color-mix(in srgb, var(--brand) 24%, #202024);
+            border-color: var(--brand);
+            box-shadow: 0 0 0 1px var(--brand) inset;
+        }
+
+        /* ============================================================
+           Filters & Sort modals — compact "labeled + pills" layout
+           (My Movies #library-sortfilter-overlay + Lists #lists-sortfilter-overlay).
+           Few-option controls (.sf-seg) are pill groups; many-option ones stay
+           labeled <select>s in a 2-col grid. Opaque surfaces by convention.
+           ============================================================ */
+        .sf-section-title {
+            color: #fff;
+            font-weight: 700;
+            font-size: 0.95rem;
+            margin-bottom: 0.55rem;
+        }
+        .sf-field { margin-bottom: 0.7rem; }
+        [data-sf] .sf-field:last-child { margin-bottom: 0; }
+        .sf-field-label {
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.46);
+            margin-bottom: 0.32rem;
+        }
+        .sf-select {
+            padding: 0.5rem 0.7rem;
+            border-radius: 0.7rem;
+            width: 100%;
+        }
+        .sf-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.6rem 0.7rem;
+            margin-bottom: 0.7rem;
+        }
+        .sf-grid .sf-field { margin-bottom: 0; }
+        .sf-grid-full { grid-column: 1 / -1; }
+
+        /* Segmented pill group (replaces a small fixed-option <select>). */
+        .sf-seg {
+            display: flex;
+            gap: 6px;
+            flex-wrap: nowrap;
+        }
+        .sf-seg.sf-seg-wrap { flex-wrap: wrap; }
+        .sf-seg button {
+            flex: 1 1 0;
+            min-width: 0;
+            padding: 0.46rem 0.5rem;
+            border-radius: 0.6rem;
+            background: #202024;
+            border: 1px solid rgba(255,255,255,0.10);
+            color: rgba(255,255,255,0.72);
+            font-size: 0.84rem;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            transition: background .12s ease, border-color .12s ease, color .12s ease;
+        }
+        .sf-seg.sf-seg-wrap button { flex: 0 1 auto; }
+        .sf-seg button:hover { background: #2a2a30; color: #fff; }
+        .sf-seg button.is-active {
+            background: var(--brand);
+            border-color: var(--brand);
+            color: #fff;
+        }
+
+        /* Tier pills mirror the log-entry tier selector: each lettered pill carries its
+           tier color, desaturated/greyed until chosen, then lit up in that tier's color.
+           ("All" / "Unranked" stay neutral seg pills.) */
+        .sf-seg-tier button[data-val="S-Tier"] { --tier-rgb: var(--tier-s-rgb); }
+        .sf-seg-tier button[data-val="A-Tier"] { --tier-rgb: var(--tier-a-rgb); }
+        .sf-seg-tier button[data-val="B-Tier"] { --tier-rgb: var(--tier-b-rgb); }
+        .sf-seg-tier button[data-val="C-Tier"] { --tier-rgb: var(--tier-c-rgb); }
+        .sf-seg-tier button[data-val="D-Tier"] { --tier-rgb: var(--tier-d-rgb); }
+        .sf-seg-tier button[data-val="F-Tier"] { --tier-rgb: var(--tier-f-rgb); }
+        .sf-seg-tier button[data-val$="-Tier"] {
+            background: rgba(var(--tier-rgb), 0.16);
+            border-color: rgba(var(--tier-rgb), 0.40);
+            color: #fff;
+            opacity: 0.42;
+            filter: grayscale(0.7) saturate(0.6);
+        }
+        .sf-seg-tier button[data-val$="-Tier"]:hover {
+            opacity: 0.72;
+            background: rgba(var(--tier-rgb), 0.26);
+            color: #fff;
+        }
+        .sf-seg-tier button[data-val$="-Tier"].is-active {
+            opacity: 1;
+            filter: none;
+            background: rgba(var(--tier-rgb), 0.50);
+            border-color: rgba(var(--tier-rgb), 0.85);
+            color: #fff;
+            box-shadow: 0 0 0 2px rgba(var(--tier-rgb), 0.22);
+        }
+
+        /* "Recommended by" pills (Recs list) carry an avatar. The group is bounded so a
+           long recommender list scrolls WITHIN it instead of stretching the modal. */
+        .sf-recby {
+            max-height: 168px;
+            overflow-y: auto;
+            align-content: flex-start;
+            padding-right: 4px;
+        }
+        .sf-recby button {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0.28rem 0.6rem 0.28rem 0.3rem;
+            border-radius: 999px;
+        }
+        .sf-recby button[data-val=""] { padding: 0.28rem 0.8rem; }
+        .sf-recby .user-icon { flex: 0 0 auto; }
+        .sf-recby-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
 
         /* Library (My Movies) */
         .library-card-row {

@@ -37,6 +37,44 @@
         let listsEditMembers = [];                      // Edit modal: current members of the active list
         let listsEditAddMode = false;                   // Edit modal: showing the "add member" picker?
 
+        // ===== Shared segmented-pill controls (Filters & Sort modals) =====
+        // A `.sf-seg` group is a row of `<button data-val="…">` pills with exactly one
+        // `.is-active`; it replaces a small fixed-option <select> in the My Movies +
+        // Lists filter modals. Defined here because 04 loads before 05, so both modals
+        // share these globals. State is read on Save via sfSegGetValue.
+        let sfSegListenerBound = false;
+        function ensureSfSegListener() {
+            if (sfSegListenerBound) return;
+            sfSegListenerBound = true;
+            document.addEventListener('click', (e) => {
+                const btn = e?.target?.closest ? e.target.closest('.sf-seg button[data-val]') : null;
+                if (!btn) return;
+                const group = btn.closest('.sf-seg');
+                if (!group) return;
+                e.preventDefault();
+                sfSegSetValue(group, String(btn.dataset.val || ''));
+            });
+        }
+        function sfSegSetValue(container, val) {
+            if (!container) return;
+            const want = String(val == null ? '' : val);
+            const btns = Array.from(container.querySelectorAll('button[data-val]'));
+            if (!btns.length) return;
+            let matched = false;
+            btns.forEach((b) => {
+                const on = String(b.dataset.val || '') === want;
+                b.classList.toggle('is-active', on);
+                if (on) matched = true;
+            });
+            // Unknown value → fall back to the first pill (its data-val is the default).
+            if (!matched) btns.forEach((b, i) => b.classList.toggle('is-active', i === 0));
+        }
+        function sfSegGetValue(container) {
+            if (!container) return '';
+            const active = container.querySelector('button[data-val].is-active');
+            return active ? String(active.dataset.val || '') : '';
+        }
+
         function isBucketList({ list_id, list_name } = {}) {
             const lid = String(list_id || '').trim();
             if (lid && cachedBucketListId && String(cachedBucketListId) === lid) return true;
@@ -1505,6 +1543,9 @@
             pushFilter('mpa', st.mpa, { label: 'MPA' });
             pushFilter('genre', st.genre, { label: 'Genre' });
             pushFilter('watchMethod', st.watchMethod, { label: 'Watch Method' });
+            if (String(st.recommendedBy || '').trim()) {
+                pushFilter('recommendedBy', recByUsernameLabel(st.recommendedBy), { label: 'Recommended by' });
+            }
             if (String(st.timeframe || '').trim() && String(st.timeframe || '').trim() !== 'all_time') {
                 pushFilter('timeframe', st.timeframe, { label: 'Timeframe' });
             }
@@ -1590,6 +1631,9 @@
             const watchMethod = String(st.watchMethod || '').trim();
             if (watchMethod) addFilterChip('watchMethod', `Watch Method: ${watchMethod}`);
 
+            const recBy = String(st.recommendedBy || '').trim();
+            if (recBy) addFilterChip('recommendedBy', `Recommended by ${recByUsernameLabel(recBy)}`);
+
             const watchMin = String(st.watchCountMin || '').trim();
             const watchMax = String(st.watchCountMax || '').trim();
             if (watchMin || watchMax) {
@@ -1648,33 +1692,34 @@
                 watchCountMin: '',
                 watchCountMax: '',
                 timeframe: 'all_time',
+                recommendedBy: '',   // Recs only: filter to one recommender (user id)
             };
+        }
+
+        function isRecsList() {
+            return String(listsActiveListName || '').trim().toLowerCase() === 'recs';
+        }
+
+        // Bucket List + Recs only ever hold UNWATCHED movies (logging a movie auto-removes
+        // it via removeMovieFromAutoLists), so rating/watch-based filters & sorts don't apply.
+        function isUnwatchedAutoList() {
+            return isRecsList() || isBucketList({ list_id: listsActiveListId, list_name: listsActiveListName });
         }
 
         function getDefaultListsSortFilterStateForActiveList() {
             const base = getDefaultListsSortFilterState();
-            // The "Recs" list defaults to newest recommendation first.
-            if (String(listsActiveListName || '').trim().toLowerCase() === 'recs') {
+            // Unwatched lists default to most-recently added first (Recs = newest rec).
+            if (isUnwatchedAutoList()) {
                 return { ...base, sortKey: 'rec_added', sortDir: 'desc' };
             }
             return base;
         }
 
         function getAllowedListsSortKeysForActiveList() {
-            // Recs are usually unwatched, so watch-based sorts don't apply; offer rec date instead.
-            if (String(listsActiveListName || '').trim().toLowerCase() === 'recs') {
-                return [
-                    'rec_added',
-                    'overall',
-                    'sound',
-                    'pace',
-                    'imagery',
-                    'acting',
-                    'plot',
-                    'dialogue',
-                    'imdb',
-                    'release_year',
-                ];
+            // Unwatched lists have no personal ratings/watch data, so only offer
+            // date-added, release year, and IMDb.
+            if (isUnwatchedAutoList()) {
+                return ['rec_added', 'release_year', 'imdb'];
             }
             return [
                 'watch_date',
@@ -1697,19 +1742,35 @@
             }
         }
 
+        // Show/hide a `data-sf-field` row inside the Lists filter modal.
+        function setListsFilterFieldVisible(name, visible) {
+            const overlay = document.getElementById('lists-sortfilter-overlay');
+            if (!overlay) return;
+            const el = overlay.querySelector(`[data-sf-field="${name}"]`);
+            if (el) el.style.display = visible ? '' : 'none';
+        }
+
         function configureListsSortFilterModalForActiveList() {
             const els = getListsSortFilterModalEls();
             if (!els.sortKey) return;
 
-            // Recs are unwatched, so the Watch Count Range filter doesn't apply — hide it.
-            const isRecs = String(listsActiveListName || '').trim().toLowerCase() === 'recs';
-            const watchRange = document.getElementById('lists-watch-count-range');
-            if (watchRange) watchRange.style.display = isRecs ? 'none' : '';
+            const unwatched = isUnwatchedAutoList();
+            const isRecs = isRecsList();
+
+            // Unwatched lists (Bucket List + Recs) have no personal ratings/watch data,
+            // so hide every filter tied to one. The "Recommended by" filter is Recs-only.
+            setListsFilterFieldVisible('timeframe', !unwatched);
+            setListsFilterFieldVisible('watchmethod', !unwatched);
+            setListsFilterFieldVisible('tier', !unwatched);
+            setListsFilterFieldVisible('watchcount', !unwatched);
+            setListsFilterFieldVisible('recby', isRecs);
 
             const allowed = new Set(getAllowedListsSortKeysForActiveList());
 
+            // Date-added is labeled per list: "Recommended (newest)" on Recs, else generic.
+            const addedLabel = isRecs ? 'Recommended (newest)' : 'Recently added';
             const sortOptions = [
-                { value: 'rec_added', label: 'Recommended (newest)' },
+                { value: 'rec_added', label: addedLabel },
                 { value: 'watch_date', label: 'Watch Date' },
                 { value: 'watch_count', label: 'Watch Count' },
                 { value: 'overall', label: 'Overall %' },
@@ -1730,7 +1791,8 @@
             }
 
             // If current state is incompatible with this list, coerce it to the
-            // list's own default (e.g. entering "Recs" → newest-recommended first).
+            // list's own default (e.g. entering "Recs" → newest-recommended first), and
+            // clear any hidden filter values so they don't silently filter the list.
             ensureListsSortFilterStateInitialized();
             const def = getDefaultListsSortFilterStateForActiveList();
             const next = { ...listsSortFilterState };
@@ -1739,8 +1801,61 @@
                 next.sortKey = def.sortKey;
                 next.sortDir = def.sortDir;
             }
+            if (unwatched) {
+                next.tier = '';
+                next.watchMethod = '';
+                next.watchCountMin = '';
+                next.watchCountMax = '';
+                next.timeframe = 'all_time';
+            }
+            if (!isRecs) next.recommendedBy = '';
 
             listsSortFilterState = next;
+        }
+
+        // Build the "Recommended by" pill row from the distinct recommenders of the
+        // movies currently on the Recs list (populated by loadListsPage). Recs-only.
+        function populateListsRecByPills() {
+            const group = document.getElementById('lists-modal-filter-recby');
+            if (!group) return;
+            if (!isRecsList()) { group.innerHTML = ''; return; }
+
+            const byId = new Map(); // userId -> { id, username, icon }
+            recByDataByMovieId.forEach((arr) => {
+                (Array.isArray(arr) ? arr : []).forEach((r) => {
+                    const id = String(r?.id || '').trim();
+                    if (id && !byId.has(id)) byId.set(id, r);
+                });
+            });
+
+            const people = Array.from(byId.values())
+                .sort((a, b) => String(a?.username || '').localeCompare(String(b?.username || '')));
+
+            const selected = String(listsSortFilterState?.recommendedBy || '').trim();
+            const pills = [`<button type="button" data-val="">All</button>`].concat(
+                people.map((p) => {
+                    const id = String(p?.id || '').trim();
+                    const uname = String(p?.username || '').trim() || 'user';
+                    return `<button type="button" data-val="${escapeHtml(id)}" title="@${escapeHtml(uname)}">${renderUserIconHtml(String(p?.icon || ''), 22)}<span class="sf-recby-name">@${escapeHtml(uname)}</span></button>`;
+                })
+            );
+            group.innerHTML = pills.join('');
+            // Reflect current selection (falls back to "All" if the recommender is gone).
+            sfSegSetValue(group, selected);
+        }
+
+        // Resolve a recommender user id → "@username" (for the active-filter chip/summary).
+        function recByUsernameLabel(userId) {
+            const id = String(userId || '').trim();
+            if (!id) return '';
+            let uname = '';
+            recByDataByMovieId.forEach((arr) => {
+                if (uname) return;
+                (Array.isArray(arr) ? arr : []).forEach((r) => {
+                    if (!uname && String(r?.id || '').trim() === id) uname = String(r?.username || '').trim();
+                });
+            });
+            return uname ? `@${uname}` : 'a user';
         }
 
         function getListsSortFilterModalEls() {
@@ -1755,6 +1870,7 @@
                 mpa: document.getElementById('lists-modal-filter-mpa'),
                 genre: document.getElementById('lists-modal-filter-genre'),
                 watchMethod: document.getElementById('lists-modal-filter-watchmethod'),
+                recBy: document.getElementById('lists-modal-filter-recby'),
                 timeframe: document.getElementById('lists-modal-filter-timeframe'),
                 watchRail: document.getElementById('lists-watch-count-rail'),
                 watchMinLabel: document.getElementById('lists-watch-count-min'),
@@ -1891,22 +2007,19 @@
 
         function loadListsFacetsIntoModal() {
             const els = getListsSortFilterModalEls();
+            // Genre / MPA / Decade stay as <select>; Watch Method is now a fixed .sf-seg
+            // pill group, so it is NOT rebuilt here (that would wipe the pills).
             setSelectOptions(els.decade, {
-                baseOptions: [{ value: '', label: 'Release Decade (All)' }],
+                baseOptions: [{ value: '', label: 'All' }],
                 values: listsFacetOptions?.decades || [],
             });
             setSelectOptions(els.mpa, {
-                baseOptions: [{ value: '', label: 'MPA (All)' }],
+                baseOptions: [{ value: '', label: 'All' }],
                 values: listsFacetOptions?.mpas || [],
             });
             setSelectOptions(els.genre, {
-                baseOptions: [{ value: '', label: 'Genre (All)' }],
+                baseOptions: [{ value: '', label: 'All' }],
                 values: listsFacetOptions?.genres || [],
-            });
-
-            setSelectOptions(els.watchMethod, {
-                baseOptions: [{ value: '', label: 'Watch Method (All)' }],
-                values: listsFacetOptions?.watchMethods || ['At Home', 'In Theater'],
             });
 
             if (els.timeframe) {
@@ -1927,9 +2040,9 @@
 
                 const keepVal = String(els.timeframe.value || 'all_time');
                 els.timeframe.innerHTML = `
-                    <option value="all_time">Watch Date (All Time)</option>
-                    <option value="this_year">Watch Date (This Year)</option>
-                    <option value="this_month">Watch Date (This Month)</option>
+                    <option value="all_time">All time</option>
+                    <option value="this_year">This year</option>
+                    <option value="this_month">This month</option>
                     ${monthOptions}
                 `;
                 els.timeframe.value = keepVal || 'all_time';
@@ -1942,14 +2055,16 @@
             const els = getListsSortFilterModalEls();
             if (!els.sortKey || !els.sortDir) return;
             els.sortKey.value = String(state?.sortKey || 'watch_date');
-            els.sortDir.value = (String(state?.sortDir || 'desc') === 'asc') ? 'asc' : 'desc';
-            if (els.tier) els.tier.value = String(state?.tier || '');
+            // Watch Method / Tier / Sort direction / Recommended-by are .sf-seg pill groups.
+            sfSegSetValue(els.sortDir, (String(state?.sortDir || 'desc') === 'asc') ? 'asc' : 'desc');
+            sfSegSetValue(els.tier, String(state?.tier || ''));
+            sfSegSetValue(els.watchMethod, String(state?.watchMethod || ''));
+            if (els.recBy) sfSegSetValue(els.recBy, String(state?.recommendedBy || ''));
             if (els.decade) els.decade.value = String(state?.decade || '');
             if (els.director) els.director.value = String(state?.directorContains || '');
             if (els.actor) els.actor.value = String(state?.actorContains || '');
             if (els.mpa) els.mpa.value = String(state?.mpa || '');
             if (els.genre) els.genre.value = String(state?.genre || '');
-            if (els.watchMethod) els.watchMethod.value = String(state?.watchMethod || '');
             if (els.timeframe) els.timeframe.value = String(state?.timeframe || 'all_time');
             setListsWatchCountRangeFromState(state || {});
         }
@@ -1966,14 +2081,15 @@
             const useMax = (Number.isFinite(maxVal) && maxAvail > 0 && maxVal < maxAvail) ? maxVal : '';
             return {
                 sortKey: getVal(els.sortKey) || 'watch_date',
-                sortDir: (getVal(els.sortDir) === 'asc') ? 'asc' : 'desc',
-                tier: getVal(els.tier),
+                sortDir: (sfSegGetValue(els.sortDir) === 'asc') ? 'asc' : 'desc',
+                tier: sfSegGetValue(els.tier),
                 decade: getVal(els.decade),
                 directorContains: getVal(els.director),
                 actorContains: getVal(els.actor),
                 mpa: getVal(els.mpa),
                 genre: getVal(els.genre),
-                watchMethod: getVal(els.watchMethod),
+                watchMethod: sfSegGetValue(els.watchMethod),
+                recommendedBy: els.recBy ? sfSegGetValue(els.recBy) : '',
                 watchCountMin: useMin,
                 watchCountMax: useMax,
                 timeframe: getVal(els.timeframe) || 'all_time',
@@ -1982,6 +2098,7 @@
 
         function openListsSortFilterModal(mode) {
             ensureListsSortFilterStateInitialized();
+            ensureSfSegListener();
             const els = getListsSortFilterModalEls();
             if (!els.overlay) return;
             const lid = String(listsActiveListId || '').trim();
@@ -1990,6 +2107,9 @@
                 return;
             }
             listsSortFilterDraft = { ...listsSortFilterState };
+            // Reflect the active list (field visibility, sort options, recby pills) each open.
+            configureListsSortFilterModalForActiveList();
+            populateListsRecByPills();
             loadListsFacetsIntoModal();
             setListsSortFilterModalFromState(listsSortFilterState);
             initListsWatchCountRange();
@@ -2037,6 +2157,7 @@
             const next = getDefaultListsSortFilterStateForActiveList();
             listsSortFilterDraft = next;
             configureListsSortFilterModalForActiveList();
+            populateListsRecByPills();
             loadListsFacetsIntoModal();
             setListsSortFilterModalFromState(next);
         }
@@ -2086,10 +2207,16 @@
             const wantedWatchMaxRaw = String(st.watchCountMax || '').trim();
             const wantedWatchMin = wantedWatchMinRaw ? Number(wantedWatchMinRaw) : null;
             const wantedWatchMax = wantedWatchMaxRaw ? Number(wantedWatchMaxRaw) : null;
+            const wantedRecBy = String(st.recommendedBy || '').trim();
             const timeframeRange = libraryComputeTimeframeRange(st?.timeframe);
 
             const filtered = (Array.isArray(items) ? items : []).filter((it) => {
                 if (!it) return false;
+
+                if (wantedRecBy) {
+                    const recs = recByDataByMovieId.get(String(it?.movie_id || '')) || [];
+                    if (!recs.some(r => String(r?.id || '').trim() === wantedRecBy)) return false;
+                }
 
                 if (wantedTier) {
                     const t = String(it?.tier || '').trim();

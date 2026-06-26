@@ -339,14 +339,20 @@
                     saveFeedFilterPrefs();
                     return;
                 }
+            });
 
-                if (cb.classList && cb.classList.contains('feed-filter-user-cb')) {
-                    const uid = String(cb.dataset.feedUserId || '').trim();
-                    if (!uid) return;
-                    if (cb.checked) feedExcludedUserIds.delete(uid);
-                    else feedExcludedUserIds.add(uid);
-                    saveFeedFilterPrefs();
-                }
+            // Filter modal: tap an avatar chip to toggle whether that person appears.
+            document.addEventListener('click', (e) => {
+                const chip = e?.target?.closest ? e.target.closest('.feed-filter-chip') : null;
+                if (!chip) return;
+                const uid = String(chip.dataset.feedUserId || '').trim();
+                if (!uid) return;
+                const nowSelected = feedExcludedUserIds.has(uid); // toggling: was excluded → now shown
+                if (nowSelected) feedExcludedUserIds.delete(uid);
+                else feedExcludedUserIds.add(uid);
+                chip.classList.toggle('is-selected', nowSelected);
+                chip.setAttribute('aria-pressed', nowSelected ? 'true' : 'false');
+                saveFeedFilterPrefs();
             });
 
             // Filter modal: live search over people you follow.
@@ -723,14 +729,15 @@
             const els = getLibrarySortFilterModalEls();
             if (!els.sortKey || !els.sortDir) return;
             els.sortKey.value = String(state?.sortKey || 'watch_date');
-            els.sortDir.value = (String(state?.sortDir || 'desc') === 'asc') ? 'asc' : 'desc';
-            if (els.tier) els.tier.value = String(state?.tier || '');
+            // Watch Method / Tier / Sort direction are .sf-seg pill groups, not <select>.
+            sfSegSetValue(els.sortDir, (String(state?.sortDir || 'desc') === 'asc') ? 'asc' : 'desc');
+            sfSegSetValue(els.tier, String(state?.tier || ''));
+            sfSegSetValue(els.watchMethod, String(state?.watchMethod || ''));
             if (els.decade) els.decade.value = String(state?.decade || '');
             if (els.director) els.director.value = String(state?.directorContains || '');
             if (els.actor) els.actor.value = String(state?.actorContains || '');
             if (els.mpa) els.mpa.value = String(state?.mpa || '');
             if (els.genre) els.genre.value = String(state?.genre || '');
-            if (els.watchMethod) els.watchMethod.value = String(state?.watchMethod || '');
             if (els.timeframe) els.timeframe.value = String(state?.timeframe || 'all_time');
             setLibraryWatchCountRangeFromState(state || {});
         }
@@ -748,8 +755,8 @@
             const useMax = (Number.isFinite(maxVal) && maxAvail > 0 && maxVal < maxAvail) ? maxVal : '';
             return {
                 sortKey: getVal(els.sortKey) || 'watch_date',
-                sortDir: (getVal(els.sortDir) === 'asc') ? 'asc' : 'desc',
-                tier: getVal(els.tier),
+                sortDir: (sfSegGetValue(els.sortDir) === 'asc') ? 'asc' : 'desc',
+                tier: sfSegGetValue(els.tier),
                 decade: getVal(els.decade),
                 directorContains: getVal(els.director),
                 actorContains: getVal(els.actor),
@@ -757,7 +764,7 @@
                 movieTitle: '',
                 mpa: getVal(els.mpa),
                 genre: getVal(els.genre),
-                watchMethod: getVal(els.watchMethod),
+                watchMethod: sfSegGetValue(els.watchMethod),
                 watchCountMin: useMin,
                 watchCountMax: useMax,
                 timeframe: getVal(els.timeframe) || 'all_time',
@@ -768,6 +775,7 @@
         // one modal; the two My Movies buttons just open it focused on one section.
         function openLibrarySortFilterModal(mode) {
             ensureLibrarySortFilterStateInitialized();
+            ensureSfSegListener();
             const els = getLibrarySortFilterModalEls();
             if (!els.overlay) return;
             // snapshot current inputs as draft
@@ -1274,11 +1282,11 @@
                     timeframe: String(timeframeEl?.value || ''),
                 };
 
-                decadeEl.innerHTML = `<option value="">Release Decade (All)</option>` +
+                decadeEl.innerHTML = `<option value="">All</option>` +
                     sortedDecades.map(d => `<option value="${escapeHtml(String(d))}">${escapeHtml(String(d))}s</option>`).join('');
-                mpaEl.innerHTML = `<option value="">MPA (All)</option>` +
+                mpaEl.innerHTML = `<option value="">All</option>` +
                     sortedMpas.map(v => `<option value="${escapeHtml(String(v))}">${escapeHtml(String(v))}</option>`).join('');
-                genreEl.innerHTML = `<option value="">Genre (All)</option>` +
+                genreEl.innerHTML = `<option value="">All</option>` +
                     sortedGenres.map(v => `<option value="${escapeHtml(String(v))}">${escapeHtml(String(v))}</option>`).join('');
 
                 if (timeframeEl) {
@@ -1296,9 +1304,9 @@
                     }).join('');
 
                     timeframeEl.innerHTML = `
-                        <option value="all_time">Watch Date (All Time)</option>
-                        <option value="this_year">Watch Date (This Year)</option>
-                        <option value="this_month">Watch Date (This Month)</option>
+                        <option value="all_time">All time</option>
+                        <option value="this_year">This year</option>
+                        <option value="this_month">This month</option>
                         ${monthOptions}
                     `;
                 }
@@ -2990,21 +2998,18 @@
                 return;
             }
 
+            // Tap-to-toggle avatar chips (selected = shown in feed). Compact wrap grid.
             list.innerHTML = filtered.map((u) => {
                 const id = String(u?.id || '').trim();
                 const username = String(u?.username || '').trim();
                 const name = String(u?.display_name || '').trim() || (username ? `@${username}` : 'User');
                 const iconId = String(u?.icon || '').trim();
-                const checked = !feedExcludedUserIds.has(id);
+                const selected = !feedExcludedUserIds.has(id);
                 return `
-                    <label class="feed-filter-user-row">
-                        <input type="checkbox" class="feed-filter-cb feed-filter-user-cb" data-feed-user-id="${escapeHtml(id)}" ${checked ? 'checked' : ''}>
-                        ${renderUserIconHtml(iconId, 26)}
-                        <div style="min-width:0;">
-                            <div class="feed-filter-user-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(name)}</div>
-                            ${username ? `<div class="text-xs text-gray">@${escapeHtml(username)}</div>` : ''}
-                        </div>
-                    </label>
+                    <button type="button" class="feed-filter-chip${selected ? ' is-selected' : ''}" data-feed-user-id="${escapeHtml(id)}" aria-pressed="${selected ? 'true' : 'false'}" title="${escapeHtml(name)}">
+                        ${renderUserIconHtml(iconId, 30)}
+                        <span class="feed-filter-chip-name">${escapeHtml(name)}</span>
+                    </button>
                 `;
             }).join('');
         }
