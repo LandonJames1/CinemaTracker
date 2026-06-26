@@ -6364,6 +6364,61 @@
             line-height: 1.2;
         }
 
+        /* Diary Entry modal — Edit / Recommend / Delete action row.
+           Three equal-width, side-by-side tile buttons (icon over label), each
+           a distinct OPAQUE tinted color: Edit = brand, Recommend = accent,
+           Delete = red. Bigger tap targets than the old text buttons. */
+        .diary-actions-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 18px;
+        }
+        .diary-action-btn {
+            flex: 1 1 0;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            padding: 0.54rem 0.3rem;
+            border-radius: 0.7rem;
+            border: 1.5px solid transparent;
+            font-weight: 800;
+            font-size: 0.68rem;
+            cursor: pointer;
+            transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+        }
+        .diary-action-btn:active { transform: scale(0.96); }
+        .diary-action-ico { display: inline-flex; }
+        .diary-action-ico svg { width: 17px; height: 17px; }
+        .diary-action-lbl { line-height: 1; }
+        /* Edit = brand */
+        .diary-action-edit {
+            background: color-mix(in srgb, var(--brand, #14b8a6) 24%, #202024);
+            border-color: color-mix(in srgb, var(--brand, #14b8a6) 60%, transparent);
+            color: color-mix(in srgb, var(--brand, #14b8a6) 35%, #fff);
+        }
+        .diary-action-edit:hover { background: color-mix(in srgb, var(--brand, #14b8a6) 36%, #202024); }
+        /* Recommend = secondary accent */
+        .diary-action-rec {
+            background: color-mix(in srgb, var(--brand-2, #a855f7) 24%, #202024);
+            border-color: color-mix(in srgb, var(--brand-2, #a855f7) 60%, transparent);
+            color: color-mix(in srgb, var(--brand-2, #a855f7) 35%, #fff);
+        }
+        .diary-action-rec:hover { background: color-mix(in srgb, var(--brand-2, #a855f7) 36%, #202024); }
+        /* Delete = red */
+        .diary-action-delete {
+            background: color-mix(in srgb, #ef4444 22%, #202024);
+            border-color: color-mix(in srgb, #ef4444 58%, transparent);
+            color: color-mix(in srgb, #ef4444 30%, #fff);
+        }
+        .diary-action-delete:hover { background: color-mix(in srgb, #ef4444 34%, #202024); }
+        @media (min-width: 769px) {
+            .diary-action-btn { font-size: 0.72rem; padding: 0.58rem 0.38rem; }
+            .diary-action-ico svg { width: 18px; height: 18px; }
+        }
+
         /* Icon Size Helper */
         svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
         .icon-sm svg { width: 16px; height: 16px; }

@@ -855,6 +855,25 @@
             overlay.classList.add('open');
         }
 
+        // Edit / Recommend / Delete action row for the Diary Entry modal. Three
+        // equal-width, side-by-side tile buttons (icon over label), each with its
+        // own color so they read distinctly: Edit = brand, Recommend = accent,
+        // Delete = red. Used by both the mobile and desktop diary body.
+        function renderDiaryActionsHtml(it, mid, title, poster_path, esc) {
+            return `
+                <div class="diary-actions-row">
+                    <button type="button" class="diary-action-btn diary-action-edit" data-library-action="edit_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" data-tmdb-id="${esc(String(it?.tmdb_id ?? ''))}" data-poster-path="${esc(poster_path)}">
+                        <span class="diary-action-ico">${icons.edit3}</span><span class="diary-action-lbl">Edit</span>
+                    </button>
+                    <button type="button" class="diary-action-btn diary-action-rec" data-library-action="recommend" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}">
+                        <span class="diary-action-ico">${icons.users}</span><span class="diary-action-lbl">Recommend</span>
+                    </button>
+                    <button type="button" class="diary-action-btn diary-action-delete" data-library-action="delete_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}">
+                        <span class="diary-action-ico">${icons.trash2}</span><span class="diary-action-lbl">Delete</span>
+                    </button>
+                </div>`;
+        }
+
         // Shared renderer for the Diary Entry modal body — used both for the
         // current user's own entry (`openLibraryMovieModal`, with Edit/Delete/
         // Recommend actions) and for another user's review opened from the
@@ -910,12 +929,7 @@
                     ? `<div style="text-align:center; color:rgba(255,255,255,0.55); font-size:0.78rem; margin-bottom:10px;">Last watch: ${esc(mostRecent)}${watchCount > 0 ? ` · ${watchCount} time${watchCount === 1 ? '' : 's'}` : ''}</div>`
                     : '';
                 const titleLine = `${esc(title)}${year ? ` (${esc(year)})` : ''}${imdbWhole !== null ? ` - ${imdbWhole}% IMDb` : ''}`;
-                const actionsHtml = showActions ? `
-                    <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:16px;">
-                        <button type="button" class="btn btn-outline" data-library-action="edit_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" data-tmdb-id="${esc(String(it?.tmdb_id ?? ''))}" data-poster-path="${esc(poster_path)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Edit</button>
-                        <button type="button" class="btn btn-outline" data-library-action="delete_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem; border-color:rgba(239,68,68,0.55); color:rgba(239,68,68,0.95);">Delete</button>
-                        <button type="button" class="btn btn-outline" data-library-action="recommend" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Recommend</button>
-                    </div>` : '';
+                const actionsHtml = showActions ? renderDiaryActionsHtml(it, mid, title, poster_path, esc) : '';
                 return `
                     ${lastWatchLine}
                     <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
@@ -936,12 +950,7 @@
                 `;
             }
 
-            const actionsHtmlDesktop = showActions ? `
-                <div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-top:16px;">
-                    <button type="button" class="btn btn-outline" data-library-action="edit_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" data-tmdb-id="${esc(String(it?.tmdb_id ?? ''))}" data-poster-path="${esc(poster_path)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Edit</button>
-                    <button type="button" class="btn btn-outline" data-library-action="delete_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem; border-color:rgba(239,68,68,0.55); color:rgba(239,68,68,0.95);">Delete</button>
-                    <button type="button" class="btn btn-outline" data-library-action="recommend" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" style="border-radius:0.8rem; padding:0.5rem 0.9rem;">Recommend</button>
-                </div>` : '';
+            const actionsHtmlDesktop = showActions ? renderDiaryActionsHtml(it, mid, title, poster_path, esc) : '';
             return `
                 <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
                     ${posterUrl ? `<img src="${posterUrl}" alt="${esc(title)}" style="width:150px; aspect-ratio:2/3; object-fit:cover; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">` : ''}
