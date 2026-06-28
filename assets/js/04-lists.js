@@ -25,6 +25,11 @@
 
         let listPickerSelectedMovie = null;
         let listPickerBusy = false;
+        let listPickerSelectedIds = new Set();   // list ids highlighted for multi-add
+        let listPickerExistingIds = new Set();   // list ids the movie is already in (greyed out)
+        let listPickerAllLists = [];             // every loaded list (unfiltered), for search
+        let listPickerInfoCache = null;          // cached per-list cover/count info, so search doesn't re-query
+        let listPickerSearchQuery = '';          // current search text filtering the list grid
         let listsCreateBusy = false;
         let listsRenameBusy = false;
         let listsDeleteBusy = false;
@@ -91,8 +96,15 @@
             if (statusEl) statusEl.textContent = '';
             const nameEl = document.getElementById('list-picker-new-name');
             if (nameEl) nameEl.value = '';
+            const searchEl = document.getElementById('list-picker-search');
+            if (searchEl) searchEl.value = '';
             listPickerSelectedMovie = null;
             listPickerBusy = false;
+            listPickerSelectedIds = new Set();
+            listPickerExistingIds = new Set();
+            listPickerAllLists = [];
+            listPickerInfoCache = null;
+            listPickerSearchQuery = '';
         }
 
         // ===== Movie Recommendations =====
@@ -1503,10 +1515,13 @@
                 // Light up Filter when a FILTER is active, Sort when SORT is non-default.
                 const def = getDefaultListsSortFilterStateForActiveList();
                 const st = listsSortFilterState || {};
+                // Normalize watchOptions to its EFFECTIVE value (empty when none OR all
+                // selected) so "Select all" reads the same as default (not an active filter).
+                const stNorm = { ...st, watchOptions: listsEffectiveWatchOptions(st) };
                 const sortActive = String(st.sortKey ?? '') !== String(def.sortKey ?? '')
                     || String(st.sortDir ?? '') !== String(def.sortDir ?? '');
-                const filterActive = Object.keys({ ...def, ...st }).some(k =>
-                    k !== 'sortKey' && k !== 'sortDir' && String(st[k] ?? '') !== String(def[k] ?? ''));
+                const filterActive = Object.keys({ ...def, ...stNorm }).some(k =>
+                    k !== 'sortKey' && k !== 'sortDir' && String(stNorm[k] ?? '') !== String(def[k] ?? ''));
                 filterBtn.classList.toggle('filter-active', filterActive);
                 const sortBtnEl = document.getElementById('lists-sort-btn');
                 if (sortBtnEl) sortBtnEl.classList.toggle('filter-active', sortActive);
@@ -1515,7 +1530,7 @@
 
         let listsSortFilterState = null;
         let listsSortFilterDraft = null;
-        let listsFacetOptions = { decades: [], mpas: [], genres: [], watchMethods: [], timeframes: [] };
+        let listsFacetOptions = { decades: [], mpas: [], genres: [], watchMethods: [], timeframes: [], platforms: [] };
         let listsWatchCountMax = 0;
 
         function buildSortFilterStatusLine({ state, defaults, labels }) {
@@ -1545,6 +1560,10 @@
             pushFilter('watchMethod', st.watchMethod, { label: 'Watch Method' });
             if (String(st.recommendedBy || '').trim()) {
                 pushFilter('recommendedBy', recByUsernameLabel(st.recommendedBy), { label: 'Recommended by' });
+            }
+            const effWatchOpts = listsEffectiveWatchOptions(st);
+            if (effWatchOpts.length) {
+                pushFilter('watchOptions', effWatchOpts.map((p) => platformShortLabel(p) || p).join(', '), { label: 'Watch options' });
             }
             if (String(st.timeframe || '').trim() && String(st.timeframe || '').trim() !== 'all_time') {
                 pushFilter('timeframe', st.timeframe, { label: 'Timeframe' });
@@ -1634,6 +1653,11 @@
             const recBy = String(st.recommendedBy || '').trim();
             if (recBy) addFilterChip('recommendedBy', `Recommended by ${recByUsernameLabel(recBy)}`);
 
+            const effWatch = listsEffectiveWatchOptions(st);
+            if (effWatch.length) {
+                addFilterChip('watchOptions', `Watch options: ${effWatch.map((p) => platformShortLabel(p) || p).join(', ')}`);
+            }
+
             const watchMin = String(st.watchCountMin || '').trim();
             const watchMax = String(st.watchCountMax || '').trim();
             if (watchMin || watchMax) {
@@ -1693,6 +1717,7 @@
                 watchCountMax: '',
                 timeframe: 'all_time',
                 recommendedBy: '',   // Recs only: filter to one recommender (user id)
+                watchOptions: [],    // multi-select: platform names; movie matches ANY
             };
         }
 
@@ -1764,6 +1789,10 @@
             setListsFilterFieldVisible('tier', !unwatched);
             setListsFilterFieldVisible('watchcount', !unwatched);
             setListsFilterFieldVisible('recby', isRecs);
+            // Watch options apply to every list — show only when this list's movies have
+            // any known platforms (else the filter would be empty).
+            const hasPlatforms = Array.isArray(listsFacetOptions?.platforms) && listsFacetOptions.platforms.length > 0;
+            setListsFilterFieldVisible('watchoptions', hasPlatforms);
 
             const allowed = new Set(getAllowedListsSortKeysForActiveList());
 
@@ -1809,6 +1838,7 @@
                 next.timeframe = 'all_time';
             }
             if (!isRecs) next.recommendedBy = '';
+            if (!hasPlatforms) next.watchOptions = [];
 
             listsSortFilterState = next;
         }
@@ -1858,6 +1888,142 @@
             return uname ? `@${uname}` : 'a user';
         }
 
+        // ---- Watch options (streaming platforms) MULTI-select filter ----------------
+        // A platform pill grid that is its OWN scrollable section at the bottom of the
+        // filters modal. Multi-select: it deliberately does NOT use the `.sf-seg` class
+        // (the shared ensureSfSegListener enforces single-select on any .sf-seg). Each
+        // pill is brand-color-coded exactly like the Watch Options movie popup
+        // (platformBrandTheme). Selected platforms sort to the TOP. The selection is the
+        // source of truth in `listsWatchOptionsSelected` (a Set of full platform names),
+        // so a search-filtered-out-but-selected platform is never lost. A per-section
+        // search bar + Select all / Deselect all live above the grid.
+        let listsWatchOptionsSelected = new Set();  // selected full platform names
+        let listsWatchOptionsSearchQuery = '';
+        let listsWatchOptionsListenerBound = false;
+
+        function listsWatchOptPlatforms() {
+            return Array.isArray(listsFacetOptions?.platforms) ? listsFacetOptions.platforms : [];
+        }
+
+        function ensureListsWatchOptionListener() {
+            if (listsWatchOptionsListenerBound) return;
+            listsWatchOptionsListenerBound = true;
+            document.addEventListener('click', (e) => {
+                const t = e?.target;
+                if (!t || !t.closest) return;
+                // Select all / Deselect all action buttons.
+                const act = t.closest('#lists-watchoptions-field [data-watchopt-action]');
+                if (act) {
+                    e.preventDefault();
+                    const action = String(act.dataset.watchoptAction || '');
+                    if (action === 'select_all') {
+                        listsWatchOptPlatforms().forEach((p) => listsWatchOptionsSelected.add(String(p)));
+                    } else if (action === 'deselect_all') {
+                        listsWatchOptionsSelected.clear();
+                    }
+                    paintListsWatchOptionPills();
+                    return;
+                }
+                // Toggle a single platform pill.
+                const btn = t.closest('#lists-modal-filter-watchoptions button[data-val]');
+                if (!btn) return;
+                e.preventDefault();
+                const name = String(btn.dataset.val || '').trim();
+                if (!name) return;
+                if (listsWatchOptionsSelected.has(name)) listsWatchOptionsSelected.delete(name);
+                else listsWatchOptionsSelected.add(name);
+                paintListsWatchOptionPills();  // re-sort so the just-selected pill jumps to top
+            });
+        }
+
+        // Search box just for this section (global so the inline oninput can call it).
+        function applyListsWatchOptionsSearch(q) {
+            listsWatchOptionsSearchQuery = String(q || '');
+            paintListsWatchOptionPills();
+        }
+
+        // Render the pills: SELECTED first (then alpha), filtered by the section search,
+        // each color-coded by its brand theme like the Watch Options movie popup.
+        function paintListsWatchOptionPills() {
+            const group = document.getElementById('lists-modal-filter-watchoptions');
+            if (!group) return;
+            const selectedLower = new Set(Array.from(listsWatchOptionsSelected).map((s) => String(s).toLowerCase()));
+            const isOn = (p) => selectedLower.has(String(p).toLowerCase());
+
+            const sorted = listsWatchOptPlatforms().slice().sort((a, b) => {
+                const sa = isOn(a) ? 0 : 1;
+                const sb = isOn(b) ? 0 : 1;
+                if (sa !== sb) return sa - sb;
+                return String(a).localeCompare(String(b));
+            });
+
+            const q = normalizeSearchText(listsWatchOptionsSearchQuery || '');
+            const filtered = q
+                ? sorted.filter((p) => {
+                    const full = normalizePlatformName(p);
+                    const label = platformShortLabel(full) || full;
+                    return normalizeSearchText(label).includes(q) || normalizeSearchText(full).includes(q);
+                })
+                : sorted;
+
+            if (!filtered.length) {
+                group.innerHTML = `<div class="sf-watchopt-empty text-xs text-gray">${q ? 'No matches.' : 'No watch options on this list yet.'}</div>`;
+                return;
+            }
+
+            group.innerHTML = filtered.map((p) => {
+                const full = normalizePlatformName(p);
+                const label = platformShortLabel(full) || full;
+                const on = isOn(p);
+                const theme = platformBrandTheme(full);
+                const style = `background:${theme.bg}; border:1px solid ${theme.border}; color:${theme.text};`;
+                return `<button type="button" data-val="${escapeHtml(String(p))}" class="${on ? 'is-active' : ''}" style="${style}">${on ? '✓ ' : ''}${escapeHtml(label)}</button>`;
+            }).join('');
+        }
+
+        // Read the current selection (the Set is the source of truth, NOT the DOM, so
+        // search-hidden selections survive). Used by readListsSortFilterModalState.
+        function listsWatchOptionsGet() {
+            return Array.from(listsWatchOptionsSelected);
+        }
+
+        // Seed the selection from state + repaint. Used by setListsSortFilterModalFromState.
+        function listsWatchOptionsSet(_group, arr) {
+            listsWatchOptionsSelected = new Set((Array.isArray(arr) ? arr : []).map((v) => String(v || '').trim()).filter(Boolean));
+            listsWatchOptionsSearchQuery = '';
+            const search = document.getElementById('lists-watchoptions-search');
+            if (search) search.value = '';
+            paintListsWatchOptionPills();
+        }
+
+        // Build/refresh the pills reflecting the current state's selection.
+        function populateListsWatchOptionPills() {
+            listsWatchOptionsSet(null, Array.isArray(listsSortFilterState?.watchOptions) ? listsSortFilterState.watchOptions : []);
+        }
+
+        // Lowercased list of EVERY platform available on the active list.
+        function listsAllFacetPlatformsLower() {
+            return listsWatchOptPlatforms().map((p) => String(p || '').trim().toLowerCase()).filter(Boolean);
+        }
+
+        // True when the selection covers every available platform — treated the SAME as
+        // an empty selection (consider ALL), so "Select all" behaves like the default.
+        function listsWatchOptionsCoversAll(arr) {
+            const all = listsAllFacetPlatformsLower();
+            if (!all.length) return false;
+            const sel = new Set((Array.isArray(arr) ? arr : []).map((s) => String(s || '').trim().toLowerCase()));
+            return all.every((p) => sel.has(p));
+        }
+
+        // The EFFECTIVE filter: empty when nothing is selected OR everything is selected
+        // (both mean "show all"); otherwise the chosen platforms.
+        function listsEffectiveWatchOptions(st) {
+            const arr = Array.isArray(st?.watchOptions) ? st.watchOptions : [];
+            if (!arr.length) return [];
+            if (listsWatchOptionsCoversAll(arr)) return [];
+            return arr;
+        }
+
         function getListsSortFilterModalEls() {
             return {
                 overlay: document.getElementById('lists-sortfilter-overlay'),
@@ -1871,6 +2037,7 @@
                 genre: document.getElementById('lists-modal-filter-genre'),
                 watchMethod: document.getElementById('lists-modal-filter-watchmethod'),
                 recBy: document.getElementById('lists-modal-filter-recby'),
+                watchOptions: document.getElementById('lists-modal-filter-watchoptions'),
                 timeframe: document.getElementById('lists-modal-filter-timeframe'),
                 watchRail: document.getElementById('lists-watch-count-rail'),
                 watchMinLabel: document.getElementById('lists-watch-count-min'),
@@ -2060,6 +2227,7 @@
             sfSegSetValue(els.tier, String(state?.tier || ''));
             sfSegSetValue(els.watchMethod, String(state?.watchMethod || ''));
             if (els.recBy) sfSegSetValue(els.recBy, String(state?.recommendedBy || ''));
+            if (els.watchOptions) listsWatchOptionsSet(els.watchOptions, Array.isArray(state?.watchOptions) ? state.watchOptions : []);
             if (els.decade) els.decade.value = String(state?.decade || '');
             if (els.director) els.director.value = String(state?.directorContains || '');
             if (els.actor) els.actor.value = String(state?.actorContains || '');
@@ -2090,6 +2258,7 @@
                 genre: getVal(els.genre),
                 watchMethod: sfSegGetValue(els.watchMethod),
                 recommendedBy: els.recBy ? sfSegGetValue(els.recBy) : '',
+                watchOptions: els.watchOptions ? listsWatchOptionsGet(els.watchOptions) : [],
                 watchCountMin: useMin,
                 watchCountMax: useMax,
                 timeframe: getVal(els.timeframe) || 'all_time',
@@ -2110,6 +2279,8 @@
             // Reflect the active list (field visibility, sort options, recby pills) each open.
             configureListsSortFilterModalForActiveList();
             populateListsRecByPills();
+            populateListsWatchOptionPills();
+            ensureListsWatchOptionListener();
             loadListsFacetsIntoModal();
             setListsSortFilterModalFromState(listsSortFilterState);
             initListsWatchCountRange();
@@ -2158,6 +2329,7 @@
             listsSortFilterDraft = next;
             configureListsSortFilterModalForActiveList();
             populateListsRecByPills();
+            populateListsWatchOptionPills();
             loadListsFacetsIntoModal();
             setListsSortFilterModalFromState(next);
         }
@@ -2208,6 +2380,9 @@
             const wantedWatchMin = wantedWatchMinRaw ? Number(wantedWatchMinRaw) : null;
             const wantedWatchMax = wantedWatchMaxRaw ? Number(wantedWatchMaxRaw) : null;
             const wantedRecBy = String(st.recommendedBy || '').trim();
+            const wantedPlatforms = listsEffectiveWatchOptions(st)
+                .map((s) => String(s || '').trim().toLowerCase())
+                .filter(Boolean);
             const timeframeRange = libraryComputeTimeframeRange(st?.timeframe);
 
             const filtered = (Array.isArray(items) ? items : []).filter((it) => {
@@ -2216,6 +2391,12 @@
                 if (wantedRecBy) {
                     const recs = recByDataByMovieId.get(String(it?.movie_id || '')) || [];
                     if (!recs.some(r => String(r?.id || '').trim() === wantedRecBy)) return false;
+                }
+
+                if (wantedPlatforms.length) {
+                    const have = (listsPlatformsByMovieId.get(String(it?.movie_id || '')) || [])
+                        .map((p) => String(p || '').trim().toLowerCase());
+                    if (!wantedPlatforms.some((w) => have.includes(w))) return false;
                 }
 
                 if (wantedTier) {
@@ -2683,14 +2864,32 @@
             const tmdbId = Number(picked?.tmdb_id ?? picked?.tmdbId ?? picked?.id ?? null);
             const existingDbMovieId = (isUuidLike(picked?.id) ? String(picked.id).trim() : '');
 
+            // Best-effort resolve of the catalog movie id (lookup only, no sync) so we
+            // can tell which lists already contain this movie and grey them out.
+            let resolvedMovieId = existingDbMovieId || null;
+            if (!resolvedMovieId && Number.isFinite(tmdbId) && tmdbId > 0) {
+                try {
+                    const mapped = await getDbMovieIdByTmdbId(tmdbId);
+                    if (isUuidLike(mapped)) resolvedMovieId = String(mapped).trim();
+                } catch (_) {}
+            }
+
             listPickerSelectedMovie = {
                 title,
                 year: Number.isFinite(year) ? year : null,
                 tmdb_id: Number.isFinite(tmdbId) ? tmdbId : null,
                 db_movie_id: existingDbMovieId || null,
+                resolved_movie_id: resolvedMovieId,
                 accessToken,
                 user_id: authedUser.id,
             };
+            listPickerSelectedIds = new Set();
+            listPickerExistingIds = new Set();
+            listPickerAllLists = [];
+            listPickerInfoCache = null;
+            listPickerSearchQuery = '';
+            const searchEl = document.getElementById('list-picker-search');
+            if (searchEl) searchEl.value = '';
 
             const overlay = document.getElementById('list-picker-overlay');
             if (overlay) overlay.style.display = 'flex';
@@ -2700,40 +2899,216 @@
                 movieEl.textContent = title ? `Movie: ${title}${(Number.isFinite(year) && year > 0) ? ` (${year})` : ''}` : 'Movie: (unknown)';
             }
 
+            const listsEl = document.getElementById('list-picker-lists');
+            if (listsEl) listsEl.innerHTML = `<div class="text-gray" style="grid-column:1/-1;">Loading…</div>`;
+            syncListPickerSaveButton();
+
             await ensureBucketListForUser({ user_id: authedUser.id }).catch(() => null);
             const lists = await loadUserLists({ user_id: authedUser.id, force: true }).catch(() => []);
-            renderListPickerLists(lists);
+            await renderListPickerLists(lists);
         }
 
-        function renderListPickerLists(lists) {
+        // Loads, per list: a few poster paths for the collage cover, and whether the
+        // movie is already on that list (so it can be greyed out).
+        async function loadListPickerInfo(lists, resolvedMovieId) {
+            const infoByList = new Map();
+            const ids = (Array.isArray(lists) ? lists : []).map(l => String(l?.id || '')).filter(Boolean);
+            ids.forEach(id => infoByList.set(id, { count: 0, posters: [], _ids: [] }));
+            const existingIds = new Set();
+            if (!ids.length) return { infoByList, existingIds };
+
+            try {
+                const { data: joinRows } = await supabaseClient
+                    .from('Movie Lists')
+                    .select('list_id, movie_id, created_at')
+                    .in('list_id', ids)
+                    .order('created_at', { ascending: false });
+
+                const wantIds = new Set();
+                const movId = isUuidLike(resolvedMovieId) ? String(resolvedMovieId).trim() : '';
+                (Array.isArray(joinRows) ? joinRows : []).forEach(r => {
+                    const lid = String(r?.list_id || '');
+                    const mid = String(r?.movie_id || '');
+                    const info = infoByList.get(lid);
+                    if (!info || !mid) return;
+                    info.count += 1;
+                    if (info._ids.length < 4) { info._ids.push(mid); wantIds.add(mid); }
+                    if (movId && mid === movId) existingIds.add(lid);
+                });
+
+                if (wantIds.size) {
+                    const { data: movieRows } = await supabaseClient
+                        .from('Movies')
+                        .select('id, poster_path')
+                        .in('id', Array.from(wantIds));
+                    const posterById = new Map(
+                        (Array.isArray(movieRows) ? movieRows : []).map(m => [String(m.id), String(m.poster_path || '')]));
+                    infoByList.forEach(info => {
+                        info.posters = info._ids.map(id => posterById.get(id)).filter(Boolean);
+                    });
+                }
+            } catch (_) {}
+
+            return { infoByList, existingIds };
+        }
+
+        async function renderListPickerLists(lists) {
             const el = document.getElementById('list-picker-lists');
             if (!el) return;
             const rows = Array.isArray(lists) ? lists : [];
+            listPickerAllLists = rows;
             if (rows.length === 0) {
-                el.innerHTML = `<div class="text-gray">No lists yet.</div>`;
+                listPickerInfoCache = null;
+                el.innerHTML = `<div class="text-gray" style="grid-column:1/-1;">No lists yet — create one below.</div>`;
+                syncListPickerSaveButton();
                 return;
             }
+
+            const { infoByList, existingIds } = await loadListPickerInfo(rows, listPickerSelectedMovie?.resolved_movie_id);
+            listPickerExistingIds = existingIds;
+            listPickerInfoCache = infoByList;
+
+            paintListPickerTiles();
+        }
+
+        // Paints the list grid from the cached lists + info, honoring the current
+        // search query. Called on first render and on every search keystroke
+        // (no DB re-query — search is purely client-side over the cached lists).
+        function paintListPickerTiles() {
+            const el = document.getElementById('list-picker-lists');
+            if (!el) return;
+            const infoByList = listPickerInfoCache || new Map();
+            const q = normalizeSearchText(listPickerSearchQuery || '');
+            const rows = (Array.isArray(listPickerAllLists) ? listPickerAllLists : []).filter((l) => {
+                if (!q) return true;
+                const name = normalizeSearchText(String(l?.list_name || ''));
+                return name.includes(q);
+            });
+
+            if (rows.length === 0) {
+                el.innerHTML = `<div class="text-gray" style="grid-column:1/-1;">${q ? 'No lists match your search.' : 'No lists yet — create one below.'}</div>`;
+                syncListPickerSaveButton();
+                return;
+            }
+
             el.innerHTML = rows
                 .map((l) => {
                     const name = String(l?.list_name || '').trim() || 'Untitled';
                     const id = String(l?.id || '').trim();
                     if (!id) return '';
-                    const isBucket = name.toLowerCase() === 'bucket list';
+                    const info = infoByList.get(id) || { posters: [] };
+                    const inList = listPickerExistingIds.has(id);
+                    const selected = listPickerSelectedIds.has(id);
                     return `
                         <button
                             type="button"
-                            class="btn ${isBucket ? 'btn-primary' : 'btn-glass'}"
-                            data-list-picker-action="add"
+                            class="list-picker-tile${selected ? ' is-selected' : ''}${inList ? ' is-in-list' : ''}"
+                            data-list-picker-action="toggle"
                             data-list-id="${escapeHtml(id)}"
-                            style="width:100%; display:flex; justify-content: space-between; align-items: center; border-radius: 0.85rem;"
+                            ${inList ? 'disabled aria-disabled="true"' : ''}
                         >
-                            <span style="font-weight: 800;">${escapeHtml(name)}</span>
-                            <span style="opacity: 0.8;">Add</span>
+                            <span class="lists-cover-art">
+                                ${renderListCoverArt(l, info)}
+                                <span class="list-picker-check">${icons.checkCircle || '✓'}</span>
+                                ${inList ? `<span class="list-picker-added-badge">Added</span>` : ''}
+                            </span>
+                            <span class="lists-cover-name">${escapeHtml(name)}</span>
                         </button>
                     `;
                 })
                 .filter(Boolean)
                 .join('');
+            syncListPickerSaveButton();
+        }
+
+        function applyListPickerSearch() {
+            const input = document.getElementById('list-picker-search');
+            listPickerSearchQuery = input ? String(input.value || '') : '';
+            paintListPickerTiles();
+        }
+
+        function toggleListPickerSelection(list_id) {
+            const lid = String(list_id || '').trim();
+            if (!lid || listPickerExistingIds.has(lid)) return;
+            if (listPickerSelectedIds.has(lid)) listPickerSelectedIds.delete(lid);
+            else listPickerSelectedIds.add(lid);
+
+            const tile = document.querySelector(`#list-picker-lists [data-list-id="${(window.CSS && CSS.escape) ? CSS.escape(lid) : lid}"]`);
+            if (tile) tile.classList.toggle('is-selected', listPickerSelectedIds.has(lid));
+            syncListPickerSaveButton();
+        }
+
+        function syncListPickerSaveButton() {
+            const n = listPickerSelectedIds.size;
+            const btn = document.getElementById('list-picker-save-btn');
+            const labelEl = document.getElementById('list-picker-save-label');
+            if (labelEl) labelEl.textContent = `Add to ${n} list${n === 1 ? '' : 's'}`;
+            if (btn) btn.disabled = (n === 0 || listPickerBusy);
+        }
+
+        async function handleListPickerSaveMulti() {
+            if (listPickerBusy) return;
+            if (!listPickerSelectedMovie) {
+                showToast('No movie selected.', { level: 'warn' });
+                return;
+            }
+            const targetIds = Array.from(listPickerSelectedIds).filter(id => !listPickerExistingIds.has(id));
+            if (!targetIds.length) return;
+
+            const statusEl = document.getElementById('list-picker-status');
+            const setStatus = (s) => { if (statusEl) statusEl.textContent = String(s || ''); };
+
+            listPickerBusy = true;
+            syncListPickerSaveButton();
+            setStatus('Syncing movie metadata…');
+
+            try {
+                const uid = String(listPickerSelectedMovie.user_id || '').trim();
+                const accessToken = String(listPickerSelectedMovie.accessToken || '').trim();
+
+                const ensuredMovieId = await ensureMovieFullySyncedForLists({
+                    accessToken,
+                    title: listPickerSelectedMovie.title,
+                    release_year: listPickerSelectedMovie.year,
+                    tmdb_id: listPickerSelectedMovie.tmdb_id,
+                    movie_id: listPickerSelectedMovie.db_movie_id || listPickerSelectedMovie.resolved_movie_id,
+                });
+                if (!ensuredMovieId) throw new Error('Failed to ensure movie exists.');
+
+                setStatus(`Adding to ${targetIds.length} list${targetIds.length === 1 ? '' : 's'}…`);
+
+                let added = 0;
+                let already = 0;
+                for (const lid of targetIds) {
+                    try {
+                        await addMovieToList({ user_id: uid, list_id: lid, movie_id: ensuredMovieId });
+                        added += 1;
+                    } catch (err) {
+                        const msg = String(err?.message || err);
+                        if (/duplicate|unique/i.test(msg)) { already += 1; continue; }
+                        throw err;
+                    }
+                }
+
+                if (added > 0) {
+                    showToast(`Added to ${added} list${added === 1 ? '' : 's'}!`, { level: 'success' });
+                } else if (already > 0) {
+                    showToast('Already in those lists.', { level: 'warn' });
+                }
+
+                if (router?.currentPage === 'lists') {
+                    if (listsViewMode === 'overview') await loadListsOverview().catch(() => {});
+                    else await loadListsPage({ reset: false }).catch(() => {});
+                }
+
+                closeListPickerModal();
+            } catch (err) {
+                setStatus('');
+                showToast(`Add to list failed: ${String(err?.message || err)}`, { level: 'warn' });
+            } finally {
+                listPickerBusy = false;
+                syncListPickerSaveButton();
+            }
         }
 
         async function ensureMovieFullySyncedForLists({ accessToken, title, release_year, tmdb_id, movie_id }) {
@@ -2762,67 +3137,6 @@
 
             const res = await callSwiftApi({ title: t, release_year: Number.isFinite(y) ? y : null, sync_people: true }, token);
             return String(res?.movie_id || '').trim();
-        }
-
-        async function handleListPickerAddToList(list_id) {
-            if (listPickerBusy) return;
-            const lid = String(list_id || '').trim();
-            if (!lid) return;
-
-            if (!listPickerSelectedMovie) {
-                showToast('No movie selected.', { level: 'warn' });
-                return;
-            }
-
-            const statusEl = document.getElementById('list-picker-status');
-            const setStatus = (s) => {
-                if (statusEl) statusEl.textContent = String(s || '');
-            };
-
-            listPickerBusy = true;
-            setStatus('Syncing movie metadata…');
-
-            try {
-                const uid = String(listPickerSelectedMovie.user_id || '').trim();
-                const accessToken = String(listPickerSelectedMovie.accessToken || '').trim();
-
-                const ensuredMovieId = await ensureMovieFullySyncedForLists({
-                    accessToken,
-                    title: listPickerSelectedMovie.title,
-                    release_year: listPickerSelectedMovie.year,
-                    tmdb_id: listPickerSelectedMovie.tmdb_id,
-                    movie_id: listPickerSelectedMovie.db_movie_id,
-                });
-
-                if (!ensuredMovieId) throw new Error('Failed to ensure movie exists.');
-                setStatus('Adding to list…');
-
-                try {
-                    await addMovieToList({ user_id: uid, list_id: lid, movie_id: ensuredMovieId });
-                } catch (err) {
-                    const msg = String(err?.message || err);
-                    if (/duplicate|unique/i.test(msg)) {
-                        showToast('Already in that list.', { level: 'warn' });
-                        closeListPickerModal();
-                        return;
-                    }
-                    throw err;
-                }
-
-                showToast('Added to list!', { level: 'success' });
-
-                // Refresh lists page if it's open.
-                if (router?.currentPage === 'lists') {
-                    await loadListsPage({ reset: false });
-                }
-
-                closeListPickerModal();
-            } catch (err) {
-                setStatus('');
-                showToast(`Add to list failed: ${String(err?.message || err)}`, { level: 'warn' });
-            } finally {
-                listPickerBusy = false;
-            }
         }
 
         function initListsPage() {
@@ -2897,6 +3211,8 @@
                     if (part === 'sort') {
                         next.sortKey = def.sortKey;
                         next.sortDir = def.sortDir;
+                    } else if (part === 'watchOptions') {
+                        next.watchOptions = [];
                     } else if (Object.prototype.hasOwnProperty.call(next, part)) {
                         next[part] = '';
                     }
@@ -3090,10 +3406,10 @@
                 const el = e?.target?.closest ? e.target.closest('[data-list-picker-action]') : null;
                 if (!el) return;
                 const action = String(el.dataset.listPickerAction || '').trim();
-                if (action !== 'add') return;
+                if (action !== 'toggle') return;
                 const lid = String(el.dataset.listId || '').trim();
                 if (!lid) return;
-                await handleListPickerAddToList(lid);
+                toggleListPickerSelection(lid);
             }, { capture: true });
 
             const createForm = document.getElementById('list-picker-create-form');
@@ -3951,12 +4267,23 @@
 
                     const sortedMonths = Array.from(months).sort((a, b) => b.localeCompare(a));
 
+                    // Distinct platforms present on this list's movies (for the Watch
+                    // options multi-select filter), from the already-loaded platform map.
+                    const platforms = new Set();
+                    listsPlatformsByMovieId.forEach((arr) => {
+                        (Array.isArray(arr) ? arr : []).forEach((p) => {
+                            const name = String(p || '').trim();
+                            if (name) platforms.add(name);
+                        });
+                    });
+
                     listsFacetOptions = {
                         decades: decadeArr,
                         mpas: Array.from(mpas).sort((a, b) => a.localeCompare(b)),
                         genres: Array.from(genres).sort((a, b) => a.localeCompare(b)),
                         watchMethods: Array.from(watchMethods).sort((a, b) => a.localeCompare(b)),
                         timeframes: sortedMonths,
+                        platforms: Array.from(platforms).sort((a, b) => a.localeCompare(b)),
                     };
                     listsWatchCountMax = Math.max(0, Number(maxWatchCount) || 0);
                 } catch (_) {

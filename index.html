@@ -656,23 +656,28 @@
     <div id="list-picker-overlay" class="auth-overlay" onclick="if(event.target === this) closeListPickerModal();" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="list-picker-title" style="max-width: 520px;">
             <div class="auth-modal-header">
-                <div class="auth-modal-title" id="list-picker-title">Add to List</div>
+                <div class="auth-modal-title" id="list-picker-title">Add to Lists</div>
                 <button class="auth-modal-close" type="button" onclick="closeListPickerModal()">Close</button>
             </div>
 
             <div id="list-picker-movie" class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;"></div>
+            <div class="text-xs" style="color: rgba(255,255,255,0.55); margin-top: 0.35rem;">Tap to select one or more lists, then save.</div>
 
-            <div class="glass-panel" style="margin-top: 0.85rem; padding: 0.85rem; border-radius: 0.85rem; background: rgba(0,0,0,0.10);">
-                <div class="text-white font-bold">Choose a list</div>
-                <div id="list-picker-lists" class="text-gray" style="margin-top: 0.65rem; display:flex; flex-direction: column; gap: 0.5rem;">Loading…</div>
+            <input id="list-picker-search" type="text" class="input-field" placeholder="Search your lists…" autocomplete="off" oninput="applyListPickerSearch()" style="margin-top: 0.7rem;">
+
+            <div id="list-picker-lists" class="list-picker-grid" style="margin-top: 0.85rem;">Loading…</div>
+
+            <div style="margin-top: 0.95rem; display:flex; gap: 10px; align-items:center;">
+                <button id="list-picker-save-btn" type="button" class="btn btn-primary" style="flex:1; border-radius: 0.85rem;" onclick="handleListPickerSaveMulti()" disabled>
+                    <span id="list-picker-save-label">Add to 0 lists</span>
+                </button>
             </div>
 
-            <form id="list-picker-create-form" style="margin-top: 0.85rem; display:grid; gap: 0.65rem;">
+            <form id="list-picker-create-form" style="margin-top: 0.95rem; padding-top: 0.95rem; border-top: 1px solid rgba(255,255,255,0.10); display:grid; gap: 0.65rem;">
                 <div class="text-white font-bold">Or create a new list</div>
                 <input id="list-picker-new-name" type="text" class="input-field" placeholder="e.g. 2026 Watchlist" maxlength="80">
                 <div style="display:flex; gap: 10px; flex-wrap: wrap;">
-                    <button type="submit" class="btn btn-primary" style="border-radius: 0.85rem;">Create & Add</button>
-                    <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="closeListPickerModal()">Cancel</button>
+                    <button type="submit" class="btn btn-outline" style="border-radius: 0.85rem;">Create &amp; Add</button>
                 </div>
                 <div id="list-picker-status" class="text-xs" style="color: rgba(255,255,255,0.60);"></div>
             </form>
@@ -971,6 +976,19 @@
                             <span id="lists-watch-count-max">—</span>
                         </div>
                     </div>
+                </div>
+
+                <!-- Watch options: own scrollable section, last in the filters list. -->
+                <div class="sf-field sf-watchopt-field" id="lists-watchoptions-field" data-sf-field="watchoptions" style="display:none;">
+                    <div class="sf-watchopt-head">
+                        <div class="sf-field-label">Watch options</div>
+                        <div class="sf-watchopt-actions">
+                            <button type="button" class="sf-watchopt-act" data-watchopt-action="select_all">Select all</button>
+                            <button type="button" class="sf-watchopt-act" data-watchopt-action="deselect_all">Deselect all</button>
+                        </div>
+                    </div>
+                    <input id="lists-watchoptions-search" class="input-field sf-watchopt-search" type="text" placeholder="Search watch options…" autocomplete="off" oninput="applyListsWatchOptionsSearch(this.value)" />
+                    <div id="lists-modal-filter-watchoptions" class="sf-multi sf-seg-wrap sf-watchopt-list"></div>
                 </div>
                 </div><!-- /data-sf=filters -->
             </div>

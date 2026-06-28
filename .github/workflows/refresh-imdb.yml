@@ -1,9 +1,10 @@
-name: Refresh IMDb ratings
+name: Refresh IMDb ratings + watch options
 
-# Runs daily and re-pulls the 300 stalest IMDb ratings from OMDb (via the swift-api
-# Edge Function), overwriting them in Supabase. GitHub Actions is ONLY the timer +
-# the HTTP trigger — the Edge Function (running on Supabase with the service-role key)
-# does the actual database writes.
+# Runs daily and (1) re-pulls the 300 stalest IMDb ratings from OMDb and (2) re-pulls
+# TMDb watch options (streaming platforms) for a batch of the stalest movies sitting in
+# users' lists — both via the swift-api Edge Function, which does the actual DB writes
+# with the service-role key. GitHub Actions is ONLY the timer + the HTTP trigger. Each
+# batch rotates the catalog so we never blow the OMDb/TMDb rate limits in one run.
 on:
   schedule:
     - cron: '0 8 * * *'   # every day at 08:00 UTC
@@ -20,4 +21,13 @@ jobs:
             -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
             -d '{"action":"refresh_imdb_ratings","limit":300}' \
+            --fail-with-body
+
+      - name: Trigger refresh_list_watch_platforms
+        run: |
+          curl -sS -X POST "${{ secrets.SUPABASE_FUNCTION_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -d '{"action":"refresh_list_watch_platforms","limit":200}' \
             --fail-with-body

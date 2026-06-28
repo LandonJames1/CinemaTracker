@@ -1014,6 +1014,16 @@ async function syncMovieWatchPlatforms({
     const providerNames = extractProviderNamesFromWatchProvidersJson(r.json, out.region);
     out.requested = providerNames.length;
 
+    // Stamp the staleness marker now that the TMDb check succeeded (covers the
+    // zero-providers case too — the movie WAS checked). Best-effort; never fail the
+    // sync over it. Read by the refresh_list_watch_platforms cron to rotate stalest-first.
+    try {
+      await supabaseAdmin
+        .from("Movies")
+        .update({ platforms_synced_at: new Date().toISOString() })
+        .eq("id", movieId);
+    } catch (_) { /* ignore — marker is best-effort */ }
+
     // Always refresh join rows for this movie (idempotent).
     const { error: delErr } = await supabaseAdmin
       .from("Movie Platforms")
@@ -1484,6 +1494,91 @@ Deno.serve(async (req) => {
         failed,
         remaining: moreLikely ? "more (re-run)" : 0,
       }, 200);
+    }
+
+    // ---- Refresh watch options (streaming platforms) for movies in users' lists ----
+    // Cron-gated (x-cron-secret == CRON_SECRET, no user session). Watch providers go
+    // stale (a movie leaves Netflix), so re-pull TMDb providers for the movies that
+    // actually matter — the ones sitting in someone's list — a `limit` batch per run,
+    // STALEST FIRST (Movies.platforms_synced_at asc, nulls first). The daily GitHub
+    // cron rotates through the whole set of list movies over time without blowing the
+    // TMDb rate limit. Modeled on refresh_imdb_ratings + backfill_movie_keywords.
+    if (action === "refresh_list_watch_platforms") {
+      const provided = String(req.headers.get("x-cron-secret") ?? "").trim();
+      const expected = String(Deno.env.get("CRON_SECRET") ?? "").trim();
+      if (!expected || provided !== expected) {
+        return jsonResponse({ code: 401, message: "Invalid or missing cron secret." }, 401);
+      }
+
+      const TMDB_TOKEN = Deno.env.get("TMDB_READ_ACCESS_TOKEN");
+      if (!TMDB_TOKEN) {
+        return jsonResponse({ ok: false, message: "Missing TMDB_READ_ACCESS_TOKEN." }, 200);
+      }
+      const limit = Math.max(1, Math.min(500, Number(body?.limit) || 200));
+      const region = String(body?.region || "US").trim().toUpperCase() || "US";
+
+      // Distinct movie_ids that appear in ANY list (paged).
+      const listMovieIds = new Set();
+      let lfrom = 0;
+      while (true) {
+        const { data, error } = await supabaseAdmin
+          .from("Movie Lists")
+          .select("movie_id")
+          .range(lfrom, lfrom + 999);
+        if (error) return jsonResponse({ ok: false, message: `Movie Lists scan: ${error.message}` }, 200);
+        const page = Array.isArray(data) ? data : [];
+        page.forEach((r) => { if (r?.movie_id) listMovieIds.add(String(r.movie_id)); });
+        if (page.length < 1000) break;
+        lfrom += 1000;
+      }
+
+      if (listMovieIds.size === 0) {
+        return jsonResponse({ ok: true, processed: 0, updated: 0, failed: 0 }, 200);
+      }
+
+      // Walk Movies stalest-first (platforms_synced_at asc, nulls first), keeping only
+      // those in a list, until we have a batch.
+      const targets = [];
+      let mfrom = 0;
+      while (targets.length < limit) {
+        const { data, error } = await supabaseAdmin
+          .from("Movies")
+          .select("id, tmdb_id, platforms_synced_at")
+          .not("tmdb_id", "is", null)
+          .order("platforms_synced_at", { ascending: true, nullsFirst: true })
+          .range(mfrom, mfrom + 999);
+        if (error) return jsonResponse({ ok: false, message: `Movies scan: ${error.message}` }, 200);
+        const page = Array.isArray(data) ? data : [];
+        for (const m of page) {
+          if (targets.length >= limit) break;
+          if (listMovieIds.has(String(m.id))) targets.push(m);
+        }
+        if (page.length < 1000) break;
+        mfrom += 1000;
+      }
+
+      let updated = 0;
+      let failed = 0;
+      const CONCURRENCY = 5;
+      for (let i = 0; i < targets.length; i += CONCURRENCY) {
+        const slice = targets.slice(i, i + CONCURRENCY);
+        const settled = await Promise.allSettled(
+          slice.map((m) => syncMovieWatchPlatforms({
+            supabaseAdmin,
+            movie_id: m.id,
+            tmdb_id: m.tmdb_id,
+            tmdbReadAccessToken: TMDB_TOKEN,
+            region,
+            timeoutMs: 1400,
+          })),
+        );
+        settled.forEach((s) => {
+          if (s.status === "fulfilled" && !s.value?.error) updated += 1;
+          else failed += 1;
+        });
+      }
+
+      return jsonResponse({ ok: true, processed: targets.length, updated, failed }, 200);
     }
 
     // ---- Movie recommendations: add a movie to each recipient's "Recs" list ----

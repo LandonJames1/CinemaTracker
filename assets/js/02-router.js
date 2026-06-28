@@ -794,11 +794,8 @@
                                                     <button id="btn-add-to-list" type="button" onclick="openAddToListModal()" class="btn btn-glass" style="flex:1; border-radius: 0.85rem; min-height: 36px; padding: 0.4rem 0.65rem; font-size: 0.85rem;">
                                                         ${icons.plusCircle} Add to List
                                                     </button>
-                                                    <button type="button" onclick="router.navigate('lists')" class="btn btn-outline" style="flex:1; border-radius: 0.85rem; min-height: 36px; padding: 0.4rem 0.65rem; font-size: 0.85rem;">
-                                                        ${icons.arrowRight} View Lists
-                                                    </button>
                                                     <button id="btn-recommend" type="button" onclick="openRecModalFromHome()" class="btn btn-glass" style="flex:1; border-radius: 0.85rem; min-height: 36px; padding: 0.4rem 0.65rem; font-size: 0.85rem;">
-                                                        ${icons.arrowRightCircle} Recommend
+                                                        ${icons.users} Recommend
                                                     </button>
                                                 </div>
 

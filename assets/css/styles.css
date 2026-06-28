@@ -2653,6 +2653,81 @@
             .lists-cover-grid { gap: 8px; }
         }
 
+        /* ===== "Add to Lists" picker — selectable cover tiles (multi-select) ===== */
+        .list-picker-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+            gap: 14px;
+            max-height: 46vh;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            padding: 2px;
+        }
+        .list-picker-tile {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            background: transparent;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+            text-align: left;
+            -webkit-tap-highlight-color: transparent;
+            transition: transform 0.1s ease;
+        }
+        .list-picker-tile:active { transform: scale(0.97); }
+        .list-picker-tile .lists-cover-art {
+            transition: box-shadow 0.15s ease;
+            box-shadow: 0 0 0 2px transparent, 0 8px 20px rgba(0,0,0,0.35);
+        }
+        /* Selection check — hidden until selected. */
+        .list-picker-check {
+            position: absolute;
+            top: 6px; right: 6px;
+            z-index: 4;
+            width: 26px; height: 26px;
+            border-radius: 999px;
+            background: var(--brand, #14b8a6);
+            color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.4);
+            opacity: 0;
+            transform: scale(0.6);
+            transition: opacity 0.12s ease, transform 0.12s ease;
+            pointer-events: none;
+        }
+        .list-picker-check svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2.4; }
+        .list-picker-tile.is-selected .lists-cover-art {
+            box-shadow: 0 0 0 3px var(--brand, #14b8a6), 0 8px 20px rgba(0,0,0,0.45);
+        }
+        .list-picker-tile.is-selected .list-picker-check { opacity: 1; transform: scale(1); }
+        .list-picker-tile.is-selected .lists-cover-name { color: var(--brand, #14b8a6); }
+        /* Already-in-list tiles: greyed out + not selectable. */
+        .list-picker-tile.is-in-list {
+            cursor: default;
+            opacity: 0.5;
+            filter: grayscale(0.45);
+        }
+        .list-picker-tile.is-in-list:active { transform: none; }
+        .list-picker-added-badge {
+            position: absolute;
+            left: 6px; bottom: 6px;
+            z-index: 4;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: rgba(0,0,0,0.72);
+            color: #fff;
+            font-size: 0.7rem;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.18);
+            pointer-events: none;
+        }
+        .list-picker-tile .lists-cover-name { font-size: 0.85rem; }
+        @media (max-width: 768px) {
+            .list-picker-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+        }
+
         /* Floating "New List" button — fixed bottom-right, above all content + the tab bar. */
         .lists-fab {
             position: fixed;
@@ -3418,7 +3493,8 @@
             #lists-sortfilter-overlay .sf-grid,
             #library-sortfilter-overlay .sf-grid { gap: 0.5rem 0.6rem; margin-bottom: 0.55rem; }
             #lists-sortfilter-overlay .sf-seg button,
-            #library-sortfilter-overlay .sf-seg button { padding: 0.42rem 0.45rem; font-size: 0.82rem; }
+            #library-sortfilter-overlay .sf-seg button,
+            #lists-sortfilter-overlay .sf-multi button { padding: 0.42rem 0.55rem; font-size: 0.82rem; }
             /* Tier pills: grow to fill the full container width (override the
                sf-seg-wrap content-width sizing) and give them a bigger tap target. */
             #lists-sortfilter-overlay .sf-seg-tier button,
@@ -5801,6 +5877,73 @@
             border-color: var(--brand);
             color: #fff;
         }
+
+        /* Watch-options filter: a MULTI-select pill group. Same look as .sf-seg, but a
+           separate class so the single-select sf-seg click handler ignores it and any
+           number of pills can be lit at once. */
+        .sf-multi {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .sf-multi button {
+            flex: 0 1 auto;
+            min-width: 0;
+            padding: 0.46rem 0.7rem;
+            border-radius: 0.6rem;
+            background: #202024;
+            border: 1px solid rgba(255,255,255,0.10);
+            color: rgba(255,255,255,0.72);
+            font-size: 0.84rem;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background .12s ease, border-color .12s ease, color .12s ease;
+        }
+        .sf-multi button:hover { background: #2a2a30; color: #fff; }
+        .sf-multi button.is-active {
+            background: var(--brand);
+            border-color: var(--brand);
+            color: #fff;
+        }
+
+        /* Watch options: its own scrollable section at the bottom of the Lists filters.
+           Pills are brand-color-coded inline (platformBrandTheme) like the Watch Options
+           movie popup; .is-active adds a white ring + bold so the selected ones (which
+           also sort to the top) read clearly against their brand tint. */
+        .sf-watchopt-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .sf-watchopt-head .sf-field-label { margin-bottom: 0; }
+        .sf-watchopt-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+        .sf-watchopt-act {
+            padding: 0.28rem 0.6rem;
+            border-radius: 0.6rem;
+            background: #202024;
+            border: 1px solid rgba(255,255,255,0.14);
+            color: rgba(255,255,255,0.82);
+            font-size: 0.74rem;
+            font-weight: 700;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .sf-watchopt-act:hover { background: #2a2a30; color: #fff; }
+        .sf-watchopt-search { margin-bottom: 8px; }
+        .sf-watchopt-list {
+            max-height: 188px;
+            overflow-y: auto;
+            align-content: flex-start;
+            padding: 2px;
+        }
+        .sf-watchopt-list button { font-weight: 800; }
+        .sf-watchopt-list button.is-active {
+            box-shadow: inset 0 0 0 2px rgba(255,255,255,0.95);
+        }
+        .sf-watchopt-empty { padding: 0.5rem 0.2rem; }
 
         /* Tier pills mirror the log-entry tier selector: each lettered pill carries its
            tier color, desaturated/greyed until chosen, then lit up in that tier's color.
