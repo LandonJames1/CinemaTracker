@@ -270,7 +270,7 @@
                     ${watched ? `<div class="text-xs" style="color: rgba(255,255,255,0.55); margin-bottom: 0.5rem;">Watched: ${escapeHtml(watched)}</div>` : ''}
                     ${subs.length ? `<div class="library-chip-row" style="margin-top: 0.4rem;">${subs.map(d => `<span class="dash-quote-pill">${escapeHtml(d.k)}: ${escapeHtml(d.v)}</span>`).join('')}</div>` : ''}
                     ${quote ? `<div style="margin-top: 0.75rem;"><div class="text-xs text-gray" style="margin-bottom: 0.25rem;">Favorite Quote</div><div class="text-white" style="line-height: 1.4;">${escapeHtml(quote)}</div></div>` : ''}
-                    ${notes ? `<div style="margin-top: 0.75rem;"><div class="text-xs text-gray" style="margin-bottom: 0.25rem;">Notes</div><div class="text-white" style="line-height: 1.4; white-space: pre-wrap;">${escapeHtml(notes)}</div></div>` : ''}
+                    ${notes ? `<div style="margin-top: 0.75rem;"><div class="text-xs text-gray" style="margin-bottom: 0.25rem;">Notes</div><div class="text-white review-notes-scroll" style="line-height: 1.4; white-space: pre-wrap;">${escapeHtml(notes)}</div></div>` : ''}
                 `;
             }
 
@@ -283,12 +283,14 @@
             if (overlay) { overlay.style.display = 'none'; overlay.style.zIndex = ''; overlay.classList.remove('open'); }
         }
 
-        // ===== Recs poster viewer (Movie Details + followed users' reviews) =====
-        // Opened by clicking a poster in the "Recs" list. Flow:
-        //   - reviewers found → choice screen (Movie Details | User Reviews)
-        //       User Reviews → list of followed users who rated it → their review
-        //   - no reviewers (recommender hasn't watched it) → straight to Movie Details
+        // ===== Movie poster viewer (Movie Details + followed users' reviews) =====
+        // Opened by clicking a poster in ANY list (the "Recs" list + every other list).
+        // The choice screen always shows: Movie Details + a Log/Update button, plus
+        // Watch Options + an inline reviewers list (people you follow who rated it) when
+        // available; tapping a reviewer opens their review.
         let recsViewMovie = null;        // prefill row (title/genre/mpa/runtime/imdb/etc.)
+        let recsViewMovieId = '';        // the catalog movie id (for the Log/Update button)
+        let recsViewAlreadyRated = false;// has the current user already rated this movie?
         let recsViewReviewers = [];      // [{ id, username, name, icon, row }]
         let recsViewPlatforms = [];      // streaming platforms (the old "Watch Options")
         let recsViewHasChoice = false;   // whether the choice screen applies
@@ -298,6 +300,8 @@
             const mid = String(movieId || '').trim();
             if (!mid) return;
             recsViewMovie = listsMoviePrefillById.get(mid) || null;
+            recsViewMovieId = mid;
+            recsViewAlreadyRated = false;
             recsViewReviewers = [];
 
             // Candidates = people who recommended me this movie + people I follow.
@@ -359,17 +363,23 @@
             });
             // Streaming availability (the former standalone "Watch Options" button).
             recsViewPlatforms = listsPlatformsByMovieId.get(mid) || [];
-            // Show the choice screen when there's more than just Movie Details to offer.
-            recsViewHasChoice = recsViewReviewers.length > 0 || recsViewPlatforms.length > 0;
+            // The choice screen always applies now (it always offers Movie Details + the
+            // Log/Update button), so every sub-view gets a Back button.
+            recsViewHasChoice = true;
+
+            // Has the current user already rated this movie? Drives the Log/Update button
+            // label ("Log as New Entry" vs "Update Ratings"). Best-effort.
+            try {
+                const myId = String(cachedAuthUser?.id || '').trim();
+                recsViewAlreadyRated = myId ? await hasExistingMovieRating({ user_id: myId, movie_id: mid }) : false;
+            } catch (_) { recsViewAlreadyRated = false; }
 
             const overlay = document.getElementById('recs-movie-overlay');
             if (!overlay) return;
             overlay.style.display = 'flex';
             overlay.classList.add('open');
 
-            // Nothing extra → straight to Movie Details; otherwise the choice screen.
-            if (recsViewHasChoice) recsMovieRenderChoice();
-            else recsMovieRenderDetails();
+            recsMovieRenderChoice();
         }
 
         function closeRecsMovieModal() {
@@ -378,15 +388,9 @@
         }
 
         function recsMovieBack() {
-            // From a single-reviewer review there's no list to go back to → choice.
-            if (recsViewState === 'review' && recsViewReviewers.length > 1) recsMovieRenderReviewers();
-            else recsMovieRenderChoice();
-        }
-
-        // "User Reviews" → list of reviewers, or straight to the review if there's one.
-        function recsMovieShowReviews() {
-            if (recsViewReviewers.length === 1) recsMovieRenderReview(recsViewReviewers[0].id);
-            else recsMovieRenderReviewers();
+            // The reviewer list now lives inline on the choice screen, so every sub-view
+            // (a review, watch options) goes back to the choice screen.
+            recsMovieRenderChoice();
         }
 
         function recsMovieSetBody(html, { title = 'Recommended Movie', showBack = false } = {}) {
@@ -400,35 +404,92 @@
 
         function recsMovieRenderChoice() {
             recsViewState = 'choice';
-            const t = String(recsViewMovie?.title || 'this movie').trim();
-            const reviewsBtn = recsViewReviewers.length ? `
-                    <button type="button" class="btn btn-outline" onclick="recsMovieShowReviews()" style="border-radius:0.85rem; padding:0.85rem; text-align:left;">
-                        <div class="text-white font-bold">User Reviews</div>
-                        <div class="text-xs text-gray" style="margin-top:0.2rem;">${recsViewReviewers.length} ${recsViewReviewers.length === 1 ? 'review' : 'reviews'} from people you know.</div>
-                    </button>` : '';
-            const watchBtn = recsViewPlatforms.length ? `
-                    <button type="button" class="btn btn-outline" onclick="recsMovieRenderWatchOptions()" style="border-radius:0.85rem; padding:0.85rem; text-align:left;">
-                        <div class="text-white font-bold">Watch Options</div>
-                        <div class="text-xs text-gray" style="margin-top:0.2rem;">Where to stream it (${recsViewPlatforms.length} ${recsViewPlatforms.length === 1 ? 'platform' : 'platforms'}).</div>
-                    </button>` : '';
+
+            const actionBtn = (onclick, icon, label) => `
+                    <button type="button" class="recs-choice-btn" onclick="${onclick}">
+                        <span class="recs-choice-ico">${icon || ''}</span>
+                        <span class="recs-choice-label">${label}</span>
+                        <span class="recs-choice-chev">›</span>
+                    </button>`;
+
+            // Reviewers are now an inline, scrollable list right on the choice screen
+            // (no separate "User Reviews" pop-up). Tapping a person opens their review.
+            // The right-side "X%" score is tinted to the tier THAT reviewer gave it.
+            const reviewersSection = recsViewReviewers.length ? `
+                <div class="recs-reviewers-block">
+                    <div class="recs-reviewers-head">
+                        <span class="recs-choice-ico">${icons.users || ''}</span>
+                        <span>Reviews from people you follow</span>
+                    </div>
+                    <div class="recs-reviewers-scroll">
+                        ${recsViewReviewers.map(rv => {
+                            const score = dashFormatScoreWhole(rv?.row?.overall_rating);
+                            const tierLetter = dashTierLetterFromLabel(dashNormalizeTierLabel(rv?.row?.tier));
+                            const tierRgb = tierLetter ? `var(--tier-${tierLetter.toLowerCase()}-rgb)` : '107, 114, 128';
+                            const scoreStyle = `color:rgb(${tierRgb}); background:rgba(${tierRgb}, 0.16); border-color:rgba(${tierRgb}, 0.4);`;
+                            return `
+                            <button type="button" class="recs-reviewer-row" onclick="recsMovieRenderReview('${escapeHtml(rv.id)}')">
+                                ${renderUserIconHtml(rv.icon, 36)}
+                                <span class="recs-reviewer-name">${escapeHtml(rv.name)}</span>
+                                ${score ? `<span class="recs-reviewer-score" style="${scoreStyle}">${escapeHtml(score)}</span>` : ''}
+                                <span class="recs-choice-chev">›</span>
+                            </button>`;
+                        }).join('')}
+                    </div>
+                </div>` : '';
+
+            // Log/Update button — "Update Ratings" if the user already rated this movie,
+            // else "Log as New Entry". Opens the matching diary form for the movie.
+            const logLabel = recsViewAlreadyRated ? 'Update Ratings' : 'Log as New Entry';
+            const logIcon = recsViewAlreadyRated ? icons.edit3 : icons.plusCircle;
+
             recsMovieSetBody(`
-                <div class="text-xs text-gray" style="margin-bottom:0.85rem;">What do you want to see for “${escapeHtml(t)}”?</div>
                 <div style="display:flex; flex-direction:column; gap:10px;">
-                    <button type="button" class="btn btn-outline" onclick="recsMovieRenderDetails()" style="border-radius:0.85rem; padding:0.85rem; text-align:left;">
-                        <div class="text-white font-bold">Movie Details</div>
-                        <div class="text-xs text-gray" style="margin-top:0.2rem;">Genre, MPA, runtime, year, director, IMDb.</div>
-                    </button>
-                    ${reviewsBtn}
-                    ${watchBtn}
+                    ${actionBtn('recsMovieRenderDetails()', icons.film, 'Movie Details')}
+                    ${recsViewPlatforms.length ? actionBtn('recsMovieRenderWatchOptions()', icons.tv, 'Watch Options') : ''}
+                    ${actionBtn('recsMovieLogEntry()', logIcon, logLabel)}
                 </div>
-            `, { title: 'Recommended Movie', showBack: false });
+                ${reviewersSection}
+            `, { title: String(recsViewMovie?.title || 'Movie').trim() || 'Movie', showBack: false });
+        }
+
+        // Open the log/update form for the movie shown in the viewer. Re-checks the rating
+        // at click time so the right form opens even if the cached flag is stale.
+        function recsMovieLogEntry() {
+            const mid = String(recsViewMovieId || '').trim();
+            if (!mid) return;
+            (async () => {
+                const prefill = listsMoviePrefillById.get(mid) || null;
+                if (!prefill) { showToast('Movie details not available yet. Try Refresh.', { level: 'warn' }); return; }
+
+                let authedUser = null;
+                try { const res = await requireAuthOrThrow(); authedUser = res.user; }
+                catch (_) { openAuthModal(); return; }
+
+                const alreadyRated = await hasExistingMovieRating({ user_id: authedUser.id, movie_id: mid });
+                closeRecsMovieModal();
+
+                router.selectedMovie = { ...prefill, id: mid, detailsReadonly: false };
+                router.pendingTitle = String(prefill?.title || '').trim();
+                if (alreadyRated) await router.startUpdateRatings();
+                else await router.startNewEntry();
+            })().catch((err) => showToast(`Open entry failed: ${String(err?.message || err)}`, { level: 'warn' }));
         }
 
         // "Watch Options" → the streaming platforms the movie is available on (moved here
         // from the old per-card "Watch Options" button).
         function recsMovieRenderWatchOptions() {
             recsViewState = 'watch';
-            const platforms = Array.isArray(recsViewPlatforms) ? recsViewPlatforms : [];
+            // Dedupe by canonical service (no "Prime" four times) + order by popularity.
+            const canonMap = new Map();
+            (Array.isArray(recsViewPlatforms) ? recsViewPlatforms : []).forEach((p) => {
+                const raw = String(p || '').trim();
+                if (!raw) return;
+                const canon = platformCanonicalLabel(raw);
+                const key = canon.toLowerCase();
+                if (key && !canonMap.has(key)) canonMap.set(key, canon);
+            });
+            const platforms = Array.from(canonMap.values()).sort(comparePlatformsByPopularity);
             const body = platforms.length ? `
                 <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">
                     ${platforms.map((p) => {
@@ -477,22 +538,6 @@
             `, { title: 'Movie Details', showBack: recsViewHasChoice });
         }
 
-        function recsMovieRenderReviewers() {
-            if (!recsViewReviewers.length) { recsMovieRenderDetails(); return; }
-            recsViewState = 'reviewers';
-            const list = recsViewReviewers.map(rv => `
-                <button type="button" onclick="recsMovieRenderReview('${escapeHtml(rv.id)}')" style="display:flex; align-items:center; gap:12px; width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); cursor:pointer; text-align:left;">
-                    ${renderUserIconHtml(rv.icon, 34)}
-                    <span style="flex:1 1 auto; min-width:0; color:#fff; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(rv.name)}</span>
-                    <span class="text-xs text-gray" style="white-space:nowrap;">View review ›</span>
-                </button>
-            `).join('');
-            recsMovieSetBody(`
-                <div class="text-xs text-gray" style="margin-bottom:0.65rem;">${recsViewReviewers.length} ${recsViewReviewers.length === 1 ? 'person' : 'people'} you know rated this — tap to read:</div>
-                <div style="display:flex; flex-direction:column; gap:8px;">${list}</div>
-            `, { title: 'User Reviews', showBack: true });
-        }
-
         function recsMovieRenderReview(userId) {
             recsViewState = 'review';
             const uid = String(userId || '').trim();
@@ -522,7 +567,7 @@
                 ${watched ? `<div class="text-xs" style="color:rgba(255,255,255,0.55); margin-bottom:0.5rem;">Watched: ${escapeHtml(watched)}</div>` : ''}
                 ${subs.length ? `<div class="library-chip-row" style="margin-top:0.4rem;">${subs.map(([k, v]) => `<span class="dash-quote-pill">${escapeHtml(k)}: ${escapeHtml(v)}</span>`).join('')}</div>` : ''}
                 ${quote ? `<div style="margin-top:0.75rem;"><div class="text-xs text-gray" style="margin-bottom:0.25rem;">Favorite Quote</div><div class="text-white" style="line-height:1.4;">${escapeHtml(quote)}</div></div>` : ''}
-                ${notes ? `<div style="margin-top:0.75rem;"><div class="text-xs text-gray" style="margin-bottom:0.25rem;">Notes</div><div class="text-white" style="line-height:1.4; white-space:pre-wrap;">${escapeHtml(notes)}</div></div>` : ''}
+                ${notes ? `<div style="margin-top:0.75rem;"><div class="text-xs text-gray" style="margin-bottom:0.25rem;">Notes</div><div class="text-white review-notes-scroll" style="line-height:1.4; white-space:pre-wrap;">${escapeHtml(notes)}</div></div>` : ''}
             `, { title: `${rv?.name || 'Review'} · ${movieTitle}`, showBack: true });
         }
 
@@ -1375,7 +1420,7 @@
 
             if (n.includes('netflix')) {
                 solid('#E50914');
-            } else if (n.includes('prime video') || (n.includes('amazon') && n.includes('prime'))) {
+            } else if (n === 'prime' || n.includes('prime video') || (n.includes('amazon') && n.includes('prime'))) {
                 solid('#00A8E1');
             } else if (n === 'amazon video' || (n.includes('amazon') && !n.includes('prime'))) {
                 solid('#FF9900');
@@ -1415,6 +1460,8 @@
                 bg = 'rgba(255,255,255,0.10)';
                 border = 'rgba(255,255,255,0.28)';
                 text = '#fff';
+            } else if (n.includes('roku')) {
+                solid('#662D91');
             }
 
             return { bg, border, text };
@@ -1954,7 +2001,7 @@
                 const sa = isOn(a) ? 0 : 1;
                 const sb = isOn(b) ? 0 : 1;
                 if (sa !== sb) return sa - sb;
-                return String(a).localeCompare(String(b));
+                return comparePlatformsByPopularity(a, b);
             });
 
             const q = normalizeSearchText(listsWatchOptionsSearchQuery || '');
@@ -2394,8 +2441,10 @@
                 }
 
                 if (wantedPlatforms.length) {
+                    // The movie's raw platform names mapped to their canonical service,
+                    // so a selection of "Prime" matches any Amazon-Prime variant.
                     const have = (listsPlatformsByMovieId.get(String(it?.movie_id || '')) || [])
-                        .map((p) => String(p || '').trim().toLowerCase());
+                        .map((p) => platformCanonicalLabel(p).toLowerCase());
                     if (!wantedPlatforms.some((w) => have.includes(w))) return false;
                 }
 
@@ -2579,9 +2628,41 @@
             if (n.includes('kanopy')) return 'Kanopy';
             if (n.includes('plex')) return 'Plex';
 
+            if (n.includes('roku')) return 'Roku';
+
             // Fallback: keep short names readable.
             if (raw.length <= 14) return raw;
             return raw.slice(0, 12).trim() + '…';
+        }
+
+        // The canonical service key for a platform name — groups every raw variant
+        // (e.g. "Amazon Prime Video", "Prime Video", "Amazon Video") under one label
+        // (its short label), so the filters never show the same service twice.
+        function platformCanonicalLabel(name) {
+            const raw = normalizePlatformName(name);
+            return platformShortLabel(raw) || raw;
+        }
+
+        // Streaming services ordered by popularity (most popular first). Anything not
+        // listed sorts after these, alphabetically. Keyed by canonical short label.
+        const PLATFORM_POPULARITY = [
+            'netflix', 'disney+', 'youtube', 'prime', 'apple tv', 'max',
+            'hulu', 'paramount+', 'roku', 'peacock',
+        ];
+
+        function platformPopularityRank(name) {
+            const key = platformCanonicalLabel(name).toLowerCase();
+            const idx = PLATFORM_POPULARITY.indexOf(key);
+            return idx === -1 ? PLATFORM_POPULARITY.length : idx;
+        }
+
+        // Sort comparator: popular services first (in PLATFORM_POPULARITY order), then
+        // the rest alphabetically by canonical label.
+        function comparePlatformsByPopularity(a, b) {
+            const ra = platformPopularityRank(a);
+            const rb = platformPopularityRank(b);
+            if (ra !== rb) return ra - rb;
+            return platformCanonicalLabel(a).localeCompare(platformCanonicalLabel(b));
         }
 
         function renderPlatformPills(platformNames) {
@@ -3301,13 +3382,6 @@
                     const mid = String(el.dataset.movieId || '').trim();
                     if (!mid) return;
 
-                    // On the Recs list, a poster opens the recommendation viewer
-                    // (Movie Details / followed users' reviews) instead of the log form.
-                    if (String(listsActiveListName || '').trim().toLowerCase() === 'recs') {
-                        openRecsMovieModal(mid).catch((err) => showToast(`Open failed: ${String(err?.message || err)}`, { level: 'warn' }));
-                        return;
-                    }
-
                     // On a SHARED list, a poster opens the member-reviews popup: pick
                     // any member who has reviewed the movie to read their full review.
                     if (isSharedList(listsActiveListId)) {
@@ -3315,39 +3389,10 @@
                         return;
                     }
 
-                    (async () => {
-                        const prefill = listsMoviePrefillById.get(mid) || null;
-                        if (!prefill) {
-                            showToast('Movie details not available yet. Try Refresh.', { level: 'warn' });
-                            return;
-                        }
-
-                        // Decide whether to open fully-populated Log New Entry (no existing rating)
-                        // or fully-populated Update Ratings (existing rating).
-                        let authedUser = null;
-                        try {
-                            const res = await requireAuthOrThrow();
-                            authedUser = res.user;
-                        } catch (_) {
-                            openAuthModal();
-                            return;
-                        }
-
-                        const alreadyRated = await hasExistingMovieRating({ user_id: authedUser.id, movie_id: mid });
-
-                        // Start from our cached DB prefill, but route through the existing flows
-                        // so MPA/Runtime/Series and rating fields are always filled correctly.
-                        router.selectedMovie = { ...prefill, id: mid, detailsReadonly: false };
-                        router.pendingTitle = String(prefill?.title || '').trim();
-
-                        if (alreadyRated) {
-                            await router.startUpdateRatings();
-                        } else {
-                            await router.startNewEntry();
-                        }
-                    })().catch((err) => {
-                        showToast(`Open entry failed: ${String(err?.message || err)}`, { level: 'warn' });
-                    });
+                    // On EVERY other list (Recs, Bucket List, custom lists), a poster opens
+                    // the movie viewer (Movie Details / Watch Options / followed users'
+                    // reviews + a Log/Update button) instead of jumping straight to a form.
+                    openRecsMovieModal(mid).catch((err) => showToast(`Open failed: ${String(err?.message || err)}`, { level: 'warn' }));
                     return;
                 }
 
@@ -4114,8 +4159,10 @@
                 // and which recommendations are new since last view (for highlighting).
                 const isRecsList = String(listsActiveListName || '').trim().toLowerCase() === 'recs';
                 const recsNewByMovieId = new Set();
+                // Always reset so a non-Recs list doesn't inherit stale recommenders from a
+                // previously-viewed Recs list (the viewer modal now opens on every list).
+                recByDataByMovieId = new Map();
                 if (isRecsList) {
-                    recByDataByMovieId = new Map();
                     let recsHighlightSince = '';
                     // DB-aware so a rec seen on another device doesn't re-glow here.
                     try {
@@ -4269,11 +4316,17 @@
 
                     // Distinct platforms present on this list's movies (for the Watch
                     // options multi-select filter), from the already-loaded platform map.
-                    const platforms = new Set();
+                    // Dedupe by CANONICAL service so the same service never appears twice
+                    // (e.g. "Amazon Prime Video"/"Prime Video"/"Amazon Video" → one "Prime"),
+                    // then order by service popularity (see comparePlatformsByPopularity).
+                    const platformCanonMap = new Map(); // canonicalLower -> canonical label
                     listsPlatformsByMovieId.forEach((arr) => {
                         (Array.isArray(arr) ? arr : []).forEach((p) => {
-                            const name = String(p || '').trim();
-                            if (name) platforms.add(name);
+                            const raw = String(p || '').trim();
+                            if (!raw) return;
+                            const canon = platformCanonicalLabel(raw);
+                            const key = canon.toLowerCase();
+                            if (key && !platformCanonMap.has(key)) platformCanonMap.set(key, canon);
                         });
                     });
 
@@ -4283,7 +4336,7 @@
                         genres: Array.from(genres).sort((a, b) => a.localeCompare(b)),
                         watchMethods: Array.from(watchMethods).sort((a, b) => a.localeCompare(b)),
                         timeframes: sortedMonths,
-                        platforms: Array.from(platforms).sort((a, b) => a.localeCompare(b)),
+                        platforms: Array.from(platformCanonMap.values()).sort(comparePlatformsByPopularity),
                     };
                     listsWatchCountMax = Math.max(0, Number(maxWatchCount) || 0);
                 } catch (_) {

@@ -953,7 +953,7 @@
                     </div>
                     ${subRatings.length ? `<div style="display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin-top:12px;">${subRatings.map(([k, v]) => `<span class="dash-quote-pill">${esc(k)}: ${esc(v)}</span>`).join('')}</div>` : ''}
                     ${quote ? `<div style="margin-top:14px;"><div style="color:rgba(255,255,255,0.5); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Favorite Quote</div><div style="color:#fff; line-height:1.4;">${esc(quote)}</div></div>` : ''}
-                    ${notes ? `<div style="margin-top:14px;"><div style="color:rgba(255,255,255,0.5); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Notes / Review</div><div style="color:rgba(255,255,255,0.9); line-height:1.45;">${esc(notes)}</div></div>` : ''}
+                    ${notes ? `<div style="margin-top:14px;"><div style="color:rgba(255,255,255,0.5); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Notes / Review</div><div class="review-notes-scroll" style="color:rgba(255,255,255,0.9); line-height:1.45; white-space:pre-wrap;">${esc(notes)}</div></div>` : ''}
                     ${actionsHtml}
                 `;
             }
@@ -975,7 +975,7 @@
                 ${mostRecent ? `<div style="text-align:center; color:rgba(255,255,255,0.55); font-size:0.78rem; margin-top:8px;">Most recent watch: ${esc(mostRecent)}${watchCount > 0 ? ` · ${watchCount} time${watchCount === 1 ? '' : 's'}` : ''}</div>` : ''}
                 ${subRatings.length ? `<div style="display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin-top:12px;">${subRatings.map(([k, v]) => `<span class="dash-quote-pill">${esc(k)}: ${esc(v)}</span>`).join('')}</div>` : ''}
                 ${quote ? `<div style="margin-top:14px;"><div style="color:rgba(255,255,255,0.5); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Favorite Quote</div><div style="color:#fff; line-height:1.4;">${esc(quote)}</div></div>` : ''}
-                ${notes ? `<div style="margin-top:14px;"><div style="color:rgba(255,255,255,0.5); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Notes / Review</div><div style="color:rgba(255,255,255,0.9); line-height:1.45;">${esc(notes)}</div></div>` : ''}
+                ${notes ? `<div style="margin-top:14px;"><div style="color:rgba(255,255,255,0.5); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Notes / Review</div><div class="review-notes-scroll" style="color:rgba(255,255,255,0.9); line-height:1.45; white-space:pre-wrap;">${esc(notes)}</div></div>` : ''}
                 ${actionsHtmlDesktop}
             `;
         }
