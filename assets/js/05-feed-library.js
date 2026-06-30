@@ -3644,6 +3644,23 @@
             // even if the seed populated late or a card got re-rendered.
             reconcileFeedBucketStars();
 
+            // Warm the Movie Spotlight cache for the top (most-recent) 10 movies the
+            // moment the feed renders, so tapping a poster opens the spotlight with no
+            // spinner. Fire-and-forget; prefetchMovieDetails dedupes + caches.
+            try {
+                if (typeof prefetchMovieDetails === 'function') {
+                    let warmed = 0;
+                    for (const mid of groupOrder) {
+                        if (warmed >= 10) break;
+                        const movie = moviesById.get(mid) || null;
+                        const tmdbId = Number(movie?.tmdb_id);
+                        if (!Number.isFinite(tmdbId) || tmdbId <= 0) continue;
+                        prefetchMovieDetails(tmdbId).catch(() => {});
+                        warmed++;
+                    }
+                }
+            } catch (_) {}
+
             // In-common mode: offer "Load More" if there may be more watch logs to scan.
             renderFeedInCommonLoadMore(elList);
             // Normal mode: infinite-scroll sentinel that auto-loads the next 100.
