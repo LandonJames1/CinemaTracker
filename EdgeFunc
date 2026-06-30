@@ -2035,6 +2035,86 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: true, list_id: listId, recipients: recipientIds.length, notified }, 200);
     }
 
+    // ---- Notify a review's author that someone reacted to it -----------------
+    // Fired (fire-and-forget) by the Feed when the caller ADDS an emoji reaction
+    // to another user's review. Recipient = the review's author. Self-reactions
+    // never notify. Body = `@reactor reacted <emoji> to your review of "Title"`,
+    // deep-links to the author's own diary entry for the movie. Best-effort.
+    if (action === "notify_review_reaction") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) {
+        return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      }
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const reactor = userData?.user || null;
+      if (userErr || !reactor?.id) {
+        return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+      }
+
+      const isUuid = (v) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || "").trim());
+      const ratingId = String(body?.rating_id ?? "").trim();
+      const emoji = String(body?.emoji ?? "").trim().slice(0, 16);
+      if (!isUuid(ratingId)) {
+        return jsonResponse({ code: 400, message: "Valid rating_id is required." }, 400);
+      }
+
+      // Resolve the review → its author + movie.
+      let authorId = "", movieId = "";
+      try {
+        const { data: rrow } = await supabaseAdmin
+          .from("Movie Ratings").select("user_id, movie_id").eq("id", ratingId).single();
+        authorId = String(rrow?.user_id ?? "").trim();
+        movieId = String(rrow?.movie_id ?? "").trim();
+      } catch (_) {}
+      if (!isUuid(authorId)) {
+        return jsonResponse({ code: 404, message: "Review not found." }, 404);
+      }
+      // Don't notify on a self-reaction.
+      if (authorId === reactor.id) {
+        return jsonResponse({ ok: true, rating_id: ratingId, notified: 0, self: true }, 200);
+      }
+
+      let movieTitle = "", movieYear = "";
+      if (isUuid(movieId)) {
+        try {
+          const { data: mrow } = await supabaseAdmin
+            .from("Movies").select("title, release_year").eq("id", movieId).single();
+          movieTitle = String(mrow?.title ?? "").trim();
+          movieYear = (mrow?.release_year ?? "") === "" ? "" : String(mrow.release_year);
+        } catch (_) {}
+      }
+      let reactorHandle = "";
+      try {
+        const { data: arow } = await supabaseAdmin
+          .from("Users").select("username, display_name").eq("id", reactor.id).single();
+        const uname = String(arow?.username ?? "").trim();
+        reactorHandle = uname ? `@${uname}` : String(arow?.display_name ?? "").trim();
+      } catch (_) {}
+      if (!reactorHandle) reactorHandle = "Someone";
+
+      const titlePart = `"${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`;
+      const emojiPart = emoji ? `${emoji} ` : "";
+      let notified = 0;
+      try {
+        const badge = await computeUnseenBadge(supabaseAdmin, authorId);
+        notified = await sendPushToUser(supabaseAdmin, authorId, {
+          title: `New reaction ${emoji || "🎬"}`.trim(),
+          body: `${reactorHandle} reacted ${emojiPart}to your review of ${titlePart}`,
+          // Deep-link to the author's OWN diary entry for the movie.
+          url: `/#review=${authorId}:${movieId}`,
+          badge,
+          // Coalesce repeated reactions on the same review into one notification.
+          tag: `reaction-${ratingId}`,
+        });
+      } catch (_) {}
+
+      return jsonResponse({ ok: true, rating_id: ratingId, notified }, 200);
+    }
+
     // Admin/self test: send a real Web Push to the caller's own subscribed devices.
     if (action === "test_push") {
       const authHeader = req.headers.get("Authorization") ?? "";

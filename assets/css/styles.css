@@ -3404,6 +3404,9 @@
                 font-size: 0.8rem;
             }
             .feed-bucket-star { width: 15px; height: 15px; }
+            /* Match the bucket button's larger mobile box metrics so the React icon button
+               stays exactly the same height as it. */
+            .feed-react-add { padding: 9px; font-size: 0.8rem; }
 
             /* AI Picks result cards: single column + wrap long text on phones. */
             .ai-results { grid-template-columns: 1fr !important; }
@@ -5597,11 +5600,6 @@
            inside .feed-card-details). On desktop it's a clean bottom-right pill; on mobile
            it's repositioned into the empty gap to the RIGHT of the sub-rating chips
            (see the ≤768px block) — absolutely placed there so it never moves the ratings. */
-        .feed-card-bucket-slot {
-            display: flex;
-            justify-content: flex-end;
-            margin-top: 0.9rem;
-        }
         .feed-bucket-btn {
             display: inline-flex;
             align-items: center;
@@ -5638,6 +5636,108 @@
             border-color: var(--brand);
         }
         .feed-bucket-btn:active { transform: scale(0.96); }
+
+        /* ---- Feed review reactions (emoji) ---- */
+        /* Bottom action row: the small React icon button sits beside the Bucket List
+           button, right-aligned (matches the old bucket slot). */
+        .feed-card-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 0.9rem;
+        }
+        .feed-react-counts {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 0.9rem;
+        }
+        .feed-react-counts:empty { display: none; margin-top: 0; }
+        .feed-react-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: #202024;
+            color: #fff;
+            font-size: 0.78rem;
+            font-weight: 800;
+            line-height: 1;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+        }
+        .feed-react-pill .feed-react-emoji { font-size: 0.95rem; line-height: 1; }
+        .feed-react-pill .feed-react-count { color: rgba(255, 255, 255, 0.75); }
+        .feed-react-pill:hover { background: #26262b; border-color: rgba(255, 255, 255, 0.22); }
+        .feed-react-pill:active { transform: scale(0.94); }
+        .feed-react-pill.is-mine {
+            background: color-mix(in srgb, var(--brand) 22%, #202024);
+            border-color: var(--brand);
+        }
+        .feed-react-pill.is-mine .feed-react-count { color: #fff; }
+        /* Small round emoji icon button (no text) — opens the picker. Shares the Bucket
+           button's vertical box metrics (padding/border/line-height/font-size) so the two
+           render at exactly the same height. */
+        .feed-react-add {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            padding: 6px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: #202024;
+            font-size: 0.78rem;
+            line-height: 1;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+        }
+        /* Keep it square: width tracks the (font + padding + border) height. */
+        .feed-react-add { aspect-ratio: 1 / 1; }
+        .feed-react-add:hover { background: #26262b; border-color: rgba(255, 255, 255, 0.26); }
+        .feed-react-add:active { transform: scale(0.92); }
+        /* The emoji picker — revealed when the React icon is tapped. Shrinks to fit its
+           emojis and hugs the right edge (under the React button) instead of spanning the
+           full card width, so there's no dead space on the left. */
+        .feed-react-picker {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 4px;
+            width: fit-content;
+            max-width: 100%;
+            margin-top: 6px;
+            margin-left: auto;
+            margin-right: 0;
+            padding: 6px;
+            border-radius: 0.85rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: #16161a;
+        }
+        .feed-react-picker[hidden] { display: none; }
+        .feed-react-opt {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 38px;
+            height: 38px;
+            border-radius: 0.6rem;
+            border: 1px solid transparent;
+            background: transparent;
+            font-size: 1.2rem;
+            line-height: 1;
+            cursor: pointer;
+            transition: background 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
+        }
+        .feed-react-opt:hover { background: #26262b; }
+        .feed-react-opt:active { transform: scale(0.9); }
+        .feed-react-opt.is-mine {
+            background: color-mix(in srgb, var(--brand) 22%, #202024);
+            border-color: var(--brand);
+        }
 
         .feed-item-card {
             cursor: pointer;

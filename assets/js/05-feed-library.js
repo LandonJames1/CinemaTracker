@@ -153,6 +153,9 @@
                 // Don't toggle when clicking buttons/controls.
                 const actionEl = e?.target?.closest ? e.target.closest('[data-feed-action]') : null;
                 if (actionEl) return;
+                // Don't collapse the card when tapping inside the reaction picker/counts
+                // padding (which carries no data-feed-action).
+                if (e?.target?.closest && e.target.closest('.feed-react-picker, .feed-react-counts')) return;
 
                 card.classList.toggle('is-open');
             });
@@ -215,6 +218,17 @@
 
                 if (action === 'open_search') {
                     openPageSearch('feed');
+                    return;
+                }
+
+                // Toggle the emoji picker open/closed for one review (scoped to this card).
+                if (action === 'open_reactions') {
+                    const details = btn.closest ? btn.closest('.feed-card-details') : null;
+                    const picker = details ? details.querySelector('.feed-react-picker') : null;
+                    if (picker) {
+                        if (picker.hasAttribute('hidden')) picker.removeAttribute('hidden');
+                        else picker.setAttribute('hidden', '');
+                    }
                     return;
                 }
 
@@ -293,6 +307,72 @@
                             return;
                         }
                         showToast(`Could not add to Bucket List: ${msg}`, { level: 'warn' });
+                    }
+                    return;
+                }
+
+                // Toggle one emoji reaction on a review. Optimistically updates the local
+                // counts + repaints the bar, then writes to the DB. Adding a reaction to
+                // someone else's review pushes a notification to its author.
+                if (action === 'toggle_reaction') {
+                    const ratingId = String(btn.dataset.ratingId || '').trim();
+                    const emoji = String(btn.dataset.emoji || '').trim();
+                    if (!ratingId || !emoji) return;
+
+                    let entry = feedReactionsByRatingId.get(ratingId);
+                    if (!entry) { entry = { counts: new Map(), mine: new Set() }; feedReactionsByRatingId.set(ratingId, entry); }
+                    const hadIt = entry.mine.has(emoji);
+
+                    // Optimistic local update.
+                    if (hadIt) {
+                        entry.mine.delete(emoji);
+                        entry.counts.set(emoji, Math.max(0, (entry.counts.get(emoji) || 0) - 1));
+                        if ((entry.counts.get(emoji) || 0) <= 0) entry.counts.delete(emoji);
+                    } else {
+                        entry.mine.add(emoji);
+                        entry.counts.set(emoji, (entry.counts.get(emoji) || 0) + 1);
+                    }
+                    // Grab the picker BEFORE repainting — repaint rewrites the picker's
+                    // innerHTML, which detaches the clicked button (so btn.closest would
+                    // then return null). Close it once a reaction is made (this card only).
+                    const reactDetails = btn.closest ? btn.closest('.feed-card-details') : null;
+                    const reactPicker = reactDetails ? reactDetails.querySelector('.feed-react-picker') : null;
+
+                    repaintFeedReactionBars(ratingId);
+
+                    if (reactPicker) reactPicker.setAttribute('hidden', '');
+
+                    try {
+                        if (hadIt) {
+                            const { error } = await supabaseClient
+                                .from('Review Reactions')
+                                .delete()
+                                .eq('rating_id', ratingId)
+                                .eq('user_id', authedUser.id)
+                                .eq('emoji', emoji);
+                            if (error) throw error;
+                        } else {
+                            const { error } = await supabaseClient
+                                .from('Review Reactions')
+                                .insert({ rating_id: ratingId, user_id: authedUser.id, emoji });
+                            // A duplicate (already reacted on another device) is fine.
+                            if (error && !/duplicate|unique/i.test(String(error.message || error))) throw error;
+                            // Notify the review's author (best-effort; the edge action
+                            // resolves the author and skips self-reactions).
+                            callSwiftApi({ action: 'notify_review_reaction', rating_id: ratingId, emoji }, authedAccessToken).catch(() => null);
+                        }
+                    } catch (err) {
+                        // Roll back the optimistic change on failure.
+                        if (hadIt) {
+                            entry.mine.add(emoji);
+                            entry.counts.set(emoji, (entry.counts.get(emoji) || 0) + 1);
+                        } else {
+                            entry.mine.delete(emoji);
+                            entry.counts.set(emoji, Math.max(0, (entry.counts.get(emoji) || 0) - 1));
+                            if ((entry.counts.get(emoji) || 0) <= 0) entry.counts.delete(emoji);
+                        }
+                        repaintFeedReactionBars(ratingId);
+                        showToast(`Could not save reaction: ${String(err?.message || err)}`, { level: 'warn' });
                     }
                     return;
                 }
@@ -2074,6 +2154,96 @@
         // the bucket list (matches by tmdb_id when the movie_id match misses).
         const feedBucketTmdbIds = new Set();
 
+        // ---- Feed review reactions (emoji) --------------------------------------
+        // A small set of reaction emojis a viewer can drop on any review in the feed.
+        // Counts + the viewer's own reactions are loaded per feed load and rendered inside
+        // each expanded card. Adding one pushes a notification to the review's author
+        // (via the swift-api notify_review_reaction edge action).
+        const FEED_REACTION_EMOJIS = ['👍', '👎', '❤️', '😂', '💯', '🤯'];
+        // rating_id -> { counts: Map(emoji -> n), mine: Set(emoji) }
+        const feedReactionsByRatingId = new Map();
+
+        // Batch-load reactions for the given review (Movie Ratings) ids into
+        // feedReactionsByRatingId, recording per-emoji counts + which the viewer owns.
+        async function loadFeedReactions(ratingIds, viewerId) {
+            feedReactionsByRatingId.clear();
+            const ids = Array.from(new Set((Array.isArray(ratingIds) ? ratingIds : [])
+                .map((x) => String(x || '').trim()).filter(Boolean)));
+            if (!ids.length) return;
+            const vid = String(viewerId || '').trim();
+            try {
+                const rows = [];
+                for (let i = 0; i < ids.length; i += 300) {
+                    const chunk = ids.slice(i, i + 300);
+                    const { data, error } = await supabaseClient
+                        .from('Review Reactions')
+                        .select('rating_id, user_id, emoji')
+                        .in('rating_id', chunk);
+                    if (error) throw error;
+                    rows.push(...(Array.isArray(data) ? data : []));
+                }
+                for (const row of rows) {
+                    const rid = String(row?.rating_id || '').trim();
+                    const emoji = String(row?.emoji || '').trim();
+                    if (!rid || !emoji) continue;
+                    let entry = feedReactionsByRatingId.get(rid);
+                    if (!entry) { entry = { counts: new Map(), mine: new Set() }; feedReactionsByRatingId.set(rid, entry); }
+                    entry.counts.set(emoji, (entry.counts.get(emoji) || 0) + 1);
+                    if (vid && String(row?.user_id || '').trim() === vid) entry.mine.add(emoji);
+                }
+            } catch (e) {
+                // Best-effort — a missing table / RLS just means no reaction bars.
+                try { emitLog('warn', 'Feed reactions load failed: ' + String(e?.message || e)); } catch (_) {}
+            }
+        }
+
+        // The count-pills for one review (one per emoji that has ≥1 reaction, the viewer's
+        // own highlighted). Returned as the inner HTML of `.feed-react-counts`.
+        function feedReactionCountsInner(ratingId) {
+            const rid = String(ratingId || '').trim();
+            if (!rid) return '';
+            const entry = feedReactionsByRatingId.get(rid) || { counts: new Map(), mine: new Set() };
+            const pills = [];
+            for (const emoji of FEED_REACTION_EMOJIS) {
+                const n = entry.counts.get(emoji) || 0;
+                if (n <= 0) continue;
+                const mine = entry.mine.has(emoji) ? ' is-mine' : '';
+                pills.push(`<button type="button" class="feed-react-pill${mine}" data-feed-action="toggle_reaction" data-rating-id="${escapeHtml(rid)}" data-emoji="${escapeHtml(emoji)}" title="${mine ? 'Remove your reaction' : 'React'}"><span class="feed-react-emoji">${emoji}</span><span class="feed-react-count">${n}</span></button>`);
+            }
+            return pills.join('');
+        }
+
+        // The emoji options inside the (hidden) picker for one review.
+        function feedReactionPickerInner(ratingId) {
+            const rid = String(ratingId || '').trim();
+            if (!rid) return '';
+            const entry = feedReactionsByRatingId.get(rid) || { counts: new Map(), mine: new Set() };
+            return FEED_REACTION_EMOJIS.map((emoji) => {
+                const mine = entry.mine.has(emoji) ? ' is-mine' : '';
+                return `<button type="button" class="feed-react-opt${mine}" data-feed-action="toggle_reaction" data-rating-id="${escapeHtml(rid)}" data-emoji="${escapeHtml(emoji)}" title="${emoji}">${emoji}</button>`;
+            }).join('');
+        }
+
+        // The small emoji "React" icon button (opens the picker), shown in the card's
+        // action row right beside the Bucket List button.
+        function feedReactAddBtnHtml(ratingId) {
+            const rid = String(ratingId || '').trim();
+            if (!rid) return '';
+            return `<button type="button" class="feed-react-add" data-feed-action="open_reactions" data-rating-id="${escapeHtml(rid)}" title="Add a reaction" aria-label="Add a reaction">🙂</button>`;
+        }
+
+        // Re-render the count pills + picker options for a review across every on-screen
+        // card it appears on (grouped duplicates), preserving each picker's open state.
+        function repaintFeedReactionBars(ratingId) {
+            const rid = String(ratingId || '').trim();
+            if (!rid) return;
+            const sel = (window.CSS && CSS.escape) ? CSS.escape(rid) : rid;
+            document.querySelectorAll(`.feed-react-counts[data-rating-id="${sel}"]`)
+                .forEach((el) => { el.innerHTML = feedReactionCountsInner(rid); });
+            document.querySelectorAll(`.feed-react-picker[data-rating-id="${sel}"]`)
+                .forEach((el) => { el.innerHTML = feedReactionPickerInner(rid); });
+        }
+
         // Fill the star on EVERY currently-rendered feed button for a movie (a movie can
         // appear on multiple grouped cards), so adding it once updates all of them.
         function markFeedBucketButtons(movieId) {
@@ -3317,7 +3487,7 @@
                 if (elMeta) elMeta.textContent = '';
             }
 
-            const ratingCols = 'user_id, movie_id, overall_rating, tier, watch_date, updated_at, created_at, fav_quote, notes, sound_rating, pacing_rating, imagery_rating, acting_rating, plot_rating, dialogue_rating';
+            const ratingCols = 'id, user_id, movie_id, overall_rating, tier, watch_date, updated_at, created_at, fav_quote, notes, sound_rating, pacing_rating, imagery_rating, acting_rating, plot_rating, dialogue_rating';
 
             // 1) Watch logs. Normal feed = recent 60. "In common" loads 1000 at a
             //    time (accumulated across "Load More"), so older overlaps aren't cut off.
@@ -3509,6 +3679,10 @@
                 }
             }
 
+            // Load emoji reactions for every review about to render, so each card's
+            // reaction bar shows current counts + the viewer's own reactions.
+            await loadFeedReactions(rows.map((r) => r?.id), authedUserId);
+
             if (elMeta) {
                 const modeLabel = feedCompareOwn ? 'You + selected follows' : 'Selected follows';
                 const orderLabel = feedInCommonOnly ? 'Most recent watches first' : 'Most recently updated first';
@@ -3609,12 +3783,22 @@
                                 </div>
                             ` : ''}
 
-                            ${(movieIdStr && actorId !== authedUserId) ? `
-                                <div class="feed-card-bucket-slot">
-                                    <button type="button" class="feed-bucket-btn${inBucket ? ' is-added' : ''}" data-feed-action="add_bucket" data-feed-movie-id="${escapeHtml(movieIdStr)}" data-feed-movie-tmdb="${escapeHtml(movieTmdbStr)}" data-feed-movie-title="${escapeHtml(title)}" title="${inBucket ? 'In your Bucket List' : 'Add to Bucket List'}" aria-label="${inBucket ? `${escapeHtml(title)} is in your Bucket List` : `Add ${escapeHtml(title)} to Bucket List`}">
-                                        <svg class="feed-bucket-star" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><span>Bucket List</span>
-                                    </button>
-                                </div>` : ''}
+                            ${(() => {
+                                const ratingIdStr = String(r?.id || '').trim();
+                                const showReact = !!ratingIdStr;
+                                const showBucket = !!(movieIdStr && actorId !== authedUserId);
+                                if (!showReact && !showBucket) return '';
+                                return `
+                                    ${showReact ? `<div class="feed-react-counts" data-rating-id="${escapeHtml(ratingIdStr)}">${feedReactionCountsInner(ratingIdStr)}</div>` : ''}
+                                    <div class="feed-card-actions">
+                                        ${showBucket ? `<button type="button" class="feed-bucket-btn${inBucket ? ' is-added' : ''}" data-feed-action="add_bucket" data-feed-movie-id="${escapeHtml(movieIdStr)}" data-feed-movie-tmdb="${escapeHtml(movieTmdbStr)}" data-feed-movie-title="${escapeHtml(title)}" title="${inBucket ? 'In your Bucket List' : 'Add to Bucket List'}" aria-label="${inBucket ? `${escapeHtml(title)} is in your Bucket List` : `Add ${escapeHtml(title)} to Bucket List`}">
+                                            <svg class="feed-bucket-star" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><span>Bucket List</span>
+                                        </button>` : ''}
+                                        ${showReact ? feedReactAddBtnHtml(ratingIdStr) : ''}
+                                    </div>
+                                    ${showReact ? `<div class="feed-react-picker" data-rating-id="${escapeHtml(ratingIdStr)}" hidden>${feedReactionPickerInner(ratingIdStr)}</div>` : ''}
+                                `;
+                            })()}
                         </div>
                     </div>
                 `;
