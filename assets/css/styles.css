@@ -1630,11 +1630,11 @@
            CSS @keyframes (not transitions) are used so the slide plays even though modals
            are opened by toggling inline display:flex. */
         @media (max-width: 768px) {
-            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay):not(#page-search-overlay) {
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay):not(#page-search-overlay):not(#movie-spotlight-overlay) {
                 align-items: flex-end !important;
                 padding: 0 !important;
             }
-            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay):not(#page-search-overlay) > .auth-modal {
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay):not(#page-search-overlay):not(#movie-spotlight-overlay) > .auth-modal {
                 width: 100% !important;
                 max-width: 100% !important;
                 max-height: 92dvh !important;
@@ -1643,7 +1643,7 @@
                 padding: 1rem 1.1rem calc(1.25rem + env(safe-area-inset-bottom)) !important;
                 animation: sheetUp 0.32s cubic-bezier(0.16, 1, 0.3, 1);
             }
-            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay):not(#page-search-overlay) > .auth-modal::before {
+            body.app-sheets .auth-overlay:not(#achievement-earned-overlay):not(#achievement-detail-overlay):not(#auth-overlay):not(#lists-add-overlay):not(#page-search-overlay):not(#movie-spotlight-overlay) > .auth-modal::before {
                 content: "";
                 display: block;
                 width: 40px;
@@ -7569,3 +7569,229 @@
             background: color-mix(in srgb, var(--brand) 16%, transparent);
             border: 1px solid color-mix(in srgb, var(--brand) 40%, transparent);
         }
+
+        /* =====================================================================
+           Movie Spotlight modal (23-movie-spotlight.js)
+           A rich, cinematic movie-detail popup opened from Home search results +
+           the Trending marquee. Full-bleed backdrop hero, overlapping poster,
+           Overview/Cast/Details tabs, and the Home action row. Surfaces are
+           OPAQUE per the codebase convention (no see-through panels).
+           ===================================================================== */
+        .movie-spotlight-modal {
+            max-width: 760px;
+            padding: 0 !important;          /* hero is full-bleed; sections pad themselves */
+            background: #16161a;
+            overflow: hidden;               /* clip the backdrop to the rounded corners */
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            /* FIXED height (not just max-height) so switching tabs never resizes the
+               modal — the .ms-panel just shows empty space for short tabs (Synopsis)
+               instead of the whole popup collapsing. Capped so it stays bounded on
+               very tall monitors, but never exceeds the viewport on short screens. */
+            height: min(840px, calc(100dvh - 2.5rem));
+            max-height: calc(100dvh - 2.5rem);
+        }
+        /* Fixed-zone layout: hero + tabs + action footer stay put; only .ms-panel
+           scrolls between them. (A single scroll container with sticky tabs/footer
+           let content bleed through + overflow the buttons — this is bulletproof.) */
+        #movie-spotlight-body {
+            display: flex; flex-direction: column;
+            flex: 1 1 auto; min-height: 0; overflow: hidden;
+        }
+        .ms-hero, .ms-tabs, .ms-actions { flex: 0 0 auto; }
+        .ms-panel { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+        .ms-close {
+            position: absolute; top: 12px; right: 12px; z-index: 5;
+            width: 34px; height: 34px; border-radius: 999px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.35rem; line-height: 1; font-weight: 700;
+            color: #fff; background: rgba(0,0,0,0.55);
+            border: 1px solid rgba(255,255,255,0.18);
+            backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+            cursor: pointer; transition: background 0.18s, transform 0.18s;
+        }
+        .ms-close:hover { background: rgba(0,0,0,0.8); transform: scale(1.06); }
+
+        /* ---- Hero ---- */
+        .ms-hero { position: relative; padding: 0; min-height: 230px; }
+        .ms-hero-noimg { min-height: 150px; }
+        .ms-backdrop {
+            position: absolute; inset: 0;
+            background-size: cover; background-position: center 18%;
+            opacity: 0.9;
+        }
+        .ms-hero-fade {
+            position: absolute; inset: 0;
+            background: linear-gradient(180deg, rgba(22,22,26,0.10) 0%, rgba(22,22,26,0.55) 55%, #16161a 100%);
+        }
+        .ms-hero-noimg .ms-hero-fade {
+            background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 26%, #16161a), #16161a 70%);
+        }
+        .ms-hero-content {
+            position: relative;
+            display: flex; gap: 1.1rem; align-items: flex-end;
+            padding: 1.5rem 1.4rem 1.15rem;
+            padding-top: 104px;             /* let the backdrop breathe above the content */
+        }
+        .ms-hero-noimg .ms-hero-content { padding-top: 52px; }
+        .ms-poster {
+            position: relative;
+            flex: 0 0 116px; width: 116px; height: 174px;
+            border-radius: 0.7rem; overflow: hidden;
+            background: #202024; border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 14px 34px rgba(0,0,0,0.55);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .ms-poster img { width: 100%; height: 100%; object-fit: cover; position: relative; z-index: 1; }
+        .ms-poster-fallback { position: absolute; width: 30px; height: 30px; color: rgba(255,255,255,0.35); display: none; }
+        .ms-poster.ms-poster-noimg .ms-poster-fallback { display: block; }
+        .ms-hero-text { min-width: 0; flex: 1 1 auto; padding-bottom: 0.2rem; }
+        .ms-title {
+            font-size: 1.7rem; font-weight: 900; line-height: 1.12; color: #fff;
+            letter-spacing: -0.01em; text-shadow: 0 2px 14px rgba(0,0,0,0.5);
+        }
+        .ms-title .ms-year { font-weight: 700; color: rgba(255,255,255,0.7); font-size: 1.1rem; }
+        .ms-tagline { margin-top: 0.3rem; font-size: 0.9rem; font-style: italic; color: rgba(255,255,255,0.72); }
+
+        /* ---- Tabs (fixed zone) ---- */
+        .ms-tabs {
+            display: flex; gap: 0.4rem; padding: 0 1.4rem;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            background: #16161a; z-index: 3;
+        }
+        .ms-tabs button {
+            appearance: none; background: none; border: none; cursor: pointer;
+            padding: 0.7rem 0.3rem; margin-right: 0.6rem;
+            font-size: 0.9rem; font-weight: 800; color: rgba(255,255,255,0.5);
+            border-bottom: 2.5px solid transparent; transition: color 0.18s, border-color 0.18s;
+        }
+        .ms-tabs button:hover { color: rgba(255,255,255,0.8); }
+        .ms-tabs button.is-active { color: #fff; border-bottom-color: var(--brand); }
+
+        /* ---- Panel ---- */
+        .ms-panel { padding: 1.2rem 1.4rem 1.4rem; }
+        .ms-empty { font-size: 0.9rem; color: rgba(255,255,255,0.5); font-weight: 600; padding: 0.4rem 0; }
+        .ms-loading {
+            display: flex; align-items: center; gap: 0.6rem; padding: 1.2rem 0;
+            color: rgba(255,255,255,0.6); font-weight: 700; font-size: 0.88rem;
+        }
+
+        /* Synopsis tab */
+        .ms-overview { font-size: 0.97rem; line-height: 1.65; color: rgba(255,255,255,0.88); font-weight: 500; margin: 0; }
+
+        /* Details tab — Row 1: Director + IMDb · Row 2: Genre · Row 3: MPA/Runtime/Released */
+
+        /* Row 1: Director (with headshot) + IMDb, equal-height side by side */
+        .ms-top-row { display: grid; grid-template-columns: 1.6fr 1fr; gap: 0.7rem; align-items: stretch; margin-bottom: 0.7rem; }
+        .ms-director-card {
+            display: flex; align-items: center; gap: 0.9rem; min-width: 0;
+            border-radius: 0.9rem; padding: 0.9rem 1rem;
+            background: linear-gradient(120deg, color-mix(in srgb, var(--brand) 12%, transparent), #1d1d22 60%);
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .ms-director-photo {
+            position: relative; overflow: hidden; flex: 0 0 60px; width: 60px; height: 90px;
+            border-radius: 0.6rem; background: #2a2a30;
+            border: 2px solid color-mix(in srgb, var(--brand) 45%, transparent);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .ms-director-photo img { width: 100%; height: 100%; object-fit: cover; object-position: top center; position: relative; z-index: 1; }
+        .ms-director-photo svg { position: absolute; width: 28px; height: 28px; color: rgba(255,255,255,0.3); display: none; }
+        .ms-director-photo.ms-noimg svg { display: block; }
+        .ms-director-text { min-width: 0; text-align: center; }
+        .ms-director-name { font-size: 1.15rem; font-weight: 900; color: #fff; line-height: 1.2; margin-top: 0.15rem; }
+
+        .ms-imdb-card {
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem;
+            text-align: center; border-radius: 0.9rem; padding: 0.8rem 0.6rem;
+            border: 1px solid rgba(245,197,24,0.32);
+            background: linear-gradient(150deg, rgba(245,197,24,0.14), #1d1d22 62%);
+        }
+        .ms-imdb-card .ms-stat-ico { color: #f5c518; background: rgba(245,197,24,0.16); margin-bottom: 0.15rem; }
+        .ms-imdb-num { font-size: 1.8rem; font-weight: 900; line-height: 1; color: #f5c518; }
+        .ms-imdb-num span { font-size: 0.95rem; font-weight: 800; color: rgba(245,197,24,0.7); margin-left: 1px; }
+
+        /* Row 2: full-width tile (Genre) */
+        .ms-stats { display: flex; flex-direction: column; gap: 0.7rem; }
+        .ms-stat {
+            display: flex; align-items: center; gap: 0.7rem; min-width: 0;
+            border-radius: 0.85rem; padding: 0.7rem 0.85rem;
+            background: #1d1d22; border: 1px solid rgba(255,255,255,0.08);
+        }
+        .ms-stat-ico {
+            flex: 0 0 36px; width: 36px; height: 36px; border-radius: 0.6rem;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--brand); background: color-mix(in srgb, var(--brand) 16%, transparent);
+        }
+        .ms-stat-ico svg { width: 18px; height: 18px; }
+        .ms-stat-text { min-width: 0; text-align: center; }
+        .ms-stat-label { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(255,255,255,0.45); }
+        .ms-stat-val { font-size: 0.95rem; font-weight: 800; color: #fff; line-height: 1.3; margin-top: 0.1rem; }
+
+        /* Row 3: compact stat cards — MPA / Runtime / Released (icon · value · label) */
+        .ms-stats-mini { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.7rem; margin-top: 0.7rem; }
+        .ms-stats-mini .ms-stat { flex-direction: column; align-items: center; text-align: center; gap: 0.4rem; padding: 0.85rem 0.5rem; }
+        .ms-stats-mini .ms-stat-text { text-align: center; min-width: 0; width: 100%; }
+        .ms-stats-mini .ms-stat-val { font-size: 1.05rem; margin-top: 0; line-height: 1.2; word-break: break-word; }
+        .ms-stats-mini .ms-stat-label { margin-top: 0.2rem; }
+
+        /* Cast tab */
+        .ms-cast-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; }
+        .ms-cast-card { text-align: center; min-width: 0; }
+        .ms-cast-photo {
+            position: relative; width: 100%; aspect-ratio: 2 / 3;
+            border-radius: 0.6rem; overflow: hidden; background: #202024;
+            border: 1px solid rgba(255,255,255,0.1);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .ms-cast-photo img { width: 100%; height: 100%; object-fit: cover; position: relative; z-index: 1; }
+        .ms-cast-fallback { position: absolute; width: 26px; height: 26px; color: rgba(255,255,255,0.3); display: none; }
+        .ms-cast-photo.ms-cast-noimg .ms-cast-fallback { display: block; }
+        .ms-cast-name { margin-top: 0.4rem; font-size: 0.82rem; font-weight: 800; color: #fff; line-height: 1.2; }
+        .ms-cast-char { font-size: 0.75rem; color: rgba(255,255,255,0.55); font-weight: 600; line-height: 1.2; margin-top: 0.1rem; }
+
+        /* ---- Action row (fixed footer) ---- */
+        .ms-actions {
+            display: flex; flex-direction: column; gap: 0.55rem;
+            padding: 0.85rem 1.4rem calc(0.95rem + env(safe-area-inset-bottom));
+            background: #16161a;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 -10px 24px rgba(0,0,0,0.35);
+        }
+        .ms-actions-row { display: flex; gap: 0.55rem; }
+        .ms-action { flex: 1 1 0; min-height: 42px; border-radius: 0.8rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+        .ms-action svg { width: 17px; height: 17px; }
+
+        @media (max-width: 768px) {
+            .movie-spotlight-modal {
+                width: 100%; max-width: 100%;
+                /* Fixed height on mobile too (bottom sheet): locks the sheet size so
+                   tab switches don't resize it. */
+                height: 94dvh;
+                max-height: 94dvh;
+                border-radius: 1.25rem 1.25rem 0 0;
+                border-bottom: none;
+                animation: sheetUp 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            body.app-sheets #movie-spotlight-overlay { align-items: flex-end; padding: 0; }
+            .ms-hero-content { padding: 100px 1.1rem 1rem; gap: 0.9rem; }
+            .ms-hero-noimg .ms-hero-content { padding-top: 50px; }
+            .ms-poster { flex-basis: 92px; width: 92px; height: 138px; }
+            .ms-title { font-size: 1.4rem; }
+            .ms-tabs, .ms-panel, .ms-actions { padding-left: 1.1rem; padding-right: 1.1rem; }
+            .ms-cast-grid { grid-template-columns: repeat(3, 1fr); }
+            /* Keep Director + IMDb side by side on mobile too — just tighten them. */
+            .ms-top-row { gap: 0.55rem; }
+            .ms-director-card { gap: 0.6rem; padding: 0.75rem 0.7rem; }
+            .ms-director-photo { flex-basis: 50px; width: 50px; height: 75px; }
+            .ms-director-photo svg { width: 22px; height: 22px; }
+            .ms-director-name { font-size: 0.98rem; }
+            .ms-imdb-card { padding: 0.7rem 0.4rem; }
+            .ms-imdb-num { font-size: 1.5rem; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .movie-spotlight-modal { animation: none; }
+        }
+        .trending-card { cursor: pointer; }

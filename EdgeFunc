@@ -864,6 +864,13 @@ function extractDirectorNameFromCredits(creditsJson) {
   return unique.length ? unique.join(", ") : null;
 }
 
+// Headshot of the first-credited director (for the Movie Spotlight Details tab).
+function extractDirectorProfilePath(creditsJson) {
+  const crew = Array.isArray(creditsJson?.crew) ? creditsJson.crew : [];
+  const dir = crew.find((c) => String(c?.job ?? "").trim().toLowerCase() === "director" && c?.profile_path);
+  return dir?.profile_path ? String(dir.profile_path) : null;
+}
+
 function extractUsCertification(releaseDatesJson) {
   const results = Array.isArray(releaseDatesJson?.results) ? releaseDatesJson.results : [];
   const us = results.find((r) => String(r?.iso_3166_1 ?? "").toUpperCase() === "US") || null;
@@ -2678,6 +2685,16 @@ Deno.serve(async (req) => {
           .slice(0, 4)
           .map((c) => String(c?.name ?? "").trim()),
       );
+      // Richer cast list (name + character + headshot) for the Movie Spotlight
+      // modal's Cast tab. Top-billed first, capped to keep the payload lean.
+      const cast_detailed = (Array.isArray(tmdbJson?.credits?.cast) ? tmdbJson.credits.cast : [])
+        .slice(0, 12)
+        .map((c) => ({
+          name: String(c?.name ?? "").trim(),
+          character: String(c?.character ?? "").trim(),
+          profile_path: c?.profile_path ? String(c.profile_path) : null,
+        }))
+        .filter((c) => c.name);
 
       let genres = uniqStrings(
         (Array.isArray(tmdbJson?.genres) ? tmdbJson.genres : []).map((g) => String(g?.name ?? "").trim()),
@@ -2804,11 +2821,17 @@ Deno.serve(async (req) => {
           mpa,
           isSeries,
           director: director || "",
+          director_profile_path: extractDirectorProfilePath(tmdbJson?.credits),
           cast,
+          cast_detailed,
           overview: String(tmdbJson?.overview ?? "").trim(),
+          tagline: String(tmdbJson?.tagline ?? "").trim(),
+          release_date: tmdbJson?.release_date ? String(tmdbJson.release_date) : null,
+          vote_average: Number.isFinite(Number(tmdbJson?.vote_average)) ? Number(tmdbJson.vote_average) : null,
           genres,
           genre,
           poster_path: tmdbJson?.poster_path ? String(tmdbJson.poster_path) : null,
+          backdrop_path: tmdbJson?.backdrop_path ? String(tmdbJson.backdrop_path) : null,
           imdb_id,
           imdb_rating_pct,
           imdb_votes,
@@ -3543,6 +3566,8 @@ Deno.serve(async (req) => {
       // session, so we walk DEEPER TMDB pages instead of re-returning the same top pages.
       // (0 → pages 1-2, 1 → pages 3-4, …). Without this the pool repeats and runs dry.
       const batch = Math.max(0, Math.min(50, Math.floor(Number(body?.batch) || 0)));
+      // Today (UTC, YYYY-MM-DD) — used to drop unreleased movies from the deck.
+      const todayStr = new Date().toISOString().slice(0, 10);
 
       // 1. Taste model + top genres to seed discover.
       let tasteModel = { hasData: false };
@@ -3651,6 +3676,10 @@ Deno.serve(async (req) => {
         // so a followed user's pick in one of these languages still gets through.
         const lang = String(r?.original_language ?? "").trim().toLowerCase();
         if (lang && DISCOVER_EXCLUDED_LANGS.has(lang)) return;
+        // Drop unreleased movies — new/upcoming films often ride the trending list
+        // before they've come out. Require a real release_date that's today or earlier.
+        const rd = String(r?.release_date ?? "").trim();
+        if (!rd || rd > todayStr) return;
         if (pool.has(id)) { pool.get(id).sources.push(source); return; }
         const year = r?.release_date ? Number(String(r.release_date).slice(0, 4)) : null;
         const ids = Array.isArray(r?.genre_ids) ? r.genre_ids : [];
@@ -3672,6 +3701,8 @@ Deno.serve(async (req) => {
         const url = new URL("https://api.themoviedb.org/3/discover/movie");
         url.searchParams.set("include_adult", "false");
         url.searchParams.set("language", "en-US");
+        // Never surface unreleased movies in the deck.
+        url.searchParams.set("primary_release_date.lte", todayStr);
         for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
         const res = await fetch(url.toString(), { headers: tmdbHeaders });
         if (!res.ok) return [];

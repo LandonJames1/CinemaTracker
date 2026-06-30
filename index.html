@@ -611,6 +611,16 @@
     </div>
 
     <!-- Recs poster viewer: choose Movie Details or a followed user's review -->
+    <!-- Movie Spotlight: rich exploration modal opened from Home search results +
+         the Trending marquee (logic in 23-movie-spotlight.js). The body is rendered
+         entirely by renderMovieSpotlight(); the backdrop handler lets swipe-to-dismiss
+         clean up on mobile. -->
+    <div id="movie-spotlight-overlay" class="auth-overlay" onclick="if(event.target === this) closeMovieSpotlight();" style="display:none;">
+        <div class="auth-modal movie-spotlight-modal" role="dialog" aria-modal="true" aria-labelledby="movie-spotlight-title">
+            <div id="movie-spotlight-body"></div>
+        </div>
+    </div>
+
     <div id="recs-movie-overlay" class="auth-overlay" onclick="if(event.target === this) closeRecsMovieModal();" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="recs-movie-title" style="max-width: 480px;">
             <div class="auth-modal-header">
@@ -1365,6 +1375,7 @@
     <script src="assets/js/20-leaderboard.js"></script>
     <script src="assets/js/21-swipe-deck.js"></script>
     <script src="assets/js/22-account-fun.js"></script>
+    <script src="assets/js/23-movie-spotlight.js"></script>
     <script src="assets/js/19-logging-boot.js"></script>
 </body>
 </html>

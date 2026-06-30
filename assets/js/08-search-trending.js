@@ -44,8 +44,9 @@
                 const posterUrl = posterPath ? `https://image.tmdb.org/t/p/w342${posterPath}` : '';
                 if (!posterUrl) return '';
 
+                const tmdbId = Number(m?.tmdb_id ?? m?.id) || '';
                 return `
-                    <div class="trending-card">
+                    <div class="trending-card" role="button" tabindex="0" data-trending-tmdb="${tmdbId}">
                         <img src="${posterUrl}" alt="${escapeHtml(title)}" onerror="this.closest('.trending-card')?.remove?.()">
                         <div class="movie-overlay">
                             ${genre ? `<span class=\"text-xs text-brand font-bold uppercase mb-1\">${escapeHtml(genre)}</span>` : ''}
@@ -59,6 +60,33 @@
             const track2 = document.getElementById('trending-track-2');
             if (track1) track1.innerHTML = cardsHTML;
             if (track2) track2.innerHTML = cardsHTML;
+
+            // Tapping a trending card opens the rich Movie Spotlight modal (turns the
+            // marquee into a discovery surface, not just decoration). Delegated once
+            // per track; cards are duplicated across both tracks for the loop.
+            [track1, track2].forEach((track) => {
+                if (!track || track.dataset.boundTrendingClicks) return;
+                track.dataset.boundTrendingClicks = 'true';
+                track.addEventListener('click', (e) => {
+                    const card = e?.target?.closest ? e.target.closest('.trending-card[data-trending-tmdb]') : null;
+                    if (!card) return;
+                    const tmdbId = Number(card.getAttribute('data-trending-tmdb'));
+                    if (!Number.isFinite(tmdbId) || tmdbId <= 0) return;
+                    const picked = (Array.isArray(homeTrendingItems) ? homeTrendingItems : [])
+                        .find((it) => Number(it?.tmdb_id ?? it?.id) === tmdbId);
+                    if (picked && typeof openMovieSpotlight === 'function') openMovieSpotlight(picked);
+                });
+
+                // Prefetch details on pointerdown so the spotlight opens instantly. (No
+                // hover-prefetch here — the marquee auto-scrolls cards under a stationary
+                // cursor, which would fire pointerover constantly and prefetch junk.)
+                track.addEventListener('pointerdown', (e) => {
+                    const card = e?.target?.closest ? e.target.closest('.trending-card[data-trending-tmdb]') : null;
+                    if (!card) return;
+                    const id = Number(card.getAttribute('data-trending-tmdb'));
+                    if (Number.isFinite(id) && id > 0 && typeof prefetchMovieDetails === 'function') prefetchMovieDetails(id);
+                });
+            });
         }
 
         async function loadTrendingNow() {
@@ -163,8 +191,33 @@
                     const idx = Number(row.getAttribute('data-idx'));
                     const picked = Number.isFinite(idx) ? homeSearchItems[idx] : null;
                     if (!picked) return;
-                    router.selectMovie(picked);
+                    // Open the rich Movie Spotlight modal (poster/backdrop/cast/IMDb +
+                    // the same Log/Update/List/Recommend actions). Falls back to the
+                    // old inline selection if the modal isn't available.
+                    if (typeof openMovieSpotlight === 'function') {
+                        const input = document.getElementById('movie-search-input');
+                        if (input) input.value = picked.title || '';
+                        const dropdown = document.getElementById('search-results');
+                        if (dropdown) dropdown.classList.add('hidden');
+                        openMovieSpotlight(picked);
+                    } else {
+                        router.selectMovie(picked);
+                    }
                 });
+
+                // Warm the Movie Spotlight details cache before the click lands so the
+                // modal opens with no spinner: hover (desktop) + pointerdown (the head
+                // start on touch, fires before the tap's click).
+                const warm = (e) => {
+                    const row = e?.target?.closest ? e.target.closest('.search-item[data-idx]') : null;
+                    if (!row) return;
+                    const idx = Number(row.getAttribute('data-idx'));
+                    const picked = Number.isFinite(idx) ? homeSearchItems[idx] : null;
+                    const id = Number(picked?.tmdb_id ?? picked?.id);
+                    if (Number.isFinite(id) && id > 0 && typeof prefetchMovieDetails === 'function') prefetchMovieDetails(id);
+                };
+                results.addEventListener('pointerover', warm);
+                results.addEventListener('pointerdown', warm);
             }
         }
 

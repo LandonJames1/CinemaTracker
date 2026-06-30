@@ -1,6 +1,6 @@
 name: Refresh IMDb ratings + watch options
 
-# Runs daily and (1) re-pulls the 300 stalest IMDb ratings from OMDb and (2) re-pulls
+# Runs daily and (1) re-pulls the 100 stalest IMDb ratings from OMDb and (2) re-pulls
 # TMDb watch options (streaming platforms) for a batch of the stalest movies sitting in
 # users' lists — both via the swift-api Edge Function, which does the actual DB writes
 # with the service-role key. GitHub Actions is ONLY the timer + the HTTP trigger. Each
@@ -20,7 +20,7 @@ jobs:
             -H "Content-Type: application/json" \
             -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-            -d '{"action":"refresh_imdb_ratings","limit":300}' \
+            -d '{"action":"refresh_imdb_ratings","limit":100}' \
             --fail-with-body
 
       - name: Trigger refresh_list_watch_platforms

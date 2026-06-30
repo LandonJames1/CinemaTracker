@@ -508,34 +508,38 @@
             recsMovieSetBody(body, { title: 'Watch Options', showBack: recsViewHasChoice });
         }
 
+        // "Movie Details" — opens the FULL Home-page Movie Spotlight modal (backdrop hero +
+        // poster + Details/Synopsis/Cast tabs + action footer) so the in-list details view
+        // matches the Home search popup EXACTLY. It stacks ABOVE the choice popup, which is
+        // left open underneath so closing the spotlight returns you to the choice screen.
         function recsMovieRenderDetails() {
-            recsViewState = 'details';
             const m = recsViewMovie || {};
-            const title = String(m?.title || 'Untitled').trim();
-            const year = (m?.year ?? m?.release_year ?? '') === '' ? '' : String(m?.year ?? m?.release_year);
-            const poster = (() => {
-                const raw = String(m?.poster_path || m?.posterPath || '').trim();
-                if (!raw) return '';
-                if (/^https?:\/\//i.test(raw)) return raw;
-                return `https://image.tmdb.org/t/p/w342${raw.startsWith('/') ? raw : `/${raw}`}`;
-            })();
-            const genre = normalizeMovieFieldValue(m?.genre);
-            const mpa = normalizeMovieFieldValue(m?.mpa ?? m?.mpa_rating);
-            const director = normalizeMovieFieldValue(m?.director);
-            const runtimeVal = (() => { const n = Number(m?.runtime ?? m?.runtime_minutes); return (Number.isFinite(n) && n > 0) ? `${Math.round(n)} min` : ''; })();
-            const imdbVal = (() => { const raw = (m?.imdb ?? m?.imdb_rating_pct ?? m?.imdb_pct ?? m?.imdb_rating); const n = parsePercentLike(raw, { imdb: true }); return (n !== null && n !== undefined) ? formatPctForDisplay(n) : ''; })();
-            const rows = [
-                ['Year', year], ['Genre', genre], ['MPA', mpa], ['Runtime', runtimeVal], ['Director', director], ['IMDb', imdbVal],
-            ].filter(r => String(r[1] || '').trim());
-            recsMovieSetBody(`
-                <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
-                    ${poster ? `<img src="${poster}" alt="${escapeHtml(title)}" style="width:140px; aspect-ratio:2/3; object-fit:cover; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">` : ''}
-                    <div style="text-align:center; color:#fff; font-weight:800; font-size:1.1rem;">${escapeHtml(title)}</div>
-                </div>
-                <div style="margin-top:12px; display:grid; gap:2px;">
-                    ${rows.length ? rows.map(([k, v]) => `<div style="display:flex; justify-content:space-between; gap:12px; border-bottom:1px solid rgba(255,255,255,0.06); padding:0.45rem 0;"><span class="text-xs text-gray">${escapeHtml(k)}</span><span class="text-white" style="font-weight:600; text-align:right;">${escapeHtml(String(v))}</span></div>`).join('') : `<div class="text-xs text-gray">No details available.</div>`}
-                </div>
-            `, { title: 'Movie Details', showBack: recsViewHasChoice });
+            if (!m || typeof openMovieSpotlight !== 'function') {
+                showToast('Movie details not available yet. Try Refresh.', { level: 'warn' });
+                return;
+            }
+            const tmdbId = Number(m?.tmdb_id ?? m?.id);
+            // Spotlight-compatible movie object built from the cached list prefill. The
+            // spotlight fetches full TMDB details by tmdb_id (backdrop / cast / director
+            // photo / release date / IMDb votes); the prefill values seed the hero + act
+            // as fallbacks. id stays the catalog movie id so the action buttons resolve.
+            const movie = {
+                ...m,
+                id: String(recsViewMovieId || m?.id || ''),
+                tmdb_id: Number.isFinite(tmdbId) && tmdbId > 0 ? tmdbId : undefined,
+                title: String(m?.title || '').trim(),
+                year: m?.year ?? m?.release_year ?? null,
+                poster_path: m?.poster_path || m?.posterPath || '',
+                genre: normalizeMovieFieldValue(m?.genre) || '',
+                imdb_rating_pct: (() => { const n = parsePercentLike(m?.imdb ?? m?.imdb_rating_pct ?? m?.imdb_pct ?? m?.imdb_rating, { imdb: true }); return (typeof n === 'number') ? n : undefined; })(),
+            };
+            // Stack the spotlight overlay above the choice popup (both are .auth-overlay at
+            // z-index 200; the spotlight is earlier in the DOM so it'd otherwise be covered).
+            const ov = document.getElementById('movie-spotlight-overlay');
+            if (ov) ov.style.zIndex = '260';
+            try { openMovieSpotlight(movie); } catch (e) {
+                showToast(`Open details failed: ${String(e?.message || e)}`, { level: 'warn' });
+            }
         }
 
         function recsMovieRenderReview(userId) {
