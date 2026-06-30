@@ -174,6 +174,27 @@
                     return;
                 }
 
+                // Tapping ONLY the poster opens the full Movie Spotlight modal (same one
+                // as Home search + Lists). Clicking anywhere else on the card still toggles
+                // the review/expand. Builds a spotlight-compatible movie object from the
+                // poster's data attrs; the spotlight fetches full TMDB details by tmdb_id.
+                if (action === 'open_spotlight') {
+                    if (typeof openMovieSpotlight !== 'function') return;
+                    const tmdbId = Number(btn.dataset.feedMovieTmdb);
+                    const movie = {
+                        id: String(btn.dataset.feedMovieId || '').trim(),
+                        tmdb_id: (Number.isFinite(tmdbId) && tmdbId > 0) ? tmdbId : undefined,
+                        title: String(btn.dataset.feedMovieTitle || '').trim(),
+                        year: String(btn.dataset.feedMovieYear || '').trim() || null,
+                        release_year: String(btn.dataset.feedMovieYear || '').trim() || null,
+                        poster_path: String(btn.dataset.feedMoviePoster || '').trim(),
+                    };
+                    try { openMovieSpotlight(movie); } catch (err) {
+                        showToast(`Open details failed: ${String(err?.message || err)}`, { level: 'warn' });
+                    }
+                    return;
+                }
+
                 if (action === 'open_filter') {
                     await openFeedFilterModal();
                     return;
@@ -3543,7 +3564,7 @@
                 return `
                     <div class="glass-panel feed-item-card${highlightClass}" data-feed-card="1" style="padding: 0.9rem; border-radius: 1rem;">
                         <div class="feed-card-row">
-                            <div class="feed-card-poster">
+                            <div class="feed-card-poster" data-feed-action="open_spotlight" data-feed-movie-id="${escapeHtml(movieIdStr)}" data-feed-movie-tmdb="${escapeHtml(movieTmdbStr)}" data-feed-movie-title="${escapeHtml(title)}" data-feed-movie-year="${escapeHtml(year)}" data-feed-movie-poster="${escapeHtml(poster_path)}" role="button" tabindex="0" title="View movie details" style="cursor:pointer;"${(Number.isFinite(tmdb_id) && tmdb_id > 0) ? ` onpointerdown="if(typeof prefetchMovieDetails==='function')prefetchMovieDetails(${tmdb_id})"` : ''}>
                                 ${posterUrl
                                     ? `<img src="${posterUrl}" loading="lazy" decoding="async" alt="${escapeHtml(title)}" style="width:100%; height:100%; object-fit: cover; display:block;" onerror="this.style.display='none';">`
                                     : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size: 12px;">No poster</div>`}

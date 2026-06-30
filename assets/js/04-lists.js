@@ -20,6 +20,143 @@
         let listsMoviePrefillById = new Map();
         let listsPlatformsByMovieId = new Map();
 
+        // ---- Detail prefetch cache ----------------------------------------
+        // When the Lists OVERVIEW renders, we prefetch every list's full contents
+        // (the user_list_items_v1 rows + watch platforms) in the background so that
+        // clicking into a list opens INSTANTLY instead of waiting on a round-trip.
+        // The cache is consume-once + TTL-bounded so it can never serve stale data:
+        // loadListsPage uses a cached entry then deletes it, so any reload after a
+        // mutation (add/remove movie, filter change) re-queries live.
+        let listsDetailCache = new Map();   // list_id -> { rows: viewRows[], platforms: Map<movie_id, string[]> }
+        let listsDetailCacheAt = 0;         // timestamp the cache was last (re)built
+        let listsDetailPrefetchToken = 0;   // guards against a stale prefetch overwriting a newer one
+        const LISTS_DETAIL_CACHE_TTL = 60000; // 60s — overview re-render repopulates it anyway
+
+        // Drop the prefetch cache + bump the token so any in-flight prefetch can't
+        // write back stale rows. Call after ANY mutation to a list's contents.
+        function invalidateListsDetailCache() {
+            listsDetailCache = new Map();
+            listsDetailCacheAt = 0;
+            listsDetailPrefetchToken++;
+        }
+
+        function listsDetailCacheTake(listId) {
+            if (!listsDetailCacheAt || (Date.now() - listsDetailCacheAt) > LISTS_DETAIL_CACHE_TTL) return null;
+            const key = String(listId || '').trim();
+            const hit = listsDetailCache.get(key) || null;
+            if (hit) listsDetailCache.delete(key); // consume-once
+            return hit;
+        }
+
+        // Watch-platforms lookup for a batch of movie ids → Map<movie_id, [platform names]>.
+        // Extracted so both loadListsPage and the overview prefetch share one implementation.
+        async function fetchPlatformsForMovieIds(movieIds) {
+            const platformsByMovieId = new Map();
+            const ids = Array.from(new Set((Array.isArray(movieIds) ? movieIds : []).map(String).filter(Boolean)));
+            if (!ids.length || !supabaseClient) return platformsByMovieId;
+            try {
+                const { data: mpRows, error: mpErr } = await supabaseClient
+                    .from('Movie Platforms')
+                    .select('movie_id, platform_id')
+                    .in('movie_id', ids);
+                if (mpErr) return platformsByMovieId;
+                const rows = Array.isArray(mpRows) ? mpRows : [];
+                const platformIds = Array.from(new Set(rows.map(r => r?.platform_id).filter(Boolean)));
+
+                let platformNameById = new Map();
+                if (platformIds.length > 0) {
+                    const { data: plats, error: platsErr } = await supabaseClient
+                        .from('Platforms')
+                        .select('id, name')
+                        .in('id', platformIds);
+                    if (!platsErr) {
+                        platformNameById = new Map(
+                            (Array.isArray(plats) ? plats : [])
+                                .filter(p => p?.id)
+                                .map(p => [p.id, normalizePlatformName(p?.name) || String(p?.name || '').trim()]),
+                        );
+                    }
+                }
+
+                for (const r of rows) {
+                    const mid = String(r?.movie_id || '').trim();
+                    const pid = r?.platform_id;
+                    if (!mid || pid === null || pid === undefined) continue;
+                    const pname = platformNameById.get(pid);
+                    if (!pname) continue;
+                    const arr = platformsByMovieId.get(mid) || [];
+                    arr.push(pname);
+                    platformsByMovieId.set(mid, arr);
+                }
+                for (const [mid, arr] of platformsByMovieId.entries()) {
+                    platformsByMovieId.set(mid, uniqStrings(arr));
+                }
+            } catch (_) { /* ignore platform fetch errors */ }
+            return platformsByMovieId;
+        }
+
+        // Background prefetch of EVERY list's contents, kicked off (fire-and-forget) when
+        // the overview grid renders. Batches the work: one user_list_items_v1 query per
+        // distinct owner (self for owned lists, the owner for shared lists), then ONE
+        // platforms query across all movies. Populates listsDetailCache atomically so a
+        // mid-flight read never sees partial data.
+        async function prefetchAllListsDetails(lists, userId) {
+            const uid = String(userId || '').trim();
+            if (!supabaseClient || !uid || !Array.isArray(lists) || !lists.length) return;
+            const token = ++listsDetailPrefetchToken;
+            try {
+                // Group lists by the user_id that keys their view rows (owner for shared).
+                const byOwner = new Map(); // ownerId -> [listId]
+                for (const l of lists) {
+                    const lid = String(l?.id || '').trim();
+                    if (!lid) continue;
+                    const owner = isSharedList(lid) ? listOwnerId(lid, uid) : uid;
+                    if (!byOwner.has(owner)) byOwner.set(owner, []);
+                    byOwner.get(owner).push(lid);
+                }
+
+                const rowsByList = new Map();   // list_id -> rows[]
+                const allMovieIds = new Set();
+                for (const [owner, listIds] of byOwner.entries()) {
+                    const { data, error } = await supabaseClient
+                        .from(LIST_ITEMS_VIEW)
+                        .select('*')
+                        .eq('user_id', owner)
+                        .in('list_id', listIds)
+                        .order('added_at', { ascending: false });
+                    if (error) continue;
+                    for (const row of (Array.isArray(data) ? data : [])) {
+                        const lid = String(row?.list_id || '').trim();
+                        const mid = String(row?.movie_id || '').trim();
+                        if (!lid) continue;
+                        if (!rowsByList.has(lid)) rowsByList.set(lid, []);
+                        rowsByList.get(lid).push(row);
+                        if (mid) allMovieIds.add(mid);
+                    }
+                }
+                // Make sure even empty lists get a (rows:[]) entry so a click is instant.
+                for (const l of lists) {
+                    const lid = String(l?.id || '').trim();
+                    if (lid && !rowsByList.has(lid)) rowsByList.set(lid, []);
+                }
+
+                const platformsByMovie = await fetchPlatformsForMovieIds(Array.from(allMovieIds));
+                if (token !== listsDetailPrefetchToken) return; // a newer prefetch superseded us
+
+                const next = new Map();
+                for (const [lid, rows] of rowsByList.entries()) {
+                    const pm = new Map();
+                    for (const row of rows) {
+                        const mid = String(row?.movie_id || '').trim();
+                        if (mid && platformsByMovie.has(mid)) pm.set(mid, platformsByMovie.get(mid));
+                    }
+                    next.set(lid, { rows, platforms: pm });
+                }
+                listsDetailCache = next;     // atomic swap
+                listsDetailCacheAt = Date.now();
+            } catch (_) { /* prefetch is best-effort */ }
+        }
+
         let cachedBucketListId = null;
         let bucketListEnsuredForUserId = null;
 
@@ -2838,6 +2975,7 @@
                     .insert({ user_id: ownerId, list_id: lid, movie_id: mid }));
             }
             if (error) throw error;
+            invalidateListsDetailCache(); // a list's contents changed — drop the prefetch cache
 
             // Best-effort, fire-and-forget: on a SHARED list, push-notify the OTHER
             // members that a new movie was added. Never let a notify error affect
@@ -2871,6 +3009,7 @@
                 .eq('list_id', lid)
                 .eq('movie_id', mid);
             if (error) throw error;
+            invalidateListsDetailCache(); // a list's contents changed — drop the prefetch cache
         }
 
         async function removeMovieFromBucketList({ user_id, movie_id }) {
@@ -2910,6 +3049,7 @@
                     .eq('user_id', uid)
                     .eq('movie_id', mid)
                     .in('list_id', ids);
+                invalidateListsDetailCache(); // auto-list contents changed — drop the prefetch cache
             } catch (_) {
                 // Best-effort cleanup; never block the diary save on this.
             }
@@ -3830,6 +3970,10 @@
                 }).filter(Boolean).join('');
                 // Reconcile the Recs cover badge against the live unseen-recs count.
                 try { refreshNavBadges(); } catch (_) {}
+
+                // Prefetch every list's full contents in the background so clicking into
+                // a list opens instantly (fire-and-forget; loadListsPage consumes the cache).
+                try { prefetchAllListsDetails(lists, user.id); } catch (_) {}
             } catch (err) {
                 grid.innerHTML = `<div class="text-gray">Couldn’t load your lists.</div>`;
                 emitLog?.(`Lists overview failed: ${err?.message || err}`, 'error');
@@ -4127,13 +4271,21 @@
                 const viewUserId = isSharedList(listsActiveListId)
                     ? listOwnerId(listsActiveListId, user.id)
                     : user.id;
-                const { data: viewRows, error: viewErr } = await supabaseClient
-                    .from(LIST_ITEMS_VIEW)
-                    .select('*')
-                    .eq('user_id', viewUserId)
-                    .eq('list_id', listsActiveListId)
-                    .order('added_at', { ascending: false });
-                if (viewErr) throw viewErr;
+                // Use the overview prefetch (instant) when available; else query live.
+                const cachedDetail = listsDetailCacheTake(listsActiveListId);
+                let viewRows;
+                if (cachedDetail) {
+                    viewRows = cachedDetail.rows;
+                } else {
+                    const { data, error: viewErr } = await supabaseClient
+                        .from(LIST_ITEMS_VIEW)
+                        .select('*')
+                        .eq('user_id', viewUserId)
+                        .eq('list_id', listsActiveListId)
+                        .order('added_at', { ascending: false });
+                    if (viewErr) throw viewErr;
+                    viewRows = data;
+                }
 
                 const rows = Array.isArray(viewRows) ? viewRows : [];
                 const movieIds = rows.map(r => r?.movie_id).filter(Boolean).map(String);
@@ -4230,51 +4382,11 @@
                     try { markRecsSeen(); } catch (_) {}
                 }
 
-                // Fetch watch platforms for these movies (best-effort; do not fail page).
-                const platformsByMovieId = new Map();
-                try {
-                    const { data: mpRows, error: mpErr } = await supabaseClient
-                        .from('Movie Platforms')
-                        .select('movie_id, platform_id')
-                        .in('movie_id', movieIds);
-                    if (!mpErr) {
-                        const rows = Array.isArray(mpRows) ? mpRows : [];
-                        const platformIds = Array.from(new Set(rows.map(r => r?.platform_id).filter(Boolean)));
-
-                        let platformNameById = new Map();
-                        if (platformIds.length > 0) {
-                            const { data: plats, error: platsErr } = await supabaseClient
-                                .from('Platforms')
-                                .select('id, name')
-                                .in('id', platformIds);
-                            if (!platsErr) {
-                                platformNameById = new Map(
-                                    (Array.isArray(plats) ? plats : [])
-                                        .filter(p => p?.id)
-                                        .map(p => [p.id, normalizePlatformName(p?.name) || String(p?.name || '').trim()]),
-                                );
-                            }
-                        }
-
-                        for (const r of rows) {
-                            const mid = String(r?.movie_id || '').trim();
-                            const pid = r?.platform_id;
-                            if (!mid || pid === null || pid === undefined) continue;
-                            const pname = platformNameById.get(pid);
-                            if (!pname) continue;
-                            const arr = platformsByMovieId.get(mid) || [];
-                            arr.push(pname);
-                            platformsByMovieId.set(mid, arr);
-                        }
-
-                        // De-dupe + keep stable ordering.
-                        for (const [mid, arr] of platformsByMovieId.entries()) {
-                            platformsByMovieId.set(mid, uniqStrings(arr));
-                        }
-                    }
-                } catch (_) {
-                    // Ignore platform fetch errors.
-                }
+                // Watch platforms for these movies — from the overview prefetch when
+                // available (instant), else a live batched lookup (best-effort).
+                const platformsByMovieId = (cachedDetail && cachedDetail.platforms)
+                    ? cachedDetail.platforms
+                    : await fetchPlatformsForMovieIds(movieIds);
 
                 // Promote to global map for the Watch Options modal.
                 listsPlatformsByMovieId = platformsByMovieId;
