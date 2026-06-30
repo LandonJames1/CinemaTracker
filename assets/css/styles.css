@@ -7782,14 +7782,22 @@
             .ms-title { font-size: 1.4rem; }
             .ms-tabs, .ms-panel, .ms-actions { padding-left: 1.1rem; padding-right: 1.1rem; }
             .ms-cast-grid { grid-template-columns: repeat(3, 1fr); }
-            /* Keep Director + IMDb side by side on mobile too — just tighten them. */
-            .ms-top-row { gap: 0.55rem; }
-            .ms-director-card { gap: 0.6rem; padding: 0.75rem 0.7rem; }
+            /* Cast photos 15% smaller on mobile (grid stays 3-up; shrink the photo
+               within each card so the whole row fits without scrolling). */
+            .ms-cast-photo { width: 77%; margin-left: auto; margin-right: auto; }
+            /* Details cards ~15% shorter on mobile so the whole tab fits without a
+               scroll wheel: trim the vertical padding/gaps on each container. */
+            .ms-top-row { gap: 0.5rem; margin-bottom: 0.55rem; }
+            .ms-director-card { gap: 0.6rem; padding: 0.55rem 0.7rem; }
             .ms-director-photo { flex-basis: 50px; width: 50px; height: 75px; }
             .ms-director-photo svg { width: 22px; height: 22px; }
             .ms-director-name { font-size: 0.98rem; }
-            .ms-imdb-card { padding: 0.7rem 0.4rem; }
+            .ms-imdb-card { padding: 0.5rem 0.4rem; }
             .ms-imdb-num { font-size: 1.5rem; }
+            .ms-panel { padding-top: 0.9rem; padding-bottom: 0.9rem; }
+            .ms-stat { padding: 0.52rem 0.85rem; }
+            .ms-stats-mini { gap: 0.55rem; margin-top: 0.55rem; }
+            .ms-stats-mini .ms-stat { padding: 0.62rem 0.5rem; }
         }
         @media (prefers-reduced-motion: reduce) {
             .movie-spotlight-modal { animation: none; }
