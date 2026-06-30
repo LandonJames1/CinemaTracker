@@ -304,6 +304,17 @@
             recsViewAlreadyRated = false;
             recsViewReviewers = [];
 
+            // Warm the Movie Spotlight details cache the INSTANT the poster is clicked,
+            // so the full-details popup ("Movie Details") opens with no spinner — the
+            // fetch runs in parallel with this modal's own data load, not after the user
+            // taps through. Fire-and-forget; prefetchMovieDetails dedupes + caches.
+            try {
+                const spotlightTmdbId = Number(recsViewMovie?.tmdb_id ?? recsViewMovie?.id);
+                if (Number.isFinite(spotlightTmdbId) && spotlightTmdbId > 0 && typeof prefetchMovieDetails === 'function') {
+                    prefetchMovieDetails(spotlightTmdbId).catch(() => {});
+                }
+            } catch (_) {}
+
             // Candidates = people who recommended me this movie + people I follow.
             const recommenders = (recByDataByMovieId.get(mid) || []).map(r => String(r?.id || '').trim()).filter(Boolean);
             let followed = [];
