@@ -5813,6 +5813,46 @@
             background: color-mix(in srgb, var(--brand) 22%, #202024);
             border-color: var(--brand);
         }
+        .feed-react-pill { cursor: pointer; }
+
+        /* "Who reacted" popup — floats above/below the tapped/hovered count pill and
+           lists the avatars + names of everyone who left that reaction. Opaque surface. */
+        .feed-react-who-pop {
+            position: fixed;
+            z-index: 400;
+            max-width: 240px;
+            max-height: 60vh;
+            overflow-y: auto;
+            padding: 8px;
+            border-radius: 0.75rem;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            background: #202024;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+        .feed-react-who-pop[hidden] { display: none; }
+        .feed-react-who-head {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0 4px 6px;
+            margin-bottom: 4px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .feed-react-who-emoji { font-size: 1.15rem; line-height: 1; }
+        .feed-react-who-list { display: flex; flex-direction: column; gap: 4px; }
+        .feed-react-who-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 3px 4px;
+        }
+        .feed-react-who-name {
+            color: #fff;
+            font-size: 0.85rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
 
         .feed-item-card {
             cursor: pointer;

@@ -146,6 +146,33 @@
             if (feedBound) return;
             feedBound = true;
 
+            // "Who reacted" popup — desktop hover over a count pill shows the reactor
+            // avatars; leaving the pill (or popup) hides it after a short grace period.
+            document.addEventListener('mouseover', (e) => {
+                if (typeof isMobileViewport === 'function' && isMobileViewport()) return;
+                const pill = e?.target?.closest ? e.target.closest('.feed-react-pill') : null;
+                if (!pill) return;
+                showFeedReactWhoPop(pill, pill.dataset.ratingId, pill.dataset.emoji);
+            });
+            document.addEventListener('mouseout', (e) => {
+                if (typeof isMobileViewport === 'function' && isMobileViewport()) return;
+                const pill = e?.target?.closest ? e.target.closest('.feed-react-pill') : null;
+                if (!pill) return;
+                // If we're moving into the popup, its own mouseenter cancels the hide.
+                const to = e.relatedTarget;
+                if (to && feedReactWhoPopEl && (to === feedReactWhoPopEl || feedReactWhoPopEl.contains(to))) return;
+                scheduleHideFeedReactWhoPop();
+            });
+            // Mobile: any tap outside a count pill / the popup dismisses it.
+            document.addEventListener('click', (e) => {
+                if (!feedReactWhoPopEl || feedReactWhoPopEl.hasAttribute('hidden')) return;
+                const t = e?.target;
+                if (t && t.closest && (t.closest('.feed-react-pill') || t.closest('#feed-react-who-pop'))) return;
+                hideFeedReactWhoPop();
+            }, true);
+            // Reposition-safety: scrolling dismisses the popup so it can't float orphaned.
+            window.addEventListener('scroll', () => hideFeedReactWhoPop(), true);
+
             document.addEventListener('click', (e) => {
                 const card = e?.target?.closest ? e.target.closest('[data-feed-card]') : null;
                 if (!card) return;
@@ -319,18 +346,43 @@
                     const emoji = String(btn.dataset.emoji || '').trim();
                     if (!ratingId || !emoji) return;
 
-                    let entry = feedReactionsByRatingId.get(ratingId);
-                    if (!entry) { entry = { counts: new Map(), mine: new Set() }; feedReactionsByRatingId.set(ratingId, entry); }
+                    // You can't react to your OWN review — clicking/tapping a count pill on it
+                    // just reveals who reacted (the 🙂 add button/picker aren't rendered there).
+                    if (feedOwnRatingIds.has(ratingId)) {
+                        if (btn.classList && btn.classList.contains('feed-react-pill')) showFeedReactWhoPop(btn, ratingId, emoji);
+                        return;
+                    }
+
+                    // On mobile there's no hover, so tapping an existing count pill reveals
+                    // the "who reacted" popup instead of toggling. The 🙂 picker is how you
+                    // add/remove your own reaction on mobile. Desktop clicks still toggle.
+                    if (btn.classList && btn.classList.contains('feed-react-pill') && typeof isMobileViewport === 'function' && isMobileViewport()) {
+                        showFeedReactWhoPop(btn, ratingId, emoji);
+                        return;
+                    }
+
+                    const entry = feedReactionEnsureEntry(ratingId);
                     const hadIt = entry.mine.has(emoji);
+                    const myId = String(authedUser.id || '').trim();
+                    // Make sure the viewer's own avatar is available to the popup (they're
+                    // labeled "You", so only the icon matters here).
+                    if (myId && !feedReactorInfoById.has(myId)) {
+                        feedReactorInfoById.set(myId, { username: '', icon: cachedUserIcon || '' });
+                    }
+                    if (myId) feedReactWhoViewerId = myId;
+
+                    const usersOf = (em) => { if (!entry.users.has(em)) entry.users.set(em, []); return entry.users.get(em); };
 
                     // Optimistic local update.
                     if (hadIt) {
                         entry.mine.delete(emoji);
                         entry.counts.set(emoji, Math.max(0, (entry.counts.get(emoji) || 0) - 1));
                         if ((entry.counts.get(emoji) || 0) <= 0) entry.counts.delete(emoji);
+                        entry.users.set(emoji, usersOf(emoji).filter((u) => u !== myId));
                     } else {
                         entry.mine.add(emoji);
                         entry.counts.set(emoji, (entry.counts.get(emoji) || 0) + 1);
+                        if (myId && !usersOf(emoji).includes(myId)) usersOf(emoji).push(myId);
                     }
                     // Grab the picker BEFORE repainting — repaint rewrites the picker's
                     // innerHTML, which detaches the clicked button (so btn.closest would
@@ -366,10 +418,12 @@
                         if (hadIt) {
                             entry.mine.add(emoji);
                             entry.counts.set(emoji, (entry.counts.get(emoji) || 0) + 1);
+                            if (myId && !usersOf(emoji).includes(myId)) usersOf(emoji).push(myId);
                         } else {
                             entry.mine.delete(emoji);
                             entry.counts.set(emoji, Math.max(0, (entry.counts.get(emoji) || 0) - 1));
                             if ((entry.counts.get(emoji) || 0) <= 0) entry.counts.delete(emoji);
+                            entry.users.set(emoji, usersOf(emoji).filter((u) => u !== myId));
                         }
                         repaintFeedReactionBars(ratingId);
                         showToast(`Could not save reaction: ${String(err?.message || err)}`, { level: 'warn' });
@@ -2160,17 +2214,35 @@
         // each expanded card. Adding one pushes a notification to the review's author
         // (via the swift-api notify_review_reaction edge action).
         const FEED_REACTION_EMOJIS = ['👍', '👎', '❤️', '😂', '💯', '🤯'];
-        // rating_id -> { counts: Map(emoji -> n), mine: Set(emoji) }
+        // rating_id -> { counts: Map(emoji -> n), mine: Set(emoji), users: Map(emoji -> [userId,...]) }
         const feedReactionsByRatingId = new Map();
+        // userId -> { username, icon } for everyone who has reacted to a visible review,
+        // so the "who reacted" popup can render their avatar + name.
+        const feedReactorInfoById = new Map();
+        // The viewer's own id, stashed so the popup can label their row "You".
+        let feedReactWhoViewerId = '';
+        // Review (rating) ids authored by the viewer — you can't react to your OWN entry,
+        // so a count-pill tap/click on these just reveals the "who reacted" popup.
+        const feedOwnRatingIds = new Set();
+
+        function feedReactionEnsureEntry(rid) {
+            let entry = feedReactionsByRatingId.get(rid);
+            if (!entry) { entry = { counts: new Map(), mine: new Set(), users: new Map() }; feedReactionsByRatingId.set(rid, entry); }
+            if (!entry.users) entry.users = new Map();
+            return entry;
+        }
 
         // Batch-load reactions for the given review (Movie Ratings) ids into
-        // feedReactionsByRatingId, recording per-emoji counts + which the viewer owns.
+        // feedReactionsByRatingId, recording per-emoji counts, which the viewer owns,
+        // and the full list of reactor ids per emoji (for the "who reacted" popup).
         async function loadFeedReactions(ratingIds, viewerId) {
             feedReactionsByRatingId.clear();
+            feedReactorInfoById.clear();
+            feedReactWhoViewerId = String(viewerId || '').trim();
             const ids = Array.from(new Set((Array.isArray(ratingIds) ? ratingIds : [])
                 .map((x) => String(x || '').trim()).filter(Boolean)));
             if (!ids.length) return;
-            const vid = String(viewerId || '').trim();
+            const vid = feedReactWhoViewerId;
             try {
                 const rows = [];
                 for (let i = 0; i < ids.length; i += 300) {
@@ -2182,18 +2254,46 @@
                     if (error) throw error;
                     rows.push(...(Array.isArray(data) ? data : []));
                 }
+                const reactorIds = new Set();
                 for (const row of rows) {
                     const rid = String(row?.rating_id || '').trim();
                     const emoji = String(row?.emoji || '').trim();
+                    const uid = String(row?.user_id || '').trim();
                     if (!rid || !emoji) continue;
-                    let entry = feedReactionsByRatingId.get(rid);
-                    if (!entry) { entry = { counts: new Map(), mine: new Set() }; feedReactionsByRatingId.set(rid, entry); }
+                    const entry = feedReactionEnsureEntry(rid);
                     entry.counts.set(emoji, (entry.counts.get(emoji) || 0) + 1);
-                    if (vid && String(row?.user_id || '').trim() === vid) entry.mine.add(emoji);
+                    if (uid) {
+                        if (!entry.users.has(emoji)) entry.users.set(emoji, []);
+                        entry.users.get(emoji).push(uid);
+                        reactorIds.add(uid);
+                    }
+                    if (vid && uid === vid) entry.mine.add(emoji);
                 }
+                await loadFeedReactorInfo(Array.from(reactorIds));
             } catch (e) {
                 // Best-effort — a missing table / RLS just means no reaction bars.
                 try { emitLog('warn', 'Feed reactions load failed: ' + String(e?.message || e)); } catch (_) {}
+            }
+        }
+
+        // Batch-load username + icon for every reactor into feedReactorInfoById so the
+        // "who reacted" popup can render their avatar (reactors aren't always in the feed).
+        async function loadFeedReactorInfo(userIds) {
+            const ids = Array.from(new Set((Array.isArray(userIds) ? userIds : [])
+                .map((x) => String(x || '').trim()).filter(Boolean)));
+            if (!ids.length) return;
+            for (let i = 0; i < ids.length; i += 300) {
+                const chunk = ids.slice(i, i + 300);
+                const { data, error } = await supabaseClient
+                    .from('Users')
+                    .select('id, username, icon')
+                    .in('id', chunk);
+                if (error) throw error;
+                for (const u of (Array.isArray(data) ? data : [])) {
+                    const uid = String(u?.id || '').trim();
+                    if (!uid) continue;
+                    feedReactorInfoById.set(uid, { username: u?.username || '', icon: u?.icon || '' });
+                }
             }
         }
 
@@ -2242,6 +2342,74 @@
                 .forEach((el) => { el.innerHTML = feedReactionCountsInner(rid); });
             document.querySelectorAll(`.feed-react-picker[data-rating-id="${sel}"]`)
                 .forEach((el) => { el.innerHTML = feedReactionPickerInner(rid); });
+        }
+
+        // ---- "Who reacted" popup (hover on desktop, tap on mobile) --------------
+        let feedReactWhoPopEl = null;
+        let feedReactWhoHideTimer = null;
+
+        function ensureFeedReactWhoPop() {
+            if (feedReactWhoPopEl && document.body.contains(feedReactWhoPopEl)) return feedReactWhoPopEl;
+            const el = document.createElement('div');
+            el.id = 'feed-react-who-pop';
+            el.className = 'feed-react-who-pop';
+            el.setAttribute('hidden', '');
+            // Keep it open while the pointer is over the popup itself (desktop).
+            el.addEventListener('mouseenter', () => {
+                if (feedReactWhoHideTimer) { clearTimeout(feedReactWhoHideTimer); feedReactWhoHideTimer = null; }
+            });
+            el.addEventListener('mouseleave', () => hideFeedReactWhoPop());
+            document.body.appendChild(el);
+            feedReactWhoPopEl = el;
+            return el;
+        }
+
+        // Build the popup body: the emoji header + one avatar/name row per reactor.
+        function feedReactWhoInner(ratingId, emoji) {
+            const rid = String(ratingId || '').trim();
+            const em = String(emoji || '').trim();
+            const entry = feedReactionsByRatingId.get(rid);
+            const ids = (entry && entry.users) ? Array.from(entry.users.get(em) || []) : [];
+            if (!ids.length) return '';
+            // The viewer sorts to the top and reads as "You".
+            ids.sort((a, b) => (a === feedReactWhoViewerId ? -1 : b === feedReactWhoViewerId ? 1 : 0));
+            const rows = ids.map((uid) => {
+                const info = feedReactorInfoById.get(uid) || {};
+                const nameRaw = String(info.username || '').trim().replace(/^@+/, '');
+                const label = (uid === feedReactWhoViewerId) ? 'You' : (nameRaw ? '@' + nameRaw : 'User');
+                return `<div class="feed-react-who-row">${renderUserIconHtml(info.icon, 22)}<span class="feed-react-who-name">${escapeHtml(label)}</span></div>`;
+            }).join('');
+            return `<div class="feed-react-who-head"><span class="feed-react-who-emoji">${em}</span></div><div class="feed-react-who-list">${rows}</div>`;
+        }
+
+        function showFeedReactWhoPop(anchorEl, ratingId, emoji) {
+            if (!anchorEl) return;
+            const inner = feedReactWhoInner(ratingId, emoji);
+            if (!inner) { hideFeedReactWhoPop(); return; }
+            const el = ensureFeedReactWhoPop();
+            if (feedReactWhoHideTimer) { clearTimeout(feedReactWhoHideTimer); feedReactWhoHideTimer = null; }
+            el.innerHTML = inner;
+            el.removeAttribute('hidden');
+            // Measure then position centered above the pill (flip below if no room up top).
+            const r = anchorEl.getBoundingClientRect();
+            const pw = el.offsetWidth;
+            const ph = el.offsetHeight;
+            let left = r.left + (r.width / 2) - (pw / 2);
+            left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+            let top = r.top - ph - 8;
+            if (top < 8) top = r.bottom + 8;
+            el.style.left = Math.round(left) + 'px';
+            el.style.top = Math.round(top) + 'px';
+        }
+
+        function hideFeedReactWhoPop() {
+            if (feedReactWhoHideTimer) { clearTimeout(feedReactWhoHideTimer); feedReactWhoHideTimer = null; }
+            if (feedReactWhoPopEl) feedReactWhoPopEl.setAttribute('hidden', '');
+        }
+
+        function scheduleHideFeedReactWhoPop() {
+            if (feedReactWhoHideTimer) clearTimeout(feedReactWhoHideTimer);
+            feedReactWhoHideTimer = setTimeout(hideFeedReactWhoPop, 180);
         }
 
         // Fill the star on EVERY currently-rendered feed button for a movie (a movie can
@@ -3679,6 +3847,14 @@
                 }
             }
 
+            // Track which about-to-render reviews are the viewer's own, so a count-pill
+            // tap on them reveals the "who reacted" popup instead of toggling a reaction.
+            feedOwnRatingIds.clear();
+            for (const r of rows) {
+                const rid = String(r?.id || '').trim();
+                if (rid && String(r?.user_id || '').trim() === String(authedUserId || '').trim()) feedOwnRatingIds.add(rid);
+            }
+
             // Load emoji reactions for every review about to render, so each card's
             // reaction bar shows current counts + the viewer's own reactions.
             await loadFeedReactions(rows.map((r) => r?.id), authedUserId);
@@ -3785,18 +3961,24 @@
 
                             ${(() => {
                                 const ratingIdStr = String(r?.id || '').trim();
-                                const showReact = !!ratingIdStr;
-                                const showBucket = !!(movieIdStr && actorId !== authedUserId);
-                                if (!showReact && !showBucket) return '';
+                                const isOwnReview = actorId === authedUserId;
+                                // Everyone can SEE reactions (incl. on your own review), but you
+                                // can't react to your OWN entry — so the count pills always show,
+                                // while the 🙂 add button + picker are hidden on your own cards.
+                                const showCounts = !!ratingIdStr;
+                                const showReactAdd = !!ratingIdStr && !isOwnReview;
+                                const showBucket = !!(movieIdStr && !isOwnReview);
+                                if (!showCounts && !showBucket) return '';
+                                const showActions = showBucket || showReactAdd;
                                 return `
-                                    ${showReact ? `<div class="feed-react-counts" data-rating-id="${escapeHtml(ratingIdStr)}">${feedReactionCountsInner(ratingIdStr)}</div>` : ''}
-                                    <div class="feed-card-actions">
+                                    ${showCounts ? `<div class="feed-react-counts" data-rating-id="${escapeHtml(ratingIdStr)}">${feedReactionCountsInner(ratingIdStr)}</div>` : ''}
+                                    ${showActions ? `<div class="feed-card-actions">
                                         ${showBucket ? `<button type="button" class="feed-bucket-btn${inBucket ? ' is-added' : ''}" data-feed-action="add_bucket" data-feed-movie-id="${escapeHtml(movieIdStr)}" data-feed-movie-tmdb="${escapeHtml(movieTmdbStr)}" data-feed-movie-title="${escapeHtml(title)}" title="${inBucket ? 'In your Bucket List' : 'Add to Bucket List'}" aria-label="${inBucket ? `${escapeHtml(title)} is in your Bucket List` : `Add ${escapeHtml(title)} to Bucket List`}">
                                             <svg class="feed-bucket-star" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><span>Bucket List</span>
                                         </button>` : ''}
-                                        ${showReact ? feedReactAddBtnHtml(ratingIdStr) : ''}
-                                    </div>
-                                    ${showReact ? `<div class="feed-react-picker" data-rating-id="${escapeHtml(ratingIdStr)}" hidden>${feedReactionPickerInner(ratingIdStr)}</div>` : ''}
+                                        ${showReactAdd ? feedReactAddBtnHtml(ratingIdStr) : ''}
+                                    </div>` : ''}
+                                    ${showReactAdd ? `<div class="feed-react-picker" data-rating-id="${escapeHtml(ratingIdStr)}" hidden>${feedReactionPickerInner(ratingIdStr)}</div>` : ''}
                                 `;
                             })()}
                         </div>
