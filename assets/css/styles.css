@@ -808,6 +808,23 @@
             gap: 12px;
         }
         .more-sheet-item:active { transform: scale(0.97); background: #26262b; border-color: rgba(255,255,255,0.16); }
+        /* "Movies still to rate" reminder count on the More-sheet Account/Login row —
+           an inline red pill pushed to the far right of the full-width auth row. */
+        .more-sheet-torate-badge {
+            margin-left: auto;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 7px;
+            border-radius: 999px;
+            background: #ef4444;
+            color: #fff;
+            font-size: 11px;
+            font-weight: 800;
+            line-height: 20px;
+            text-align: center;
+            display: none;
+        }
+        .more-sheet-torate-badge.show { display: inline-block; }
 
         /* ===== Phase 1b — kill the "it's a website" browser tells ===== */
         /* Stop the rubber-band overscroll / browser pull-to-refresh white flash. */
@@ -1092,6 +1109,13 @@
             align-items: center;
             justify-content: center;
             gap: 0.5rem;
+            /* Kill the native iOS/Safari button chrome — without this, mobile
+               Safari overlays a top-to-bottom gloss/shadow on top of our own
+               background, which darkened the upper half of the flat outline
+               buttons (Filter/Sort/Clear/etc.) and made them look extra dark. */
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
         }
         .btn:active { transform: scale(0.98); }
         
@@ -2957,11 +2981,37 @@
             box-shadow: 0 0 0 2px #1b1b20, 0 0 8px color-mix(in srgb, var(--brand, #14b8a6) 70%, transparent);
         }
 
+        /* RED variant of .filter-active for the "Clear all filters" button — same
+           highlight treatment, red instead of brand, shown when there's something
+           to clear (a filter/sort/search is active). */
+        .clear-active,
+        .btn.clear-active {
+            position: relative;
+            background: color-mix(in srgb, #ef4444 16%, #1b1b20) !important;
+            border-color: color-mix(in srgb, #ef4444 60%, transparent) !important;
+            color: color-mix(in srgb, #ef4444 82%, #ffffff) !important;
+            font-weight: 800 !important;
+            box-shadow:
+                inset 0 0 0 1px color-mix(in srgb, #ef4444 45%, transparent),
+                0 4px 16px color-mix(in srgb, #ef4444 26%, transparent) !important;
+            transition: background 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
+        }
+        .clear-active:hover,
+        .btn.clear-active:hover {
+            background: color-mix(in srgb, #ef4444 24%, #1b1b20) !important;
+            box-shadow:
+                inset 0 0 0 1px color-mix(in srgb, #ef4444 55%, transparent),
+                0 6px 20px color-mix(in srgb, #ef4444 34%, transparent) !important;
+        }
+
         /* Detail-view top row (Back + Filter + Sort + Edit) stretches edge to edge on
            phones so the buttons fill the width instead of clustering top-left. */
         @media (max-width: 768px) {
             .lists-detail-toprow { flex-wrap: nowrap !important; }
             .lists-detail-toprow > button { flex: 1 1 0; min-width: 0; }
+            /* The icon-only Clear button stays compact instead of taking an equal
+               share, so the text buttons (All Lists / Filter / Sort / Edit) keep room. */
+            .lists-detail-toprow > button.controls-icon-btn { flex: 0 0 auto; }
         }
 
         .lists-grid {
@@ -3522,6 +3572,16 @@
                 font-size: 0.86rem;
                 padding-left: 0.55rem;
                 padding-right: 0.55rem;
+            }
+
+            /* The default outline fill (#202024) reads too dark on these mobile
+               control rows — lift it to a lighter opaque grey so the buttons look
+               clean and even. The active-filter highlight (.filter-active) keeps
+               its brand tint via !important, so it's unaffected. */
+            .feed-controls-actions > button.btn-outline,
+            .library-controls-row > button.btn-outline,
+            .lists-detail-toprow > button.btn-outline {
+                background: #2b2b31;
             }
 
             /* Search button stays a compact icon-only magnifier on mobile (the user wants

@@ -268,12 +268,6 @@
             }
         }
 
-        const RATING_MILESTONES = [10, 25, 50, 100, 150, 250, 500, 1000];
-
-        function buildRatingAchievementName(count) {
-            return `Rated ${count} Movies`;
-        }
-
         // ─── Achievement badge rendering (icon + automatic tier frame) ───
         // Each achievement (or family of tiers) needs only ONE base icon; the
         // tier color is applied as a frame by CSS via --tier-rgb, so there's no
@@ -1123,10 +1117,6 @@
             pop.setAttribute('aria-hidden', achievementFiltersOpen ? 'false' : 'true');
             if (sortBtn) sortBtn.setAttribute('aria-expanded', (achievementFiltersOpen && m === 'sort') ? 'true' : 'false');
             if (filterBtn) filterBtn.setAttribute('aria-expanded', (achievementFiltersOpen && m === 'filter') ? 'true' : 'false');
-        }
-
-        function toggleAchievementFiltersOpen() {
-            setAchievementFiltersOpen(!achievementFiltersOpen);
         }
 
         function getFilteredAchievementsList() {
@@ -2283,52 +2273,6 @@
                     if (id && newlyIds.has(id)) enqueueAchievementPopup(def);
                 });
             }
-            renderAccountAchievements();
-        }
-
-        async function checkAndAwardRatingMilestones() {
-            if (!supabaseClient || !cachedIsAuthed) return;
-            const uid = String(cachedAuthUser?.id || '').trim();
-            if (!uid) return;
-
-            await loadAchievementsDefinitions();
-            await loadUserAchievements(uid);
-
-            const { count, error } = await supabaseClient
-                .from('Movie Ratings')
-                .select('movie_id', { count: 'exact', head: true })
-                .eq('user_id', uid);
-
-            if (error || !Number.isFinite(count)) return;
-
-            const newlyEarned = [];
-            for (const milestone of RATING_MILESTONES) {
-                if (count < milestone) continue;
-                const name = buildRatingAchievementName(milestone);
-                const def = achievementsByName.get(name);
-                const achievementId = String(def?.id || '').trim();
-                if (!achievementId || userAchievementIds.has(achievementId)) continue;
-                newlyEarned.push({ def, achievementId });
-            }
-
-            if (!newlyEarned.length) return;
-
-            const rows = newlyEarned.map((item) => ({
-                user_id: uid,
-                achievement_id: item.achievementId,
-            }));
-
-            const { error: insertError } = await supabaseClient
-                .from('User Achievements')
-                .insert(rows);
-
-            if (insertError) return;
-
-            newlyEarned.forEach((item) => {
-                if (item.achievementId) userAchievementIds.add(item.achievementId);
-                if (item.def) enqueueAchievementPopup(item.def);
-            });
-
             renderAccountAchievements();
         }
 

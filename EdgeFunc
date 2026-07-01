@@ -1870,7 +1870,7 @@ Deno.serve(async (req) => {
           const badge = await computeUnseenBadge(supabaseAdmin, fid);
           const pushed = await sendPushToUser(supabaseAdmin, fid, {
             title: "New Review 🎬",
-            body: `Check out ${authorHandle}'s new review of ${titlePart}`,
+            body: `Check out ${authorHandle}'s review of ${titlePart}`,
             // Deep-link straight to the author's diary entry for this movie
             // (handleNotificationRoute → openProfileMovieReview), not just the feed.
             url: `/#review=${author.id}:${movieId}`,
@@ -2000,7 +2000,7 @@ Deno.serve(async (req) => {
           const badge = await computeUnseenBadge(supabaseAdmin, recId);
           const pushed = await sendPushToUser(supabaseAdmin, recId, {
             title: "Your rec got watched 🎬",
-            body: `${raterHandle} reviewed ${titlePart} you recommended — check it out`,
+            body: `${raterHandle} reviewed ${titlePart} you recommended`,
             url: `/#review=${rater.id}:${movieId}`,
             badge,
             tag: `rec-review-${rater.id}-${movieId}`,

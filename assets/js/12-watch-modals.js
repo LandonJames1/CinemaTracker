@@ -834,25 +834,6 @@
             overlay.style.display = 'none';
         }
 
-        function toggleWatchMethod(btn) {
-            try {
-                if (btn?.disabled) return;
-            } catch (_) {}
-            const isTheater = btn.textContent.trim().toLowerCase().includes('theater');
-            const hidden = document.getElementById('fld-watchmethod');
-            if (isTheater) {
-                btn.textContent = 'At Home';
-                if (hidden) hidden.value = 'At Home';
-                btn.style.backgroundColor = 'rgba(168, 85, 247, 0.35)';
-                btn.style.borderColor = 'rgba(168, 85, 247, 0.5)';
-            } else {
-                btn.textContent = 'In Theater';
-                if (hidden) hidden.value = 'In Theater';
-                btn.style.backgroundColor = 'rgba(20, 184, 166, 0.35)';
-                btn.style.borderColor = 'rgba(20, 184, 166, 0.5)';
-            }
-        }
-
         async function requireAuthOrThrow() {
             if (!supabaseClient) throw new Error('Supabase client not initialized.');
 

@@ -76,6 +76,10 @@
             const active = !!String(query || '').trim();
             btn.classList.toggle('filter-active', active);
             btn.title = active ? `Searching: "${query}" — tap to change` : 'Search by title';
+            // Keep the RED Clear highlight in sync — a title search also counts as
+            // something to clear.
+            if (context === 'feed') syncFeedClearButton();
+            else syncLibraryClearButton();
         }
 
         function openPageSearch(context) {
@@ -1346,8 +1350,24 @@
                 const sBtn = document.getElementById('library-open-sort');
                 if (fBtn) { fBtn.title = model?.summaryText || ''; fBtn.classList.toggle('filter-active', filterActive); }
                 if (sBtn) { sBtn.title = model?.summaryText || ''; sBtn.classList.toggle('filter-active', sortActive); }
+                syncLibraryClearButton();
             }
             if (wrap) wrap.style.display = libraryHasMore ? 'flex' : 'none';
+        }
+
+        // Light up the My Movies Clear button in RED when a filter/sort is non-default
+        // OR a title search is active (i.e. clearing would actually do something).
+        function syncLibraryClearButton() {
+            const btn = document.getElementById('library-clear-btn');
+            if (!btn) return;
+            const def = getDefaultLibrarySortFilterState();
+            const st = librarySortFilterState || {};
+            const sortActive = String(st.sortKey ?? '') !== String(def.sortKey ?? '')
+                || String(st.sortDir ?? '') !== String(def.sortDir ?? '');
+            const filterActive = Object.keys({ ...def, ...st }).some(k =>
+                k !== 'sortKey' && k !== 'sortDir' && String(st[k] ?? '') !== String(def[k] ?? ''));
+            const active = sortActive || filterActive || !!String(librarySearchQuery || '').trim();
+            btn.classList.toggle('clear-active', active);
         }
 
         async function loadLibraryFacets() {
@@ -1524,220 +1544,6 @@
             const v = String(dashFormatScore(n) || '').trim();
             if (!v) return '';
             return /%\s*$/.test(v) ? v : `${v}%`;
-        }
-
-        function getAnyStringField(row, { preferKeys = [], avoidKeysRe = null } = {}) {
-            if (!row || typeof row !== 'object') return '';
-            const avoid = avoidKeysRe instanceof RegExp ? avoidKeysRe : null;
-            for (const k of preferKeys) {
-                const v = row?.[k];
-                if (typeof v === 'string' && v.trim()) return v.trim();
-            }
-            for (const [k, v] of Object.entries(row)) {
-                if (avoid && avoid.test(k)) continue;
-                if (typeof v === 'string' && v.trim()) return v.trim();
-            }
-            return '';
-        }
-
-        function getMovieIdFromAnyRow(r) {
-            if (!r || typeof r !== 'object') return '';
-            const candidates = [
-                r?.movie_id,
-                r?.movieId,
-                r?.movie_uuid,
-                r?.movieUuid,
-                r?.movie,
-                r?.movieID,
-            ];
-            for (const c of candidates) {
-                const s = String(c ?? '').trim();
-                if (s) return s;
-            }
-            return '';
-        }
-
-        async function selectAllFromFirstAvailableTable(tableNames, idCandidates, ids) {
-            const tables = Array.isArray(tableNames) ? tableNames : [];
-            const cols = Array.isArray(idCandidates) ? idCandidates : [];
-            let lastErr = null;
-
-            for (const table of tables) {
-                for (const col of cols) {
-                    try {
-                        const { data, error } = await supabaseClient
-                            .from(table)
-                            .select('*')
-                            .in(col, ids);
-                        if (error) throw error;
-                        return data;
-                    } catch (err) {
-                        lastErr = err;
-                        const msg = String(err?.message || err);
-                        // Try next table/column on common schema mismatches.
-                        if (/relation\s+"?.+"?\s+does\s+not\s+exist/i.test(msg)) continue;
-                        if (/column\s+"?.+"?\s+does\s+not\s+exist/i.test(msg)) continue;
-                        // Otherwise bubble up.
-                        throw err;
-                    }
-                }
-            }
-
-            if (lastErr) throw lastErr;
-            return null;
-        }
-
-        async function loadLibraryHydratedGenreDirectorImdb({ movieIds }) {
-            const genresByMovieId = new Map();
-            const directorByMovieId = new Map();
-            const imdbPctByMovieId = new Map();
-            const ids = Array.isArray(movieIds) ? movieIds : [];
-            if (!supabaseClient || ids.length === 0) {
-                return { genresByMovieId, directorByMovieId, imdbPctByMovieId };
-            }
-
-            // Genres
-            try {
-                const genreRows = await selectAllFromFirstAvailableTable(
-                    ['Movies Genres', 'Movie Genres', 'Movies_Genres', 'movie_genres', 'movies_genres'],
-                    ['movie_id', 'movieId', 'movie_uuid', 'movieUuid'],
-                    ids
-                );
-                const rows = Array.isArray(genreRows) ? genreRows : [];
-                for (const r of rows) {
-                    const mid = getMovieIdFromAnyRow(r);
-                    if (!mid) continue;
-                    const g = getAnyStringField(r, {
-                        preferKeys: ['genre', 'genre_name', 'name', 'genreName', 'genre_title', 'title'],
-                        avoidKeysRe: /(id|uuid|created|updated|tmdb|imdb)/i,
-                    });
-                    if (!g) continue;
-                    const arr = genresByMovieId.get(mid) || [];
-                    if (!arr.includes(g)) arr.push(g);
-                    genresByMovieId.set(mid, arr);
-                }
-            } catch (_) {}
-
-            // Directors (from crew)
-            try {
-                const crewRows = await selectAllFromFirstAvailableTable(
-                    ['Movie Crew', 'Movie Crew Table', 'Movies Crew', 'movie_crew', 'movies_crew'],
-                    ['movie_id', 'movieId', 'movie_uuid', 'movieUuid'],
-                    ids
-                );
-                const rows = Array.isArray(crewRows) ? crewRows : [];
-                for (const r of rows) {
-                    const mid = getMovieIdFromAnyRow(r);
-                    if (!mid || directorByMovieId.has(mid)) continue;
-                    const job = String(r?.job ?? r?.role ?? r?.credit_job ?? r?.job_name ?? r?.job_title ?? r?.position ?? '').trim();
-                    const dept = String(r?.department ?? r?.dept ?? r?.known_for_department ?? '').trim();
-                    const isDirector = (r?.is_director === true) || /director/i.test(job) || (/directing/i.test(dept) && (!job || /director/i.test(job)));
-                    if (!isDirector) continue;
-                    const name = getAnyStringField(r, {
-                        preferKeys: ['name', 'person_name', 'crew_name', 'full_name', 'display_name', 'person'],
-                        avoidKeysRe: /(movie|job|role|department|dept|id|uuid|created|updated)/i,
-                    });
-                    if (!name) continue;
-                    directorByMovieId.set(mid, name);
-                }
-            } catch (_) {}
-
-            // IMDb (external ratings)
-            try {
-                const extRows = await selectAllFromFirstAvailableTable(
-                    ['Movie External Ratings', 'Movies External Ratings', 'movie_external_ratings', 'movies_external_ratings'],
-                    ['movie_id', 'movieId', 'movie_uuid', 'movieUuid'],
-                    ids
-                );
-                const rows = Array.isArray(extRows) ? extRows : [];
-                for (const r of rows) {
-                    const mid = getMovieIdFromAnyRow(r);
-                    if (!mid) continue;
-
-                    // Common schema: a single row per movie with imdb_rating_pct
-                    const directPct = parsePercentLike(r?.imdb_rating_pct ?? r?.imdbPct ?? r?.imdb_rating ?? r?.imdb, { imdb: true });
-                    if (directPct !== null && directPct !== undefined) {
-                        imdbPctByMovieId.set(mid, directPct);
-                        continue;
-                    }
-
-                    // Multi-source schema: provider/source + rating
-                    const provider = String(r?.provider ?? r?.source ?? r?.site ?? r?.rating_source ?? r?.type ?? '').trim().toLowerCase();
-                    if (provider && !provider.includes('imdb')) continue;
-                    const pct = parsePercentLike(r?.rating_pct ?? r?.ratingPercent ?? r?.percent ?? r?.score_pct ?? r?.scorePercent ?? r?.score ?? r?.rating, { imdb: true });
-                    if (pct !== null && pct !== undefined) {
-                        imdbPctByMovieId.set(mid, pct);
-                    }
-                }
-            } catch (_) {}
-
-            return { genresByMovieId, directorByMovieId, imdbPctByMovieId };
-        }
-
-        async function loadLibraryTmdbFallbackForMovies({ movieIds, moviesById, genresByMovieId, directorByMovieId }) {
-            if (!Array.isArray(movieIds) || movieIds.length === 0) return;
-
-            // Build a list of tmdb_ids we still need details for.
-            const needs = [];
-            for (const id of movieIds) {
-                const m = moviesById.get(id) || null;
-                const mid = String(m?.id || id || '').trim();
-                if (!mid) continue;
-
-                const hasGenre = (() => {
-                    const arr = genresByMovieId.get(mid);
-                    if (Array.isArray(arr) && arr.length) return true;
-                    if (Array.isArray(m?.genres) && m.genres.length) return true;
-                    return Boolean(String(m?.genre ?? '').trim());
-                })();
-                const hasDirector = (() => {
-                    if (directorByMovieId.has(mid)) return true;
-                    return Boolean(String(m?.director ?? m?.director_name ?? '').trim());
-                })();
-
-                if (hasGenre && hasDirector) continue;
-                const tmdb = Number(m?.tmdb_id);
-                if (!Number.isFinite(tmdb) || tmdb <= 0) continue;
-                needs.push({ mid, tmdb, needGenre: !hasGenre, needDirector: !hasDirector });
-            }
-
-            if (needs.length === 0) return;
-
-            // De-dupe by tmdb_id (1:1 in your schema, but safe).
-            const byTmdb = new Map();
-            for (const n of needs) {
-                const prev = byTmdb.get(n.tmdb) || { tmdb: n.tmdb, movieIds: [], needGenre: false, needDirector: false };
-                prev.movieIds.push(n.mid);
-                prev.needGenre = prev.needGenre || n.needGenre;
-                prev.needDirector = prev.needDirector || n.needDirector;
-                byTmdb.set(n.tmdb, prev);
-            }
-
-            const items = Array.from(byTmdb.values());
-            const concurrency = 4;
-            for (let i = 0; i < items.length; i += concurrency) {
-                const chunk = items.slice(i, i + concurrency);
-                await Promise.allSettled(chunk.map(async (it) => {
-                    try {
-                        const details = await callSwiftApiGetMovieDetails({ tmdb_id: it.tmdb });
-                        const genres = Array.isArray(details?.genres)
-                            ? details.genres.map(s => String(s).trim()).filter(Boolean)
-                            : (String(details?.genre || '').trim() ? [String(details.genre).trim()] : []);
-                        const director = String(details?.director || '').trim();
-
-                        for (const mid of it.movieIds) {
-                            if (it.needGenre && genres.length) {
-                                genresByMovieId.set(mid, genres);
-                            }
-                            if (it.needDirector && director) {
-                                directorByMovieId.set(mid, director);
-                            }
-                        }
-                    } catch (_) {
-                        // ignore
-                    }
-                }));
-            }
         }
 
         function renderLibraryInfoChips(obj, opts = {}) {
@@ -2130,24 +1936,6 @@
                 const id = String(r?.followed_id || '').trim();
                 if (id) feedFollowingIds.add(id);
             }
-        }
-
-        // Demo/guest mode: never expose real identities in the public demo. Map a user id
-        // to a STABLE fake display name (same id → same name every render) so the feed
-        // reads naturally without revealing who anyone actually is.
-        const DEMO_FAKE_NAMES = [
-            'Movie Fan', 'Cinephile', 'Film Buff', 'Reel Critic', 'Screen Junkie',
-            'Popcorn Pro', 'Frame Fanatic', 'Flick Picker', 'Cinema Sage', 'Matinee Maven',
-            'Director Dreamer', 'Plot Hunter', 'Scene Stealer', 'Reel Deal', 'Night Owl',
-            'Binge Master', 'Late Show Larry', 'Indie Insider', 'Blockbuster Bea', 'Cult Classic Kid'
-        ];
-        function demoFakeNameForId(userId) {
-            const s = String(userId || '');
-            let h = 0;
-            for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-            const name = DEMO_FAKE_NAMES[h % DEMO_FAKE_NAMES.length];
-            const num = (h % 89) + 10; // 2-digit suffix so distinct users rarely collide
-            return `${name} ${num}`;
         }
 
         async function loadFeedPage() {
@@ -2611,6 +2399,25 @@
             }
         }
 
+        // "Movies still to rate" reminder badge: the count of Review Drafts (the
+        // To Rate / Drafts queue). Painted on the mobile "More" tab-bar button AND
+        // the Account/Login row inside the "More" bottom sheet, so users are nudged
+        // to finish rating movies they saved for later.
+        function setToRateBadge(count) {
+            const n = Number(count) || 0;
+            const label = n > 99 ? '99+' : String(n);
+            const tab = document.getElementById('nav-badge-more-t');
+            if (tab) {
+                if (n > 0) { tab.textContent = label; tab.classList.add('show'); }
+                else { tab.textContent = ''; tab.classList.remove('show'); }
+            }
+            const row = document.getElementById('more-auth-torate-badge');
+            if (row) {
+                if (n > 0) { row.textContent = label; row.classList.add('show'); }
+                else { row.textContent = ''; row.classList.remove('show'); }
+            }
+        }
+
         // Mirror the total feed+lists unread count onto the PWA home-screen icon
         // badge (the little red number). Clears to 0 when nothing is unread.
         function setPwaAppBadge(total) {
@@ -2626,11 +2433,22 @@
                 if (!supabaseClient || !cachedIsAuthed) {
                     setNavBadge('nav-badge-feed', 0);
                     setNavBadge('nav-badge-lists', 0);
+                    setToRateBadge(0);
                     setPwaAppBadge(0);
                     return;
                 }
                 const meId = String(cachedAuthUser?.id || '').trim();
                 if (!meId) return;
+
+                // "More" tab / Account row badge: movies still waiting to be rated
+                // (the Review Drafts "To Rate" queue).
+                try {
+                    const { count } = await supabaseClient
+                        .from('Review Drafts')
+                        .select('id', { count: 'exact', head: true })
+                        .eq('user_id', meId);
+                    setToRateBadge(count || 0);
+                } catch (_) { /* Review Drafts table may not exist pre-migration */ }
 
                 // Pull the shared seen-times once so badges match across devices.
                 const seen = await loadSeenTimesFromDb();
@@ -3289,6 +3107,19 @@
             btn.classList.toggle('active', active);
             btn.classList.toggle('filter-active', active); // vibrant solid highlight
             // NOTE: the button is now an icon — don't set textContent (it would wipe the SVG).
+            syncFeedClearButton();
+        }
+
+        // Light up the Clear button in RED when there's anything to clear (an active
+        // filter OR a title search).
+        function syncFeedClearButton() {
+            const btn = document.getElementById('feed-clear-btn');
+            if (!btn) return;
+            const followed = Array.from(feedFollowingIds);
+            const excludedCount = followed.filter((id) => feedExcludedUserIds.has(id)).length;
+            const active = excludedCount > 0 || feedCompareOwn || feedInCommonOnly
+                || !!String(feedSearchQuery || '').trim();
+            btn.classList.toggle('clear-active', active);
         }
 
         // Fetch the people the active user follows (for the Filter modal list).

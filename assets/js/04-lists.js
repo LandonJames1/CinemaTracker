@@ -1125,31 +1125,6 @@
             if (error) throw error;
         }
 
-        function openListsRenameModal() {
-            const lid = String(listsActiveListId || '').trim();
-            if (!lid) {
-                showToast('Select a list first.', { level: 'warn' });
-                return;
-            }
-            if (isBucketList({ list_id: lid, list_name: listsActiveListName })) {
-                showToast('Bucket List can’t be renamed.', { level: 'warn' });
-                return;
-            }
-
-            const overlay = document.getElementById('lists-rename-overlay');
-            if (!overlay) return;
-            overlay.style.display = 'flex';
-
-            const statusEl = document.getElementById('lists-rename-status');
-            if (statusEl) statusEl.textContent = '';
-            const input = document.getElementById('lists-rename-name');
-            if (input) {
-                input.value = String(listsActiveListName || '').trim();
-                try { input.focus(); input.select?.(); } catch (_) {}
-            }
-            listsRenameBusy = false;
-        }
-
         function closeListsRenameModal() {
             const overlay = document.getElementById('lists-rename-overlay');
             if (!overlay) return;
@@ -1630,61 +1605,10 @@
             return { bg, border, text };
         }
 
-        function openListsWatchOptionsModal({ movie_id, title } = {}) {
-            const mid = String(movie_id || '').trim();
-            if (!mid) return;
-
-            const overlay = document.getElementById('lists-watch-options-overlay');
-            if (!overlay) return;
-            overlay.style.display = 'flex';
-
-            const movieEl = document.getElementById('lists-watch-options-movie');
-            if (movieEl) {
-                const t = String(title || '').trim();
-                movieEl.textContent = t ? `Movie: ${t}` : 'Movie';
-            }
-
-            const bodyEl = document.getElementById('lists-watch-options-body');
-            if (!bodyEl) return;
-
-            const platforms = listsPlatformsByMovieId.get(mid) || [];
-            if (!platforms.length) {
-                bodyEl.innerHTML = `<div class="text-gray">No watch options found yet.</div>`;
-                return;
-            }
-
-            bodyEl.innerHTML = `
-                <div class="text-white font-bold" style="margin-bottom: 0.55rem;">Available on</div>
-                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">
-                    ${platforms.map((p) => {
-                        const full = normalizePlatformName(p);
-                        const label = platformShortLabel(full) || full;
-                        const theme = platformBrandTheme(full);
-                        const pillStyle = `background: ${theme.bg}; border: 1px solid ${theme.border}; color: ${theme.text};`;
-
-                        return `
-                            <div style="display:flex; align-items:center; justify-content: center; padding: 0.7rem; border-radius: 0.85rem; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10);">
-                                <span style="display:inline-flex; align-items:center; padding: 0.28rem 0.6rem; border-radius: 999px; font-weight: 900; font-size: 0.88rem; line-height: 1; ${pillStyle}">${escapeHtml(label)}</span>
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
-            `;
-        }
-
-        function closeListsWatchOptionsModal() {
-            const overlay = document.getElementById('lists-watch-options-overlay');
-            if (!overlay) return;
-            overlay.style.display = 'none';
-            const movieEl = document.getElementById('lists-watch-options-movie');
-            if (movieEl) movieEl.textContent = '';
-            const bodyEl = document.getElementById('lists-watch-options-body');
-            if (bodyEl) bodyEl.innerHTML = `<div class="text-gray">Loading…</div>`;
-        }
-
         function setListsActiveListActionsEnabledState() {
             const filterBtn = document.getElementById('lists-filter-btn');
             const sortBtn = document.getElementById('lists-sort-btn');
+            const clearBtn = document.getElementById('lists-clear-btn');
             const editBtn = document.getElementById('lists-edit-btn');
             const lid = String(listsActiveListId || '').trim();
 
@@ -1692,6 +1616,7 @@
             // lists, full rename/delete for the rest — gated inside the Edit modal).
             const ready = Boolean(lid) && !listsLoading;
             if (sortBtn) sortBtn.disabled = !ready;
+            if (clearBtn) clearBtn.disabled = !ready;
             if (editBtn) editBtn.disabled = !Boolean(lid);
 
             const filtersEnabled = Boolean(lid) && !listsLoading;
@@ -1735,6 +1660,8 @@
                 filterBtn.classList.toggle('filter-active', filterActive);
                 const sortBtnEl = document.getElementById('lists-sort-btn');
                 if (sortBtnEl) sortBtnEl.classList.toggle('filter-active', sortActive);
+                // Light up Clear in RED when there's a filter or non-default sort to clear.
+                if (clearBtn) clearBtn.classList.toggle('clear-active', filterActive || sortActive);
             }
         }
 
@@ -2828,28 +2755,6 @@
             return platformCanonicalLabel(a).localeCompare(platformCanonicalLabel(b));
         }
 
-        function renderPlatformPills(platformNames) {
-            const names = Array.isArray(platformNames) ? platformNames : [];
-            const labels = [];
-            const seen = new Set();
-
-            for (const name of names) {
-                const label = platformShortLabel(name);
-                const key = String(label || '').toLowerCase();
-                if (!label || seen.has(key)) continue;
-                seen.add(key);
-                labels.push(label);
-            }
-
-            const max = 4;
-            const head = labels.slice(0, max);
-            const more = labels.length - head.length;
-
-            const chips = head.map((l) => (`<span class="lists-platform-pill">${escapeHtml(l)}</span>`));
-            if (more > 0) chips.push(`<span class="lists-platform-pill more">+${escapeHtml(String(more))}</span>`);
-            return chips.join('');
-        }
-
         async function loadUserLists({ user_id, force = false } = {}) {
             if (!supabaseClient) throw new Error('Supabase client not initialized.');
             const uid = String(user_id || '').trim();
@@ -3021,20 +2926,6 @@
                 .eq('movie_id', mid);
             if (error) throw error;
             invalidateListsDetailCache(); // a list's contents changed — drop the prefetch cache
-        }
-
-        async function removeMovieFromBucketList({ user_id, movie_id }) {
-            const uid = String(user_id || '').trim();
-            const mid = String(movie_id || '').trim();
-            if (!uid || !mid) return;
-
-            let bucketId = cachedBucketListId;
-            try {
-                bucketId = await ensureBucketListForUser({ user_id: uid });
-            } catch (_) {}
-            if (!bucketId) return;
-
-            await removeMovieFromList({ user_id: uid, list_id: bucketId, movie_id: mid });
         }
 
         // When a movie gets logged/rated, pull it out of the user's auto lists
@@ -3429,6 +3320,15 @@
                     return;
                 }
 
+                if (action === 'clear') {
+                    // Reset ALL filters + sort for the active list back to default.
+                    ensureListsSortFilterStateInitialized();
+                    listsSortFilterState = getDefaultListsSortFilterStateForActiveList();
+                    listsSortFilterDraft = null;
+                    loadListsPage({ reset: false }).catch(() => null);
+                    return;
+                }
+
                 if (action === 'open_sort_filter') {   // legacy entry point (both sections)
                     openListsSortFilterModal();
                     return;
@@ -3533,14 +3433,6 @@
                             setListsActiveListActionsEnabledState();
                         }
                     })().catch(() => {});
-                    return;
-                }
-
-                if (action === 'watch_options') {
-                    const mid = String(el.dataset.movieId || '').trim();
-                    if (!mid) return;
-                    const title = String(el.dataset.movieTitle || '').trim();
-                    openListsWatchOptionsModal({ movie_id: mid, title });
                     return;
                 }
 

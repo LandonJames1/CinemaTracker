@@ -47,11 +47,6 @@
                     return;
                 }
 
-                if (action === 'remove_icon') {
-                    await handleAccountIconRemove();
-                    return;
-                }
-
                 if (action === 'close_modal') {
                     const kind = String(btn.dataset.modal || '').trim();
                     if (kind) closeAccountSectionModal(kind);
@@ -350,29 +345,6 @@
                 const msg = String(err?.message || err);
                 if (profileStatus) profileStatus.textContent = `Photo update failed: ${msg}`;
                 showToast(`Photo update failed: ${msg}`, { level: 'warn' });
-            }
-        }
-
-        async function handleAccountIconRemove() {
-            if (guardGuestWrite()) return;
-            const profileStatus = document.getElementById('account-profile-status');
-            const uid = String(cachedAuthUser?.id || '').trim();
-            if (!supabaseClient || !cachedIsAuthed || !uid) {
-                showToast('Please log in first.', { level: 'warn' });
-                return;
-            }
-            try {
-                const { error } = await supabaseClient.from('Users').update({ icon: null }).eq('id', uid);
-                if (error) throw error;
-                setAccountIconPreview('');
-                cachedUserIconId = uid;
-                cachedUserIcon = '';
-                cachedUserIconLoaded = true;
-                await refreshAuthStateAndUI();
-                if (profileStatus) profileStatus.textContent = 'Photo removed.';
-                showToast('Profile photo removed.');
-            } catch (err) {
-                showToast(`Could not remove photo: ${String(err?.message || err)}`, { level: 'warn' });
             }
         }
 

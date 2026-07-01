@@ -252,13 +252,6 @@
             }
         }
 
-        function parseCommaList(value) {
-            return String(value || '')
-                .split(',')
-                .map((s) => String(s || '').trim())
-                .filter(Boolean);
-        }
-
         function updateAiPromptCounter() {
             const input = document.getElementById('ai-prompt-input');
             const remainingEl = document.getElementById('ai-prompt-remaining');
@@ -541,31 +534,6 @@
 
         function getAiSimilarMovie() {
             return Array.isArray(aiSimilarSelected) ? aiSimilarSelected.filter((m) => m?.tmdb_id) : [];
-        }
-
-        function hasAiFiltersSet(filters) {
-            const f = filters || {};
-            const rating = Number(f.tmdb_rating_min ?? 0);
-            const yrFrom = Number(f.release_year_from ?? 0);
-            const yrTo = Number(f.release_year_to ?? 0);
-            const hasRating = Number.isFinite(rating) && rating > 0;
-            const hasYear = (Number.isFinite(yrFrom) && yrFrom > 1800) || (Number.isFinite(yrTo) && yrTo > 1800);
-            const hasGenres = Array.isArray(f.genres_include) && f.genres_include.length > 0;
-            const hasProviders = Array.isArray(f.watch_providers) && f.watch_providers.length > 0;
-            return hasRating || hasYear || hasGenres || hasProviders;
-        }
-
-        function areAiFiltersComplete(filters) {
-            const f = filters || {};
-            const rating = Number(f.tmdb_rating_min ?? 0);
-            const yrFrom = Number(f.release_year_from ?? 0);
-            const yrTo = Number(f.release_year_to ?? 0);
-            const hasRating = Number.isFinite(rating) && rating > 0;
-            const hasYearFrom = Number.isFinite(yrFrom) && yrFrom > 1800;
-            const hasYearTo = Number.isFinite(yrTo) && yrTo > 1800;
-            const hasGenres = Array.isArray(f.genres_include) && f.genres_include.length > 0;
-            const hasProviders = Array.isArray(f.watch_providers) && f.watch_providers.length > 0;
-            return hasRating && hasYearFrom && hasYearTo && hasGenres && hasProviders;
         }
 
         function getAiFilters() {

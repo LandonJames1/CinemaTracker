@@ -261,6 +261,10 @@
                     refreshAuthStateAndUI();
                 } else if (page === 'dashboard') {
                     root.innerHTML = this.renderDashboard();
+                    // Fresh visit → drop the per-visit RPC cache so stats reflect any
+                    // ratings logged since last time. Within a visit, switching tabs
+                    // reuses the cache (no refetch).
+                    try { invalidateDashboardCache(); } catch (_) {}
                     refreshAuthStateAndUI();
                     initDashboardTabs();
                     initDashboardTimeframe();
@@ -890,6 +894,16 @@
                                             style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.65rem; font-size: 0.85rem;"
                                             disabled
                                         >Sort</button>
+                                        <button
+                                            id="lists-clear-btn"
+                                            type="button"
+                                            class="btn btn-outline controls-icon-btn"
+                                            data-lists-action="clear"
+                                            title="Clear all filters"
+                                            aria-label="Clear all filters"
+                                            style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.65rem; font-size: 0.85rem;"
+                                            disabled
+                                        >${icons.clearX}</button>
                                         <button
                                             id="lists-edit-btn"
                                             type="button"
@@ -1623,7 +1637,6 @@
                                             <button id="feed-filter-btn" type="button" class="btn btn-outline feed-sort-btn controls-icon-btn" data-feed-action="open_filter" title="Filter" aria-label="Filter" style="border-radius: 0.85rem;">${icons.filter}</button>
                                             <button id="feed-clear-btn" type="button" class="btn btn-outline controls-icon-btn" data-feed-action="clear" title="Clear all filters" aria-label="Clear all filters" style="border-radius: 0.85rem;">${icons.clearX}</button>
                                             <button id="feed-search-btn" type="button" class="btn btn-outline page-search-btn" data-feed-action="open_search" title="Search by title" aria-label="Search reviews" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">${icons.search}<span class="page-search-label">Search</span></button>
-                                            <button id="feed-refresh" type="button" class="btn btn-outline" data-feed-action="refresh" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Refresh</button>
                                         </div>
                                     </div>
 
@@ -1887,7 +1900,6 @@
                                         <button id="library-open-sort" type="button" class="btn btn-outline controls-icon-btn" data-library-action="open_sort" title="Sort" aria-label="Sort" style="border-radius: 0.85rem;">${icons.sort}</button>
                                         <button id="library-clear-btn" type="button" class="btn btn-outline controls-icon-btn" data-library-action="clear" title="Clear all filters" aria-label="Clear all filters" style="border-radius: 0.85rem;">${icons.clearX}</button>
                                         <button id="library-search-btn" type="button" class="btn btn-outline page-search-btn" data-library-action="open_search" title="Search by title" aria-label="Search my movies" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">${icons.search}<span class="page-search-label">Search</span></button>
-                                        <button id="library-refresh" type="button" class="btn btn-outline" data-library-action="refresh" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Refresh</button>
                                     </div>
                                 </div>
                                 <div id="library-list" style="margin-top: 0.9rem; display: grid; gap: 12px;"></div>

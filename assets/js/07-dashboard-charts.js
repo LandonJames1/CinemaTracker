@@ -5,17 +5,7 @@
 
             elTitle.textContent = dashChartTitleForTab('activity');
 
-            let authedUser = null;
-            if (guestMode) {
-                authedUser = cachedAuthUser;
-            } else {
-                try {
-                    const { data } = await supabaseClient?.auth?.getUser?.();
-                    authedUser = data?.user || null;
-                } catch (_) {
-                    authedUser = null;
-                }
-            }
+            const authedUser = await dashResolveAuthUser();
 
             if (!supabaseClient || !authedUser?.id) {
                 if (!dashboardAuthWarned) {
@@ -29,9 +19,8 @@
             elBody.innerHTML = `<div class="text-gray">Loading…</div>`;
 
             try {
-                let res = await supabaseClient.rpc('get_dashboard_charts', {
-                    p_timeframe: dashboardTimeframe,
-                });
+                const res = await dashCachedRpc('get_dashboard_charts', { p_timeframe: dashboardTimeframe }, () =>
+                    supabaseClient.rpc('get_dashboard_charts', { p_timeframe: dashboardTimeframe }));
                 if (res?.error) {
                     const msg = String(res.error?.message || res.error);
                     const missingRpc = /get_dashboard_charts/i.test(msg) && /(does not exist|not found|no function matches|function .* does not exist)/i.test(msg);
@@ -58,17 +47,7 @@
             const elMeta = document.getElementById('dash-quote-wall-meta');
             if (!elWall) return;
 
-            let authedUser = null;
-            if (guestMode) {
-                authedUser = cachedAuthUser;
-            } else {
-                try {
-                    const { data } = await supabaseClient?.auth?.getUser?.();
-                    authedUser = data?.user || null;
-                } catch (_) {
-                    authedUser = null;
-                }
-            }
+            const authedUser = await dashResolveAuthUser();
 
             if (!supabaseClient || !authedUser?.id) {
                 if (!dashboardAuthWarned) {
@@ -235,17 +214,7 @@
             const elLists = document.getElementById('dash-tiers-lists');
             if (!elBars || !elLists) return;
 
-            let authedUser = null;
-            if (guestMode) {
-                authedUser = cachedAuthUser;
-            } else {
-                try {
-                    const { data } = await supabaseClient?.auth?.getUser?.();
-                    authedUser = data?.user || null;
-                } catch (_) {
-                    authedUser = null;
-                }
-            }
+            const authedUser = await dashResolveAuthUser();
 
             if (!supabaseClient || !authedUser?.id) {
                 if (!dashboardAuthWarned) {
@@ -261,12 +230,15 @@
             elLists.innerHTML = `<div class="text-gray">Loading…</div>`;
 
             try {
-                let res = await supabaseClient.rpc('get_dashboard_tiers', { p_timeframe: dashboardTimeframe });
-                if (res?.error) {
-                    const msg = String(res.error?.message || res.error);
-                    const looksLikeOldSignature = /get_dashboard_tiers/i.test(msg) && /(does not exist|not found|no function matches|function .* does not exist)/i.test(msg);
-                    if (looksLikeOldSignature) res = await supabaseClient.rpc('get_dashboard_tiers');
-                }
+                const res = await dashCachedRpc('get_dashboard_tiers', { p_timeframe: dashboardTimeframe }, async () => {
+                    let r = await supabaseClient.rpc('get_dashboard_tiers', { p_timeframe: dashboardTimeframe });
+                    if (r?.error) {
+                        const msg = String(r.error?.message || r.error);
+                        const looksLikeOldSignature = /get_dashboard_tiers/i.test(msg) && /(does not exist|not found|no function matches|function .* does not exist)/i.test(msg);
+                        if (looksLikeOldSignature) r = await supabaseClient.rpc('get_dashboard_tiers');
+                    }
+                    return r;
+                });
                 if (res?.error) throw res.error;
                 const data = res?.data;
 
@@ -503,17 +475,7 @@
             ];
             if (required.some(x => !x)) return;
 
-            let authedUser = null;
-            if (guestMode) {
-                authedUser = cachedAuthUser;
-            } else {
-                try {
-                    const { data } = await supabaseClient?.auth?.getUser?.();
-                    authedUser = data?.user || null;
-                } catch (_) {
-                    authedUser = null;
-                }
-            }
+            const authedUser = await dashResolveAuthUser();
 
             const setAvatar = (imgEl, url) => {
                 if (!imgEl) return;
@@ -601,12 +563,15 @@
             setAvatar(elBottomDirectorAvatar, null);
 
             try {
-                let res = await supabaseClient.rpc('get_dashboard_ratings', { p_timeframe: dashboardTimeframe });
-                if (res?.error) {
-                    const msg = String(res.error?.message || res.error);
-                    const looksLikeOldSignature = /get_dashboard_ratings/i.test(msg) && /(does not exist|not found|no function matches|function .* does not exist)/i.test(msg);
-                    if (looksLikeOldSignature) res = await supabaseClient.rpc('get_dashboard_ratings');
-                }
+                const res = await dashCachedRpc('get_dashboard_ratings', { p_timeframe: dashboardTimeframe }, async () => {
+                    let r = await supabaseClient.rpc('get_dashboard_ratings', { p_timeframe: dashboardTimeframe });
+                    if (r?.error) {
+                        const msg = String(r.error?.message || r.error);
+                        const looksLikeOldSignature = /get_dashboard_ratings/i.test(msg) && /(does not exist|not found|no function matches|function .* does not exist)/i.test(msg);
+                        if (looksLikeOldSignature) r = await supabaseClient.rpc('get_dashboard_ratings');
+                    }
+                    return r;
+                });
                 if (res?.error) throw res.error;
                 const data = res?.data || {};
                 dashboardRatingsLastData = data;
@@ -638,7 +603,8 @@
                 } else if (dashboardChartsLastData && String(dashboardChartsLastData?.timeframe || '') === String(dashboardTimeframe || '')) {
                     chartsData = dashboardChartsLastData;
                 } else {
-                    const chartsRes = await supabaseClient.rpc('get_dashboard_charts', { p_timeframe: dashboardTimeframe });
+                    const chartsRes = await dashCachedRpc('get_dashboard_charts', { p_timeframe: dashboardTimeframe }, () =>
+                        supabaseClient.rpc('get_dashboard_charts', { p_timeframe: dashboardTimeframe }));
                     if (!chartsRes?.error) {
                         chartsData = chartsRes?.data || null;
                         dashboardChartsLastData = chartsData;
@@ -710,31 +676,6 @@
                 setAvatar(elTopDirectorAvatar, null);
                 setAvatar(elBottomDirectorAvatar, null);
             }
-        }
-
-        function dashSetInlineBar(el, value, maxValue) {
-            if (!el) return;
-            const val = Number(value);
-            const max = Number(maxValue);
-            if (!Number.isFinite(val) || !Number.isFinite(max) || max <= 0 || val <= 0) {
-                el.style.width = '0%';
-                return;
-            }
-            const pct = Math.max(0, Math.min(100, (val / max) * 100));
-            el.style.width = `${pct}%`;
-        }
-
-        function dashSetVerticalBar(el, value, maxValue) {
-            if (!el) return;
-            const val = Number(value);
-            const max = Number(maxValue);
-            if (!Number.isFinite(val) || !Number.isFinite(max) || max <= 0 || val <= 0) {
-                el.style.height = '0%';
-                return;
-            }
-            const pct = Math.max(0, Math.min(100, (val / max) * 100));
-            const minPct = 6;
-            el.style.height = `${Math.max(minPct, pct)}%`;
         }
 
         function dashSetStackBar(elA, elB, aValue, bValue) {
@@ -1056,22 +997,6 @@
             `;
         }
 
-        function dashSetDonut(el, aValue, bValue) {
-            if (!el) return;
-            const a = Number(aValue);
-            const b = Number(bValue);
-            const total = (Number.isFinite(a) ? a : 0) + (Number.isFinite(b) ? b : 0);
-            if (total <= 0) {
-                el.style.background = 'conic-gradient(rgba(255,255,255,0.08) 0deg 360deg)';
-                return;
-            }
-            const aDeg = Math.round((a / total) * 360);
-            const bDeg = Math.round((b / total) * 360);
-            const split = Math.min(360, Math.max(0, aDeg));
-            const end = Math.min(360, split + bDeg);
-            el.style.background = `conic-gradient(var(--brand) 0deg ${split}deg, var(--accent-2, var(--brand)) ${split}deg ${end}deg, rgba(255,255,255,0.08) ${end}deg 360deg)`;
-        }
-
         async function loadDashboardGeneral() {
             const elEventsTotal = document.getElementById('dash-general-watch-events-total');
             const elHours = document.getElementById('dash-general-hours-watched');
@@ -1118,17 +1043,7 @@
             };
 
             // Require auth for dashboard.
-            let authedUser = null;
-            if (guestMode) {
-                authedUser = cachedAuthUser;
-            } else {
-                try {
-                    const { data } = await supabaseClient?.auth?.getUser?.();
-                    authedUser = data?.user || null;
-                } catch (_) {
-                    authedUser = null;
-                }
-            }
+            const authedUser = await dashResolveAuthUser();
 
             const setAll = (v) => {
                 safeText(elEventsTotal, v);
@@ -1264,12 +1179,15 @@
             setAll('…');
 
             try {
-                let res = await supabaseClient.rpc('get_dashboard_general', { p_timeframe: dashboardTimeframe });
-                if (res?.error) {
-                    const msg = String(res.error?.message || res.error);
-                    const looksLikeOldSignature = /get_dashboard_general/i.test(msg) && /(does not exist|not found|no function matches|function .* does not exist)/i.test(msg);
-                    if (looksLikeOldSignature) res = await supabaseClient.rpc('get_dashboard_general');
-                }
+                const res = await dashCachedRpc('get_dashboard_general', { p_timeframe: dashboardTimeframe }, async () => {
+                    let r = await supabaseClient.rpc('get_dashboard_general', { p_timeframe: dashboardTimeframe });
+                    if (r?.error) {
+                        const msg = String(r.error?.message || r.error);
+                        const looksLikeOldSignature = /get_dashboard_general/i.test(msg) && /(does not exist|not found|no function matches|function .* does not exist)/i.test(msg);
+                        if (looksLikeOldSignature) r = await supabaseClient.rpc('get_dashboard_general');
+                    }
+                    return r;
+                });
                 if (res?.error) throw res.error;
                 const data = res?.data;
                 dashboardGeneralLastData = data;
@@ -1423,7 +1341,8 @@
                     if (dashboardChartsLastData && String(dashboardChartsLastData?.timeframe || '') === String(dashboardTimeframe || '')) {
                         chartsData = dashboardChartsLastData;
                     } else {
-                        const chartsRes = await supabaseClient.rpc('get_dashboard_charts', { p_timeframe: dashboardTimeframe });
+                        const chartsRes = await dashCachedRpc('get_dashboard_charts', { p_timeframe: dashboardTimeframe }, () =>
+                            supabaseClient.rpc('get_dashboard_charts', { p_timeframe: dashboardTimeframe }));
                         if (!chartsRes?.error) chartsData = chartsRes?.data || null;
                     }
 

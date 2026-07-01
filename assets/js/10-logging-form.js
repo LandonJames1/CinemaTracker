@@ -13,14 +13,6 @@
             }
         }
 
-        function normalizeSeriesValue(seriesText) {
-            const s = String(seriesText || '').trim().toLowerCase();
-            if (!s) return '';
-            if (s === 'yes' || s === 'true' || s === '1') return 'TRUE';
-            if (s === 'no' || s === 'false' || s === '0') return 'FALSE';
-            return seriesText;
-        }
-
         function parseGenreString(value) {
             return String(value || '')
                 .split(',')

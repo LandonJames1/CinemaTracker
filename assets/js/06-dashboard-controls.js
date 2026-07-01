@@ -914,17 +914,7 @@
             const elBottom = document.getElementById('dash-fav-bottom');
             if (!elTop || !elBottom) return;
 
-            let authedUser = null;
-            if (guestMode) {
-                authedUser = cachedAuthUser;
-            } else {
-                try {
-                    const { data } = await supabaseClient?.auth?.getUser?.();
-                    authedUser = data?.user || null;
-                } catch (_) {
-                    authedUser = null;
-                }
-            }
+            const authedUser = await dashResolveAuthUser();
 
             if (!supabaseClient || !authedUser?.id) {
                 if (!dashboardAuthWarned) {
@@ -1043,10 +1033,24 @@
             };
 
             try {
-                let res = await supabaseClient.rpc('get_dashboard_favorites', {
+                const favParams = {
                     p_timeframe: dashboardTimeframe,
                     p_metric: dashboardFavoritesMetric,
                     p_limit: dashboardFavoritesLimit,
+                };
+                const res = await dashCachedRpc('get_dashboard_favorites', favParams, async () => {
+                    let r = await supabaseClient.rpc('get_dashboard_favorites', favParams);
+                    if (r?.error) {
+                        const msg = String(r.error?.message || r.error);
+                        const looksLikeOldSignature = /get_dashboard_favorites/i.test(msg) && /no function matches|function .* does not exist/i.test(msg);
+                        if (looksLikeOldSignature) {
+                            r = await supabaseClient.rpc('get_dashboard_favorites', {
+                                p_timeframe: dashboardTimeframe,
+                                p_metric: dashboardFavoritesMetric,
+                            });
+                        }
+                    }
+                    return r;
                 });
                 if (res?.error) {
                     const msg = String(res.error?.message || res.error);
@@ -1055,13 +1059,6 @@
                         elTop.innerHTML = `<div class="text-gray">Favorites RPC missing. Run dashboard_rpc.sql to add get_dashboard_favorites.</div>`;
                         elBottom.innerHTML = `<div class="text-gray">Favorites RPC missing. Run dashboard_rpc.sql to add get_dashboard_favorites.</div>`;
                         return;
-                    }
-                    const looksLikeOldSignature = /get_dashboard_favorites/i.test(msg) && /no function matches|function .* does not exist/i.test(msg);
-                    if (looksLikeOldSignature) {
-                        res = await supabaseClient.rpc('get_dashboard_favorites', {
-                            p_timeframe: dashboardTimeframe,
-                            p_metric: dashboardFavoritesMetric,
-                        });
                     }
                 }
                 if (res?.error) throw res.error;

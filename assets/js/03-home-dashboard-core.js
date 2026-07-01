@@ -48,280 +48,6 @@
             return data;
         }
 
-        async function loadDashboard() {
-            // Called on router.navigate('dashboard') after the DOM is rendered.
-            const elUnique = document.getElementById('dash-unique-movies-year');
-            const elHours = document.getElementById('dash-total-hours');
-            const elAvg = document.getElementById('dash-avg-rating');
-            const elGenre = document.getElementById('dash-top-genre');
-            const elGenreCount = document.getElementById('dash-top-genre-count');
-            const elGenreAvg = document.getElementById('dash-top-genre-avg');
-
-            const elTopMovieTitle = document.getElementById('dash-top-movie-title');
-            const elTopMovieRating = document.getElementById('dash-top-movie-rating');
-            const elWatchEventsYear = document.getElementById('dash-watch-events-year');
-            const elWatchEventsAll = document.getElementById('dash-watch-events-all');
-
-            const elDecade = document.getElementById('dash-most-watched-decade');
-            const elDecadeCount = document.getElementById('dash-most-watched-decade-count');
-            const elActor = document.getElementById('dash-most-watched-actor');
-            const elActorCount = document.getElementById('dash-most-watched-actor-count');
-            const elDirector = document.getElementById('dash-most-watched-director');
-            const elDirectorCount = document.getElementById('dash-most-watched-director-count');
-
-            const elHighDirector = document.getElementById('dash-highest-rated-director');
-            const elHighDirectorAvg = document.getElementById('dash-highest-rated-director-avg');
-            const elHighDirectorN = document.getElementById('dash-highest-rated-director-n');
-
-            const elAtHome = document.getElementById('dash-at-home');
-            const elInTheater = document.getElementById('dash-in-theater');
-
-            const elTierBars = document.getElementById('dash-tier-bars');
-
-            const required = [
-                elUnique, elHours, elAvg, elGenre, elGenreCount, elGenreAvg,
-                elTopMovieTitle, elTopMovieRating,
-                elWatchEventsYear, elWatchEventsAll,
-                elDecade, elDecadeCount,
-                elActor, elActorCount,
-                elDirector, elDirectorCount,
-                elHighDirector, elHighDirectorAvg, elHighDirectorN,
-                elAtHome, elInTheater,
-                elTierBars,
-            ];
-            if (required.some(x => !x)) return;
-
-            if (!supabaseClient) {
-                elUnique.textContent = '—';
-                elHours.textContent = '—';
-                elAvg.textContent = '—';
-                elGenre.textContent = '—';
-                elGenreCount.textContent = '—';
-                elGenreAvg.textContent = '—';
-
-                elTopMovieTitle.textContent = '—';
-                elTopMovieRating.textContent = '—';
-                elWatchEventsYear.textContent = '—';
-                elWatchEventsAll.textContent = '—';
-
-                elDecade.textContent = '—';
-                elDecadeCount.textContent = '—';
-                elActor.textContent = '—';
-                elActorCount.textContent = '—';
-                elDirector.textContent = '—';
-                elDirectorCount.textContent = '—';
-
-                elHighDirector.textContent = '—';
-                elHighDirectorAvg.textContent = '—';
-                elHighDirectorN.textContent = '—';
-
-                elAtHome.textContent = '—';
-                elInTheater.textContent = '—';
-
-                elTierBars.innerHTML = '';
-                return;
-            }
-
-            // Require auth for dashboard metrics.
-            let authedUser = null;
-            if (guestMode) {
-                authedUser = cachedAuthUser;
-            } else {
-                try {
-                    const { data } = await supabaseClient.auth.getUser();
-                    authedUser = data?.user || null;
-                } catch (_) {
-                    authedUser = null;
-                }
-            }
-
-            if (!authedUser?.id) {
-                elUnique.textContent = '—';
-                elHours.textContent = '—';
-                elAvg.textContent = '—';
-                elGenre.textContent = '—';
-                elGenreCount.textContent = '—';
-                elGenreAvg.textContent = '—';
-
-                elTopMovieTitle.textContent = '—';
-                elTopMovieRating.textContent = '—';
-                elWatchEventsYear.textContent = '—';
-                elWatchEventsAll.textContent = '—';
-
-                elDecade.textContent = '—';
-                elDecadeCount.textContent = '—';
-                elActor.textContent = '—';
-                elActorCount.textContent = '—';
-                elDirector.textContent = '—';
-                elDirectorCount.textContent = '—';
-
-                elHighDirector.textContent = '—';
-                elHighDirectorAvg.textContent = '—';
-                elHighDirectorN.textContent = '—';
-
-                elAtHome.textContent = '—';
-                elInTheater.textContent = '—';
-
-                elTierBars.innerHTML = '';
-                return;
-            }
-
-            // Loading state.
-            elUnique.textContent = '…';
-            elHours.textContent = '…';
-            elAvg.textContent = '…';
-            elGenre.textContent = '…';
-            elGenreCount.textContent = '…';
-            elGenreAvg.textContent = '…';
-
-            elTopMovieTitle.textContent = '…';
-            elTopMovieRating.textContent = '…';
-            elWatchEventsYear.textContent = '…';
-            elWatchEventsAll.textContent = '…';
-
-            elDecade.textContent = '…';
-            elDecadeCount.textContent = '…';
-            elActor.textContent = '…';
-            elActorCount.textContent = '…';
-            elDirector.textContent = '…';
-            elDirectorCount.textContent = '…';
-
-            elHighDirector.textContent = '…';
-            elHighDirectorAvg.textContent = '…';
-            elHighDirectorN.textContent = '…';
-
-            elAtHome.textContent = '…';
-            elInTheater.textContent = '…';
-
-            elTierBars.innerHTML = '';
-
-            try {
-                const { data, error } = await supabaseClient.rpc('get_dashboard_summary');
-                if (error) throw error;
-
-                const uniqueMovies = Number(data?.unique_movies_this_year ?? 0);
-                const totalHours = Number(data?.total_watch_hours_all_time ?? 0);
-                const avgRating = Number(data?.avg_overall_rating ?? 0);
-                const topGenre = String(data?.top_genre ?? '').trim();
-                const topGenreCount = Number(data?.top_genre_count ?? 0);
-                const topGenreAvg = Number(data?.top_genre_avg_overall ?? 0);
-
-                const topMovieTitle = String(data?.highest_rated_movie?.title ?? '').trim();
-                const topMovieRating = Number(data?.highest_rated_movie?.overall_rating ?? 0);
-
-                const watchEventsYear = Number(data?.total_watch_events_this_year ?? 0);
-                const watchEventsAll = Number(data?.total_watch_events_all_time ?? 0);
-
-                const decade = data?.most_watched_decade?.decade;
-                const decadeWatches = Number(data?.most_watched_decade?.watches ?? 0);
-
-                const actorName = String(data?.most_watched_actor?.name ?? '').trim();
-                const actorWatches = Number(data?.most_watched_actor?.watches ?? 0);
-
-                const directorName = String(data?.most_watched_director?.name ?? '').trim();
-                const directorWatches = Number(data?.most_watched_director?.watches ?? 0);
-
-                const highDirectorName = String(data?.highest_rated_director?.name ?? '').trim();
-                const highDirectorAvg = Number(data?.highest_rated_director?.avg_overall ?? 0);
-                const highDirectorN = Number(data?.highest_rated_director?.n ?? 0);
-
-                const atHome = Number(data?.watch_method_breakdown?.at_home ?? 0);
-                const inTheater = Number(data?.watch_method_breakdown?.in_theater ?? 0);
-
-                const tierDist = Array.isArray(data?.tier_distribution) ? data.tier_distribution : [];
-
-                elUnique.textContent = Number.isFinite(uniqueMovies) ? String(uniqueMovies) : '0';
-                elHours.textContent = Number.isFinite(totalHours) ? String(totalHours) : '0';
-                elAvg.textContent = Number.isFinite(avgRating) ? String(avgRating) : '0';
-                elGenre.textContent = topGenre || '—';
-                elGenreCount.textContent = Number.isFinite(topGenreCount) ? String(topGenreCount) : '0';
-                elGenreAvg.textContent = Number.isFinite(topGenreAvg) ? String(topGenreAvg) : '0';
-
-                elTopMovieTitle.textContent = topMovieTitle || '—';
-                elTopMovieRating.textContent = Number.isFinite(topMovieRating) ? String(topMovieRating) : '0';
-
-                elWatchEventsYear.textContent = Number.isFinite(watchEventsYear) ? String(watchEventsYear) : '0';
-                elWatchEventsAll.textContent = Number.isFinite(watchEventsAll) ? String(watchEventsAll) : '0';
-
-                elDecade.textContent = (decade === null || decade === undefined) ? '—' : `${String(decade)}s`;
-                elDecadeCount.textContent = Number.isFinite(decadeWatches) ? String(decadeWatches) : '0';
-
-                elActor.textContent = actorName || '—';
-                elActorCount.textContent = Number.isFinite(actorWatches) ? String(actorWatches) : '0';
-
-                elDirector.textContent = directorName || '—';
-                elDirectorCount.textContent = Number.isFinite(directorWatches) ? String(directorWatches) : '0';
-
-                elHighDirector.textContent = highDirectorName || '—';
-                elHighDirectorAvg.textContent = Number.isFinite(highDirectorAvg) ? String(highDirectorAvg) : '0';
-                elHighDirectorN.textContent = Number.isFinite(highDirectorN) ? String(highDirectorN) : '0';
-
-                elAtHome.textContent = Number.isFinite(atHome) ? String(atHome) : '0';
-                elInTheater.textContent = Number.isFinite(inTheater) ? String(inTheater) : '0';
-
-                const tierColors = {
-                    'S': 'rgba(var(--tier-s-rgb), 0.35)',
-                    'A': 'rgba(var(--tier-a-rgb), 0.35)',
-                    'B': 'rgba(var(--tier-b-rgb), 0.35)',
-                    'C': 'rgba(var(--tier-c-rgb), 0.35)',
-                    'D': 'rgba(var(--tier-d-rgb), 0.35)',
-                    'F': 'rgba(var(--tier-f-rgb), 0.35)',
-                };
-
-                elTierBars.innerHTML = tierDist.map((t) => {
-                    const tier = String(t?.tier ?? '').trim() || '—';
-                    const pct = Number(t?.pct ?? 0);
-                    const count = Number(t?.count ?? 0);
-                    const width = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 0;
-                    const bg = tierColors[tier.toUpperCase()] || 'rgba(255,255,255,0.10)';
-                    const tierLetter = String(tier || '').trim().toUpperCase();
-                    const tierText = /^[SABCDF]$/.test(tierLetter)
-                        ? `Tier <span class=\"dash-help-tier\" data-tier-letter=\"${escapeHtml(tierLetter)}\">${escapeHtml(tierLetter)}</span>`
-                        : `Tier ${escapeHtml(tier)}`;
-                    return `
-                        <div style="min-width: 140px; flex: 1;">
-                            <div class="flex justify-between" style="margin-bottom: 6px;">
-                                <span class="text-xs text-gray">${tierText}</span>
-                                <span class="text-xs text-gray">${Number.isFinite(pct) ? pct.toFixed(1) : '0.0'}% (${Number.isFinite(count) ? count : 0})</span>
-                            </div>
-                            <div style="height: 10px; background: rgba(255,255,255,0.06); border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06);">
-                                <div style="height: 100%; width: ${width}%; background: ${bg};"></div>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-            } catch (err) {
-                // Quiet failure; keep placeholders.
-                elUnique.textContent = '—';
-                elHours.textContent = '—';
-                elAvg.textContent = '—';
-                elGenre.textContent = '—';
-                elGenreCount.textContent = '—';
-                elGenreAvg.textContent = '—';
-
-                elTopMovieTitle.textContent = '—';
-                elTopMovieRating.textContent = '—';
-                elWatchEventsYear.textContent = '—';
-                elWatchEventsAll.textContent = '—';
-
-                elDecade.textContent = '—';
-                elDecadeCount.textContent = '—';
-                elActor.textContent = '—';
-                elActorCount.textContent = '—';
-                elDirector.textContent = '—';
-                elDirectorCount.textContent = '—';
-
-                elHighDirector.textContent = '—';
-                elHighDirectorAvg.textContent = '—';
-                elHighDirectorN.textContent = '—';
-
-                elAtHome.textContent = '—';
-                elInTheater.textContent = '—';
-
-                elTierBars.innerHTML = '';
-            }
-        }
-
         function initDashboardTabs() {
             const wrap = document.getElementById('dash-tab-general')?.parentElement;
             if (!wrap) return;
@@ -359,6 +85,57 @@
         const dashPosterCacheByTmdbId = new Map();
         const dashRatingCacheByMovieId = new Map();
         const dashPersonAvatarCache = new Map();
+
+        // ─── Data Dash response cache (per visit) ───
+        // The six dashboard tabs each hit their own RPC. Without this, switching
+        // tabs (or switching back to one you already viewed) re-runs the RPC every
+        // time — a network round-trip per click. We memoize each RPC result keyed
+        // by function name + params (params include the timeframe / metric / limit,
+        // so a different selection is a different key). Cleared on every fresh entry
+        // to the Data Dash page (see router `dashboard` dispatch), so stats are never
+        // stale — the cache only spans a single visit.
+        const dashRpcCache = new Map();
+
+        function dashCacheKey(fnName, params) {
+            return `${fnName}|${JSON.stringify(params || {})}`;
+        }
+
+        function invalidateDashboardCache() {
+            dashRpcCache.clear();
+        }
+
+        /**
+         * Cached wrapper around a dashboard RPC. `runner` is an async fn that
+         * performs the actual `supabaseClient.rpc(...)` (incl. any old-signature
+         * retry) and returns the Supabase `{ data, error }` result. Only successful
+         * (error-free) results are cached.
+         */
+        async function dashCachedRpc(fnName, params, runner) {
+            const key = dashCacheKey(fnName, params);
+            if (dashRpcCache.has(key)) {
+                return { data: dashRpcCache.get(key), error: null };
+            }
+            const res = await runner();
+            if (res && !res.error) dashRpcCache.set(key, res.data);
+            return res;
+        }
+
+        /**
+         * Resolve the current dashboard user WITHOUT a network `auth.getUser()`
+         * round-trip on every tab switch. `cachedAuthUser` is kept current by
+         * `refreshAuthStateAndUI`; we only fall back to the network call if it's
+         * somehow empty.
+         */
+        async function dashResolveAuthUser() {
+            if (guestMode) return cachedAuthUser || null;
+            if (cachedAuthUser?.id) return cachedAuthUser;
+            try {
+                const { data } = await supabaseClient?.auth?.getUser?.();
+                return data?.user || null;
+            } catch (_) {
+                return null;
+            }
+        }
 
         function dashNormalizePosterPath(p) {
             const raw = String(p ?? '').trim();
@@ -512,39 +289,4 @@
             return (Array.isArray(parts) ? parts : []).filter(Boolean).join(' • ');
         }
 
-        function openFeedAuthWarning() {
-            const el = document.getElementById('feed-auth-warning');
-            if (!el) return;
-            el.style.display = 'flex';
-        }
-
-        function closeFeedAuthWarning() {
-            const el = document.getElementById('feed-auth-warning');
-            if (!el) return;
-            el.style.display = 'none';
-        }
-
-        function openLibraryAuthWarning() {
-            const el = document.getElementById('library-auth-warning');
-            if (!el) return;
-            el.style.display = 'flex';
-        }
-
-        function closeLibraryAuthWarning() {
-            const el = document.getElementById('library-auth-warning');
-            if (!el) return;
-            el.style.display = 'none';
-        }
-
-        function openListsAuthWarning() {
-            const el = document.getElementById('lists-auth-warning');
-            if (!el) return;
-            el.style.display = 'flex';
-        }
-
-        function closeListsAuthWarning() {
-            const el = document.getElementById('lists-auth-warning');
-            if (!el) return;
-            el.style.display = 'none';
-        }
 

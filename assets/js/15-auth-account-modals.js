@@ -236,24 +236,6 @@
             overlay.classList.add('open');
         }
 
-        function openAccountAuthWarning() {
-            const overlay = document.getElementById('account-auth-warning');
-            if (!overlay) return;
-            overlay.classList.add('open');
-        }
-
-        function closeDashboardAuthWarning() {
-            const overlay = document.getElementById('dashboard-auth-warning');
-            if (!overlay) return;
-            overlay.classList.remove('open');
-        }
-
-        function closeAccountAuthWarning() {
-            const overlay = document.getElementById('account-auth-warning');
-            if (!overlay) return;
-            overlay.classList.remove('open');
-        }
-
         function closeAuthModal() {
             // Block closing if user hasn't authenticated or entered guest mode (gate mode)
             if (!cachedIsAuthed && !guestMode) return;

@@ -100,6 +100,7 @@
         <button class="tabbar-btn" id="tab-more" type="button" onclick="openMoreSheet()" aria-label="More">
             <span class="tabbar-icon"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="19" cy="12" r="1" fill="currentColor"/></svg></span>
             <span class="tabbar-label">More</span>
+            <span id="nav-badge-more-t" class="nav-badge tabbar-badge"></span>
         </button>
     </nav>
 
@@ -127,6 +128,7 @@
                 <button id="more-auth-btn" class="more-sheet-item more-sheet-item-auth" type="button" onclick="closeMoreSheet(); handleNavAccountButtonClick(event);">
                     <span class="more-sheet-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg></span>
                     <span class="more-sheet-label">Login</span>
+                    <span id="more-auth-torate-badge" class="more-sheet-torate-badge" aria-label="movies to rate"></span>
                 </button>
             </div>
         </div>
@@ -657,12 +659,6 @@
         </div>
     </div>
 
-    <div id="feed-auth-warning" class="auth-overlay" style="display:none !important;"></div>
-
-    <div id="library-auth-warning" class="auth-overlay" style="display:none !important;"></div>
-
-    <div id="lists-auth-warning" class="auth-overlay" style="display:none !important;"></div>
-
     <div id="list-picker-overlay" class="auth-overlay" onclick="if(event.target === this) closeListPickerModal();" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="list-picker-title" style="max-width: 520px;">
             <div class="auth-modal-header">
@@ -841,24 +837,6 @@
         </div>
     </div>
 
-    <div id="lists-watch-options-overlay" class="auth-overlay" onclick="if(event.target === this) closeListsWatchOptionsModal();" style="display:none;">
-        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="lists-watch-options-title" style="max-width: 520px;">
-            <div class="auth-modal-header">
-                <div class="auth-modal-title" id="lists-watch-options-title">Watch Options</div>
-                <button class="auth-modal-close" type="button" onclick="closeListsWatchOptionsModal()">Close</button>
-            </div>
-
-            <div id="lists-watch-options-movie" class="text-sm" style="color: var(--text-muted); margin-top: 0.25rem;"></div>
-
-            <div id="lists-watch-options-body" class="glass-panel" style="margin-top: 0.85rem; padding: 0.85rem; border-radius: 0.85rem; background: rgba(0,0,0,0.10);">
-                <div class="text-gray">Loading…</div>
-            </div>
-
-            <div class="auth-modal-actions">
-                <button type="button" class="btn btn-outline" style="border-radius: 0.85rem;" onclick="closeListsWatchOptionsModal()">Close</button>
-            </div>
-        </div>
-    </div>
 
     <div id="lists-sortfilter-overlay" class="auth-overlay" onclick="if(event.target === this) closeListsSortFilterModal({ restoreDraft: true });" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="lists-sortfilter-title" style="max-width: 560px;">
@@ -1140,8 +1118,6 @@
             </div>
         </div>
     </div>
-
-    <div id="account-auth-warning" class="auth-overlay" style="display:none !important;"></div>
 
     <div id="update-watch-overlay" class="auth-overlay" onclick="if(event.target === this) closeUpdateWatchModal(null);" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="update-watch-title">

@@ -289,6 +289,9 @@
                 if (drafts.length) { countEl.textContent = String(drafts.length); countEl.style.display = ''; }
                 else countEl.style.display = 'none';
             }
+            // Keep the "More" tab / Account-row "to rate" reminder badge in sync when
+            // a draft is added/rated/deleted here (these are MY drafts — self-only path).
+            try { setToRateBadge(drafts.length); } catch (_) {}
             if (!drafts.length) {
                 listEl.innerHTML = '<div class="account-torate-empty">No drafts right now. Tap “Rate Later” on a movie — or start a review and leave — to save one here.</div>';
                 return;
