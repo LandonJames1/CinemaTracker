@@ -198,6 +198,75 @@
         @media (max-width: 768px) {
             .home-hero-logo { width: 96px; height: 96px; }
         }
+
+        /* ===== Home hero cards (visual polish) ===== */
+        .home-hero-card {
+            position: relative;
+            overflow: hidden;
+            border-radius: 1.25rem !important;
+            background:
+                radial-gradient(120% 120% at 0% 0%, color-mix(in srgb, var(--brand) 16%, transparent) 0%, transparent 55%),
+                linear-gradient(160deg, #1b1b20 0%, #141417 60%, #101013 100%);
+            border: 1px solid color-mix(in srgb, var(--brand) 24%, rgba(255,255,255,0.07));
+            box-shadow: 0 26px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.04);
+        }
+        /* Soft accent glow riding the top edge. */
+        .home-hero-card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            pointer-events: none;
+            background: radial-gradient(90% 140% at 100% 0%, color-mix(in srgb, var(--accent-2, var(--brand-2)) 20%, transparent) 0%, transparent 45%);
+            opacity: 0.9;
+        }
+        .home-hero-title-card { padding: 1.5rem 1.6rem; }
+        /* Search card must NOT clip its contents — the results dropdown overflows
+           below the card and needs to stay visible + scrollable. */
+        .home-hero-search-card { padding: 0.65rem; overflow: visible; }
+
+        .home-hero-eyebrow {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.7rem;
+            font-weight: 800;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--brand);
+            background: color-mix(in srgb, var(--brand) 14%, transparent);
+            border: 1px solid color-mix(in srgb, var(--brand) 34%, transparent);
+            padding: 0.34rem 0.75rem;
+            border-radius: 999px;
+            margin-bottom: 1rem;
+        }
+        .home-hero-eyebrow svg { width: 0.95rem; height: 0.95rem; }
+
+        .home-hero-title {
+            position: relative;
+            font-size: clamp(3rem, 7vw, 4.75rem);
+            font-weight: 900;
+            line-height: 0.9;
+            letter-spacing: -0.025em;
+            color: var(--text-main);
+            margin: 0 0 1rem;
+        }
+        .home-hero-title-accent {
+            background: linear-gradient(105deg, var(--brand), var(--accent-2, var(--brand-2)));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .home-hero-sub {
+            position: relative;
+            font-size: 1.15rem;
+            line-height: 1.45;
+            color: var(--text-muted);
+            margin: 0;
+            max-width: 34ch;
+        }
+
         .nav-links { display: flex; gap: 0.75rem; }
         .nav-link {
             position: relative;
@@ -3554,6 +3623,12 @@
             /* Hero: drop the fixed 62vh height + bottom-anchoring on phones so the
                panels flow naturally from the top and never get pushed off-screen. */
             .home-hero { height: auto !important; margin-bottom: 1rem !important; padding-top: 1.5rem; }
+
+            /* Hero cards: tighter padding + a slightly smaller display title on phones. */
+            .home-hero-title-card { padding: 1.35rem 1.25rem 1.4rem; }
+            .home-hero-title { font-size: clamp(2.9rem, 15vw, 3.75rem); margin-bottom: 0.85rem; }
+            .home-hero-sub { font-size: 1.02rem; max-width: none; }
+            .home-hero-eyebrow { font-size: 0.66rem; margin-bottom: 0.85rem; }
 
             /* Every page's title card spans the full width on phones (matches the
                Feed page). Otherwise it shrinks to its text + shares the flex row. */
@@ -7419,7 +7494,7 @@
             border-radius: 999px; font-size: 0.7rem; font-weight: 900; line-height: 1;
             background: var(--brand, #6366f1); color: #fff;
         }
-        .account-torate-head { margin-bottom: 0.9rem; padding: 0 0.75rem; }
+        .account-torate-head { margin-bottom: 0.9rem; }
         .account-torate-title { font-size: 1.05rem; font-weight: 800; color: #fff; }
         .account-torate-sub { font-size: 0.82rem; color: rgba(255,255,255,0.6); margin-top: 0.2rem; }
         .account-torate-list { display: flex; flex-direction: column; gap: 0.7rem; }
@@ -7643,9 +7718,14 @@
             #app-root .container .account-home-hero { padding: 1.3rem 1rem 1.2rem !important; }
             #app-root .container .account-home-card { padding: 1rem 1.1rem !important; }
             #app-root .container .account-home-blurb-card { padding: 1.4rem 1.2rem 1.5rem !important; }
-            /* Poster grids on the account page (Recent / Top Rated) sit directly in
-               the full-bleed overview — inset them so posters don't touch the edges. */
-            body[data-page="account"] #app-root .container .dash-fav-grid { padding: 0 0.75rem; }
+            /* The account page is bespoke and full-bleed (the global rule zeroes the
+               .container side padding). Re-add a gutter on the whole account container
+               so EVERYTHING — hero card, tabs, panels, overview + all posters — sits
+               inset from both edges instead of running flush to the screen. */
+            #app-root .container.account-home-container { padding-left: 0.75rem !important; padding-right: 0.75rem !important; }
+            /* Home hero: the title card + search bar card live in this full-bleed
+               .container — re-add a gutter so neither runs flush to the screen edge. */
+            #app-root .container.home-hero-inner { padding-left: 0.75rem !important; padding-right: 0.75rem !important; }
         }
 
         /* Long review notes get their own scroll area inside review modals/pop-ups so a
@@ -7907,9 +7987,50 @@
             border-top: 1px solid rgba(255,255,255,0.08);
             box-shadow: 0 -10px 24px rgba(0,0,0,0.35);
         }
-        .ms-actions-row { display: flex; gap: 0.55rem; }
-        .ms-action { flex: 1 1 0; min-height: 42px; border-radius: 0.8rem; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
-        .ms-action svg { width: 17px; height: 17px; }
+        .ms-actions-row { display: flex; gap: 0.6rem; }
+        .ms-action {
+            flex: 1 1 0;
+            min-height: 46px;
+            padding: 0.6rem 0.9rem;
+            border: 1px solid transparent;
+            border-radius: 0.85rem;
+            font-weight: 750;
+            font-size: 0.92rem;
+            letter-spacing: 0.01em;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.45rem;
+            transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+        }
+        .ms-action svg { width: 17px; height: 17px; flex: 0 0 auto; }
+        .ms-action:active { transform: scale(0.97); }
+
+        /* Primary CTA — the one bold, brand-gradient button. */
+        .ms-action-primary {
+            color: #fff;
+            background: linear-gradient(120deg, var(--brand), var(--accent-2, var(--brand-2)));
+            box-shadow: 0 8px 20px color-mix(in srgb, var(--brand) 35%, transparent);
+        }
+        .ms-action-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 26px color-mix(in srgb, var(--brand) 45%, transparent);
+            filter: brightness(1.06);
+        }
+
+        /* Secondary — uniform solid neutral buttons with a brand-tinted icon. */
+        .ms-action-secondary {
+            color: #f4f4f5;
+            background: #232327;
+            border-color: rgba(255,255,255,0.10);
+        }
+        .ms-action-secondary svg { color: var(--brand); }
+        .ms-action-secondary:hover {
+            transform: translateY(-1px);
+            background: #2b2b31;
+            border-color: color-mix(in srgb, var(--brand) 45%, rgba(255,255,255,0.12));
+        }
 
         @media (max-width: 768px) {
             .movie-spotlight-modal {

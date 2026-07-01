@@ -246,15 +246,15 @@
         function spotlightActionsHtml() {
             const rated = movieSpotlightState.rated;
             const primary = rated
-                ? `<button type="button" class="btn btn-primary ms-action" onclick="movieSpotlightAction('update')">${icons.edit3} Update Ratings</button>
-                   <button type="button" class="btn btn-outline ms-action" onclick="movieSpotlightAction('quick')">${icons.refreshCw} Quick Watch +1</button>`
-                : `<button type="button" class="btn btn-primary ms-action" onclick="movieSpotlightAction('new')">${icons.plusCircle} Log as New Entry</button>
-                   <button type="button" class="btn btn-outline ms-action" onclick="movieSpotlightAction('later')">${icons.clock} Rate Later</button>`;
+                ? `<button type="button" class="ms-action ms-action-secondary" onclick="movieSpotlightAction('quick')">${icons.refreshCw} Quick Watch +1</button>
+                   <button type="button" class="ms-action ms-action-primary" onclick="movieSpotlightAction('update')">${icons.edit3} Update Ratings</button>`
+                : `<button type="button" class="ms-action ms-action-secondary" onclick="movieSpotlightAction('later')">${icons.clock} Rate Later</button>
+                   <button type="button" class="ms-action ms-action-primary" onclick="movieSpotlightAction('new')">${icons.plusCircle} Log as New Entry</button>`;
             return `
                 <div class="ms-actions-row ms-actions-primary">${primary}</div>
                 <div class="ms-actions-row">
-                    <button type="button" class="btn btn-glass ms-action" onclick="movieSpotlightAction('list')">${icons.plusCircle} Add to List</button>
-                    <button type="button" class="btn btn-glass ms-action" onclick="movieSpotlightAction('recommend')">${icons.users} Recommend</button>
+                    <button type="button" class="ms-action ms-action-secondary" onclick="movieSpotlightAction('recommend')">${icons.users} Recommend</button>
+                    <button type="button" class="ms-action ms-action-secondary" onclick="movieSpotlightAction('list')">${icons.plusCircle} Add to List</button>
                 </div>`;
         }
 

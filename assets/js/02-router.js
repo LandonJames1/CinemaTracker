@@ -725,26 +725,28 @@
                         <div class="relative w-full home-hero" style="height: 62vh; margin-bottom: 1.5rem; z-index: 6000; overflow: visible;">
                             <!-- Content (Containerized) -->
                             <div class="container home-hero-inner" style="height: 100%; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 2.25rem;">
-                                <div class="glass-panel" style="max-width: 600px; padding: 1rem 1.1rem; border-radius: 1rem; margin-bottom: 1rem;">
-                                    <span class="text-xs font-semibold text-brand uppercase" style="background: var(--brand-light); padding: 0.25rem 0.75rem; border-radius: 99px; border: 1px solid color-mix(in srgb, var(--brand) 35%, transparent); width: fit-content; margin-bottom: 1rem; display: inline-flex;">Start Logging</span>
-                                    <h1 class="text-5xl font-bold text-white mb-6" style="line-height: 1.1; color: var(--text-main);">Cinema <br/> <span style="background: linear-gradient(to right, var(--brand), var(--accent-2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Tracker</span></h1>
-                                    <p class="text-xl text-gray mb-0">Search for a movie to add it to your diary.</p>
+                                <div class="glass-panel home-hero-card home-hero-title-card" style="max-width: 600px; margin-bottom: 1rem;">
+                                    <span class="home-hero-eyebrow">${icons.film} Your Movie Diary</span>
+                                    <h1 class="home-hero-title">Cinema<br/><span class="home-hero-title-accent">Tracker</span></h1>
+                                    <p class="home-hero-sub">Search any film to log it, rate it, and build your collection.</p>
                                 </div>
 
-                                <div class="glass-panel" style="max-width: 600px; position: relative; padding: 0.55rem; border-radius: 1rem;">
-                                    
+                                <div class="glass-panel home-hero-card home-hero-search-card" style="max-width: 600px; position: relative; padding: 0.65rem; border-radius: 1rem;">
+
                                     <!-- Search -->
                                     <div style="position: relative;">
-                                        <div class="input-group mb-4">
+                                        <div class="input-group">
                                             <div class="input-icon">${icons.search}</div>
-                                            <input type="text" id="movie-search-input" oninput="handleSearch(this.value)" autocomplete="off" placeholder="Type a movie title..." class="input-field glass-input" style="border-radius: 0.85rem; padding-right: 128px;">
+                                            <input type="text" id="movie-search-input" oninput="handleSearch(this.value)" autocomplete="off" placeholder="Type a movie title..." class="input-field glass-input" style="border-radius: 0.85rem;">
                                             <div id="search-results" class="search-dropdown hidden"></div>
                                         </div>
-                                        <button type="button" id="movie-search-filters-toggle" class="btn btn-glass" onclick="toggleSearchFiltersPanel()" style="position:absolute; right: 8px; top: 8px; height: 30px; padding: 0 0.75rem; border-radius: 0.85rem; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.02em;">Use Filters</button>
                                     </div>
 
+                                    <!-- Filters toggle: full-width, directly under the search bar (same on mobile + desktop) -->
+                                    <button type="button" id="movie-search-filters-toggle" class="btn btn-outline" onclick="toggleSearchFiltersPanel()" style="width: 100%; margin-top: 0.6rem; height: 40px; border-radius: 0.85rem; font-size: 0.85rem; font-weight: 800; letter-spacing: 0.02em;">Use Filters</button>
+
                                     <!-- Optional Filters -->
-                                    <div id="movie-search-filters" class="hidden" style="margin-top: -0.25rem; margin-bottom: 1rem; width: 100%; display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.75rem; align-items: stretch;">
+                                    <div id="movie-search-filters" class="hidden" style="margin-top: 0.6rem; margin-bottom: 0.4rem; width: 100%; display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.6rem; align-items: stretch;">
                                         <input
                                             type="text"
                                             id="movie-search-year"
@@ -768,18 +770,14 @@
                                             <option value="NC-17">NC-17</option>
                                             <option value="NR">NR / Unrated</option>
                                         </select>
-                                        <button type="button" class="btn btn-glass" style="width: 100%; height:38px; padding: 0 0.8rem; border-radius: 0.85rem; font-size: 0.85rem;" onclick="applySearchFilters()">Apply Filters</button>
-                                        <button type="button" class="btn btn-glass" style="width: 100%; height:38px; padding: 0 0.8rem; border-radius: 0.85rem; font-size: 0.85rem;" onclick="clearSearchFilters()">Clear</button>
+                                        <button type="button" class="btn btn-outline" style="width: 100%; height:38px; padding: 0 0.8rem; border-radius: 0.85rem; font-size: 0.85rem; font-weight: 700;" onclick="clearSearchFilters()">Clear</button>
+                                        <button type="button" class="btn btn-primary" style="width: 100%; height:38px; padding: 0 0.8rem; border-radius: 0.85rem; font-size: 0.85rem; font-weight: 800;" onclick="applySearchFilters()">Apply Filters</button>
                                     </div>
 
-                                    <!-- Action Slot (fixed space so the search UI doesn't jump) -->
-                                    <div id="home-action-slot" style="margin-top: 0.6rem; min-height: 56px;">
-                                        <div id="home-action-card" class="glass-panel" style="padding: 1rem; border-radius: 0.75rem;">
-                                            <div id="home-action-placeholder" class="text-sm text-gray" style="text-align:center; max-width: 520px; margin: 0 auto;">
-                                                Select a movie from the dropdown to log it or update an existing entry.
-                                            </div>
-
-                                            <!-- Dynamic Actions (replaces placeholder in the same spot) -->
+                                    <!-- Action Slot (only takes space once a movie is selected) -->
+                                    <div id="home-action-slot">
+                                        <div id="home-action-card">
+                                            <!-- Dynamic Actions (shown once a movie is selected) -->
                                             <div id="movie-actions" class="hidden flex-col gap-4 fade-in">
                                                 <div class="flex gap-3">
                                                     <button id="btn-log-new-entry" onclick="router.startNewEntry()" class="btn btn-primary" style="flex:1;">
