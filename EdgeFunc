@@ -1423,6 +1423,79 @@ Deno.serve(async (req) => {
       return jsonResponse({ ok: true, checked, updated, failed }, 200);
     }
 
+    // ---- Daily "you have movies to rate" reminder (cron job, no user session) --
+    // Sends ONE push per user who has ≥1 "Review Drafts" (To Rate) row — the body
+    // says how many ("You have N movies waiting to be rated"), NOT one push per
+    // movie. Deep-links to Account → To Rate (#pending). Throttled per-user via
+    // last_reminded_at so a second run in the same window doesn't double-send.
+    // Gated by CRON_SECRET; triggered daily by refresh-pending-reminders.yml.
+    if (action === "notify_pending_reviews") {
+      const provided = String(req.headers.get("x-cron-secret") ?? "").trim();
+      const expected = String(Deno.env.get("CRON_SECRET") ?? "").trim();
+      if (!expected || provided !== expected) {
+        return jsonResponse({ code: 401, message: "Invalid or missing cron secret." }, 401);
+      }
+
+      const throttleHours = Math.max(1, Number(body?.throttle_hours) || 20);
+      const cutoffMs = Date.now() - throttleHours * 3600 * 1000;
+
+      // Aggregate drafts per user (count + most-recent reminder), paged.
+      const perUser = new Map(); // user_id -> { count, lastReminded (ms) }
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabaseAdmin
+          .from("Review Drafts")
+          .select("user_id, last_reminded_at")
+          .range(from, from + 999);
+        if (error) {
+          return jsonResponse({ ok: false, message: `Review Drafts scan: ${error.message}` }, 200);
+        }
+        const page = Array.isArray(data) ? data : [];
+        for (const r of page) {
+          const uid = String(r?.user_id || "").trim();
+          if (!uid) continue;
+          const cur = perUser.get(uid) || { count: 0, lastReminded: 0 };
+          cur.count += 1;
+          const t = r?.last_reminded_at ? Date.parse(r.last_reminded_at) : 0;
+          if (t && t > cur.lastReminded) cur.lastReminded = t;
+          perUser.set(uid, cur);
+        }
+        if (page.length < 1000) break;
+        from += 1000;
+      }
+
+      const nowIso = new Date().toISOString();
+      let considered = 0, notified = 0, skipped = 0;
+      for (const [uid, info] of perUser.entries()) {
+        considered++;
+        if (info.lastReminded && info.lastReminded > cutoffMs) { skipped++; continue; }
+        const n = info.count;
+        const msgBody = n === 1
+          ? "You have 1 movie waiting to be rated"
+          : `You have ${n} movies waiting to be rated`;
+        try {
+          const pushed = await sendPushToUser(supabaseAdmin, uid, {
+            title: "Rate your movies 🎬",
+            body: msgBody,
+            url: "/#pending",
+            badge: n,
+            tag: "pending-reviews",
+          });
+          if (pushed > 0) {
+            notified++;
+            try {
+              await supabaseAdmin
+                .from("Review Drafts")
+                .update({ last_reminded_at: nowIso })
+                .eq("user_id", uid);
+            } catch (_) {}
+          }
+        } catch (_) {}
+      }
+
+      return jsonResponse({ ok: true, considered, notified, skipped }, 200);
+    }
+
     // ---- Backfill TMDB keywords for the existing catalog ----------------------
     // Cron-gated (x-cron-secret == CRON_SECRET, no user session). New movies get
     // keywords on save; this fills in movies that pre-date that. Processes the

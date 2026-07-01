@@ -498,15 +498,32 @@
             const overlay = document.getElementById('watch-details-overlay');
             if (!overlay) return;
 
+            const opts = watchDetailsOpts || { askDateMethod: true, askBefore: true };
+
             // Reset state every open so nothing carries over between saves.
             watchDetailsPendingMethod = null;
             watchDetailsPendingBefore = null;
 
             const dateEl = document.getElementById('watch-details-date');
-            if (dateEl) dateEl.value = getLocalISODate();
+            if (dateEl) dateEl.value = String(opts.prefillDate || '').trim() || getLocalISODate();
 
             overlay.querySelectorAll('[data-wd-method-option]').forEach((b) => setModalOptionSelected(b, false));
             overlay.querySelectorAll('[data-wd-before]').forEach((b) => setModalOptionSelected(b, false));
+
+            // Seed method when it's pre-known (a draft that already has it, or a
+            // prefill) so the required-field validation passes even when hidden.
+            const prefMethod = String(opts.prefillMethod || '').trim();
+            if (prefMethod) selectWatchDetailsMethod(prefMethod);
+
+            // Show/hide the two question groups per mode.
+            const dmSection = document.getElementById('watch-details-datemethod');
+            if (dmSection) dmSection.style.display = (opts.askDateMethod === false) ? 'none' : '';
+            const beforeSection = document.getElementById('watch-details-before');
+            if (beforeSection) beforeSection.style.display = (opts.askBefore === false) ? 'none' : '';
+
+            // Title reflects the mode: "Rate Later" (watch info only) vs the full flow.
+            const titleEl = document.getElementById('watch-details-title');
+            if (titleEl) titleEl.textContent = (opts.askBefore === false) ? 'Save for Later' : 'Watch Details';
 
             overlay.style.display = 'flex';
             overlay.classList.add('open');
@@ -540,25 +557,33 @@
         }
 
         function submitWatchDetailsModal() {
+            const opts = watchDetailsOpts || { askDateMethod: true, askBefore: true };
+            const askDateMethod = opts.askDateMethod !== false;
+            const askBefore = opts.askBefore !== false;
+
             const dateEl = document.getElementById('watch-details-date');
-            const watch_date = String(dateEl?.value || '').trim();
-            if (!watch_date) {
-                showToast('Please pick when you watched it.', { level: 'warn' });
-                try { dateEl?.focus?.(); } catch (_) {}
-                return;
+            const watch_date = String(dateEl?.value || opts.prefillDate || '').trim();
+            if (askDateMethod) {
+                if (!watch_date) {
+                    showToast('Please pick when you watched it.', { level: 'warn' });
+                    try { dateEl?.focus?.(); } catch (_) {}
+                    return;
+                }
+                if (!watchDetailsPendingMethod) {
+                    showToast('Please choose where you watched it.', { level: 'warn' });
+                    return;
+                }
             }
-            if (!watchDetailsPendingMethod) {
-                showToast('Please choose where you watched it.', { level: 'warn' });
-                return;
-            }
-            if (watchDetailsPendingBefore === null) {
+            if (askBefore && watchDetailsPendingBefore === null) {
                 showToast('Please answer whether this was your first time watching it.', { level: 'warn' });
                 return;
             }
             closeWatchDetailsModal({
                 watch_date,
-                watch_method: watchDetailsPendingMethod,
-                watched_before: watchDetailsPendingBefore,
+                watch_method: watchDetailsPendingMethod || String(opts.prefillMethod || '').trim() || null,
+                // When the "first time?" question is hidden (Rate Later), default to a
+                // first-time watch (watched_before = false) so no rewatch flow triggers.
+                watched_before: askBefore ? watchDetailsPendingBefore : false,
             });
         }
 
@@ -579,8 +604,64 @@
             }
         }
 
-        function promptWatchDetails() {
+        // "Rate Later" quick-capture (from Movie Spotlight + the Lists/Recs viewer).
+        // Captures ONLY watch date + method (minimal), then saves a "Review Drafts"
+        // row so the movie shows up in Account → To Rate to finish rating later. It
+        // never touches the feed (drafts are separate from Movie Ratings).
+        async function saveMovieForLater(movie) {
+            if (guardGuestWrite()) return;
+            let authedUser = null;
+            try { const r = await requireAuthOrThrow(); authedUser = r.user; }
+            catch (_) { openAuthModal(); return; }
+
+            // Resolve a TMDb id (server drafts are keyed by tmdb_id).
+            let tmdb = Number(movie?.tmdb_id ?? 0);
+            if (!(Number.isFinite(tmdb) && tmdb > 0)) {
+                const rawId = movie?.id;
+                const n = Number(rawId);
+                tmdb = (!isUuidLike(rawId) && Number.isFinite(n) && n > 0) ? n : 0;
+            }
+            if (!tmdb) { showToast('Can’t save this one for later.', { level: 'warn' }); return; }
+
+            const details = await promptWatchDetails({ askBefore: false });
+            if (!details) return; // canceled
+
+            const movie_id = isUuidLike(movie?.id) ? movie.id
+                : (isUuidLike(movie?.movie_id) ? movie.movie_id : null);
+            const title = String(movie?.title || '').trim() || null;
+            const yr = Number(movie?.release_year ?? movie?.year ?? 0);
+            const release_year = (Number.isFinite(yr) && yr > 0) ? yr : null;
+            const poster_path = String(movie?.poster_path || '').trim() || null;
+
+            try {
+                await upsertReviewDraft({
+                    tmdb_id: tmdb,
+                    movie_id,
+                    title,
+                    release_year,
+                    poster_path,
+                    watch_date: String(details.watch_date || '').trim() || null,
+                    watch_method: String(details.watch_method || '').trim() || null,
+                });
+                showToast('Saved to your Drafts.');
+            } catch (e) {
+                showToast(`Couldn’t save for later: ${String(e?.message || e)}`, { level: 'warn' });
+            }
+        }
+
+        function promptWatchDetails(opts) {
             // Returns: { watch_date, watch_method, watched_before: boolean } | null (canceled)
+            // opts (all optional):
+            //   askDateMethod (default true) — ask when/where
+            //   askBefore     (default true) — ask "was this your first time?"
+            //   prefillDate / prefillMethod  — seed values (used when they're pre-known)
+            watchDetailsOpts = {
+                askDateMethod: true,
+                askBefore: true,
+                prefillDate: '',
+                prefillMethod: '',
+                ...(opts || {}),
+            };
             return new Promise((resolve) => {
                 watchDetailsResolver = resolve;
                 openWatchDetailsModal();

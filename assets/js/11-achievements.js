@@ -6,6 +6,11 @@
         let watchDetailsResolver = null;
         let watchDetailsPendingMethod = null;
         let watchDetailsPendingBefore = null; // true | false | null (unset)
+        // Options controlling which questions the Watch Details modal shows:
+        //   askDateMethod (default true) — when/where; askBefore (default true) —
+        //   "first time?". "Rate Later" uses askBefore:false; resuming a draft that
+        //   already has watch info uses askDateMethod:false.
+        let watchDetailsOpts = { askDateMethod: true, askBefore: true, prefillDate: '', prefillMethod: '' };
 
         let ratingsSuccessTimer = null;
         let achievementPopupQueue = [];

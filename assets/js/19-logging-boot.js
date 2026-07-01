@@ -215,6 +215,12 @@
                 const hash = s.includes('#') ? s.slice(s.indexOf('#')) : s;
                 if (/^#?feed$/i.test(hash)) { router.navigate('feed'); return true; }
                 if (/^#?recs$/i.test(hash)) { listsPendingSelectName = 'Recs'; router.navigate('lists'); return true; }
+                // The daily "you have movies to rate" reminder → Account → To Rate tab.
+                if (/^#?pending$/i.test(hash)) {
+                    try { accountHomePendingTab = 'torate'; } catch (_) {}
+                    router.navigate('account');
+                    return true;
+                }
                 // A specific list by id (#list=<listId>), e.g. the shared-list "movie
                 // added" push → open that list directly.
                 const listLink = hash.match(/^#?list=([0-9a-f-]{36})$/i);

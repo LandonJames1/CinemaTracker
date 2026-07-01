@@ -596,6 +596,7 @@
                     ${actionBtn('recsMovieRenderDetails()', icons.film, 'Movie Details')}
                     ${recsViewPlatforms.length ? actionBtn('recsMovieRenderWatchOptions()', icons.tv, 'Watch Options') : ''}
                     ${actionBtn('recsMovieLogEntry()', logIcon, logLabel)}
+                    ${!recsViewAlreadyRated ? actionBtn('recsMovieRateLater()', icons.clock, 'Rate Later') : ''}
                 </div>
                 ${reviewersSection}
             `, { title: String(recsViewMovie?.title || 'Movie').trim() || 'Movie', showBack: false });
@@ -622,6 +623,16 @@
                 if (alreadyRated) await router.startUpdateRatings();
                 else await router.startNewEntry();
             })().catch((err) => showToast(`Open entry failed: ${String(err?.message || err)}`, { level: 'warn' }));
+        }
+
+        // "Rate Later" → save the movie to the To Rate queue (watch date + method only),
+        // to finish rating from the Account → To Rate tab. Closes the viewer first.
+        function recsMovieRateLater() {
+            const mid = String(recsViewMovieId || '').trim();
+            const m = recsViewMovie || listsMoviePrefillById.get(mid) || {};
+            const movie = { ...m, tmdb_id: m?.tmdb_id, movie_id: (mid || m?.movie_id), id: (mid || m?.id) };
+            closeRecsMovieModal();
+            saveMovieForLater(movie);
         }
 
         // "Watch Options" → the streaming platforms the movie is available on (moved here

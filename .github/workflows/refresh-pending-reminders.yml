@@ -1,0 +1,25 @@
+name: Daily "rate your movies" reminders
+
+# Once a day, pushes each user who has movies sitting in their To Rate queue
+# (server "Review Drafts" rows) a SINGLE reminder — the body says how many they
+# still need to rate ("You have N movies waiting to be rated"), not one push per
+# movie. GitHub Actions is only the timer + HTTP trigger; the swift-api
+# `notify_pending_reviews` Edge action does the aggregation + Web Push (and stamps
+# last_reminded_at so it won't double-send). Reuses the existing cron secrets.
+on:
+  schedule:
+    - cron: '0 1 * * *'   # daily at 01:00 UTC (~evening in the US); tune as desired
+  workflow_dispatch: {}     # also runnable on demand from the Actions tab
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger notify_pending_reviews
+        run: |
+          curl -sS -X POST "${{ secrets.SUPABASE_FUNCTION_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -d '{"action":"notify_pending_reviews"}' \
+            --fail-with-body

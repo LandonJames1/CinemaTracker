@@ -471,6 +471,130 @@
         const DIARY_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // expire after 7 days
         let diaryDraftSaveTimer = null;
         let diaryDraftGlobalsBound = false;
+        // Watch info (date + method) carried in from a "Rate Later" / To Rate draft so
+        // the post-save Watch Details prompt can SKIP re-asking those (it still asks
+        // "have you watched this before?"). Set when a draft is surfaced on form open;
+        // cleared on save/cancel/leaving the form.
+        let activeDraftWatch = null;
+        // When set, the To Rate "Rate now" flow wants the draft applied SILENTLY (no
+        // "Restore draft?" prompt) — the user explicitly chose to resume it.
+        let diaryDraftForceRestore = false;
+
+        // ---- Server-side draft store ("Review Drafts") ---------------------------
+        // The localStorage draft (below) is a per-device cache; these mirror the draft
+        // to the DB so it's cross-device AND shows up in the Account → To Rate tab.
+        // Feed/dashboard/achievements/etc. read ONLY "Movie Ratings", so a draft never
+        // leaks. On a real save the draft row is deleted (see clearDiaryDraftForCurrentForm).
+        async function upsertReviewDraft(payload) {
+            try {
+                if (!supabaseClient) return;
+                const uid = getActiveUserId();
+                if (!uid) return;
+                const row = { user_id: uid, updated_at: new Date().toISOString(), ...payload };
+                await supabaseClient.from('Review Drafts').upsert(row, { onConflict: 'user_id,tmdb_id' });
+            } catch (_) {}
+        }
+
+        async function deleteReviewDraftFor({ tmdb_id, movie_id } = {}) {
+            try {
+                if (!supabaseClient) return;
+                const uid = getActiveUserId();
+                if (!uid) return;
+                const n = Number(tmdb_id);
+                if (Number.isFinite(n) && n > 0) {
+                    await supabaseClient.from('Review Drafts').delete().eq('user_id', uid).eq('tmdb_id', n);
+                } else if (movie_id) {
+                    await supabaseClient.from('Review Drafts').delete().eq('user_id', uid).eq('movie_id', movie_id);
+                }
+            } catch (_) {}
+        }
+
+        async function fetchReviewDraftForMovie(tmdb_id) {
+            try {
+                if (!supabaseClient) return null;
+                const uid = getActiveUserId();
+                const n = Number(tmdb_id);
+                if (!uid || !Number.isFinite(n) || n <= 0) return null;
+                const { data } = await supabaseClient
+                    .from('Review Drafts').select('*').eq('user_id', uid).eq('tmdb_id', n).limit(1);
+                return Array.isArray(data) && data.length ? data[0] : null;
+            } catch (_) { return null; }
+        }
+
+        async function fetchReviewDrafts() {
+            try {
+                if (!supabaseClient) return [];
+                const uid = getActiveUserId();
+                if (!uid) return [];
+                const { data } = await supabaseClient
+                    .from('Review Drafts').select('*').eq('user_id', uid)
+                    .order('updated_at', { ascending: false });
+                return Array.isArray(data) ? data : [];
+            } catch (_) { return []; }
+        }
+
+        // The movie identity + display fields a server draft row needs. Server drafts
+        // are keyed by tmdb_id, so a title-only movie (no tmdb) stays localStorage-only.
+        function diaryDraftServerIdentity() {
+            const tmdb = Number(document.getElementById('fld-tmdb-id')?.value || 0);
+            if (!Number.isFinite(tmdb) || tmdb <= 0) return null;
+            const movieIdRaw = String(document.getElementById('fld-movie-id')?.value || '').trim();
+            const movie_id = (typeof isUuidLike === 'function' && isUuidLike(movieIdRaw)) ? movieIdRaw : null;
+            const title = String(document.getElementById('fld-title')?.value || router?.selectedMovie?.title || '').trim() || null;
+            const yr = Number(document.getElementById('fld-year')?.value || 0);
+            const release_year = (Number.isFinite(yr) && yr > 0) ? yr : null;
+            const poster_path = String(router?.selectedMovie?.poster_path || '').trim() || null;
+            return { tmdb_id: tmdb, movie_id, title, release_year, poster_path };
+        }
+
+        // Map the localStorage draft's `fields` shape → the "Review Drafts" columns.
+        function diaryDraftRatingColumns(fields) {
+            const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+            const sc = (fields && fields.scores) || {};
+            return {
+                tier: String(fields?.tier || '').trim() || null,
+                overall_rating: ('overall' in sc) ? toNum(sc.overall) : null,
+                acting_rating: ('acting' in sc) ? toNum(sc.acting) : null,
+                pacing_rating: ('pace' in sc) ? toNum(sc.pace) : null,
+                sound_rating: ('sound' in sc) ? toNum(sc.sound) : null,
+                imagery_rating: ('imagery' in sc) ? toNum(sc.imagery) : null,
+                plot_rating: ('plot' in sc) ? toNum(sc.plot) : null,
+                dialogue_rating: ('dialogue' in sc) ? toNum(sc.dialogue) : null,
+                notes: String(fields?.notes || '').trim() || null,
+                fav_quote: String(fields?.quote || '').trim() || null,
+            };
+        }
+
+        // A server draft row → the `fields` shape applyDiaryDraft() expects.
+        function serverDraftToFields(row) {
+            if (!row) return null;
+            const scores = {};
+            const put = (key, val) => { if (val !== null && val !== undefined) scores[key] = String(val); };
+            put('overall', row.overall_rating);
+            put('acting', row.acting_rating);
+            put('pace', row.pacing_rating);
+            put('sound', row.sound_rating);
+            put('imagery', row.imagery_rating);
+            put('plot', row.plot_rating);
+            put('dialogue', row.dialogue_rating);
+            return {
+                scores,
+                tier: String(row.tier || ''),
+                quote: String(row.fav_quote || ''),
+                notes: String(row.notes || ''),
+                genre: null,   // genre/details are re-prefilled from the details endpoint
+                details: {},
+            };
+        }
+
+        function serverDraftHasRatingContent(row) {
+            if (!row) return false;
+            if (String(row.notes || '').trim()) return true;
+            if (String(row.fav_quote || '').trim()) return true;
+            if (String(row.tier || '').trim()) return true;
+            const keys = ['overall_rating','acting_rating','pacing_rating','sound_rating','imagery_rating','plot_rating','dialogue_rating'];
+            return keys.some((k) => row[k] !== null && row[k] !== undefined && Number(row[k]) !== 50);
+        }
 
         function readDiaryDraftStore() {
             try {
@@ -558,12 +682,30 @@
                 if (!ctx) return;
                 const fields = collectDiaryDraftFields();
                 const store = readDiaryDraftStore();
+                const identity = diaryDraftServerIdentity();
                 if (!diaryDraftHasContent(fields)) {
                     if (store[ctx.key]) { delete store[ctx.key]; writeDiaryDraftStore(store); }
+                    // Drop an empty server draft too, but PRESERVE a watch-only draft
+                    // (from "Rate Later"): only delete rows with no watch info.
+                    if (identity) {
+                        const uid = getActiveUserId();
+                        if (uid && supabaseClient) {
+                            supabaseClient.from('Review Drafts').delete()
+                                .eq('user_id', uid).eq('tmdb_id', identity.tmdb_id)
+                                .is('watch_date', null).is('watch_method', null)
+                                .then(() => {}, () => {});
+                        }
+                    }
                     return;
                 }
                 store[ctx.key] = { ts: Date.now(), mode: ctx.mode, fields };
                 writeDiaryDraftStore(store);
+                // Mirror the review content to the server (cross-device + To Rate tab).
+                // Watch columns are intentionally omitted so a "Rate Later" watch_date/
+                // method already on the row is preserved (upsert only sets sent columns).
+                if (identity) {
+                    upsertReviewDraft({ ...identity, ...diaryDraftRatingColumns(fields) });
+                }
             } catch (_) {}
         }
 
@@ -575,9 +717,14 @@
         function clearDiaryDraftForCurrentForm() {
             try {
                 const ctx = diaryDraftContext();
-                if (!ctx) return;
-                const store = readDiaryDraftStore();
-                if (store[ctx.key]) { delete store[ctx.key]; writeDiaryDraftStore(store); }
+                if (ctx) {
+                    const store = readDiaryDraftStore();
+                    if (store[ctx.key]) { delete store[ctx.key]; writeDiaryDraftStore(store); }
+                }
+                // Drop the server draft unconditionally — it's been posted or discarded.
+                const identity = diaryDraftServerIdentity();
+                if (identity) deleteReviewDraftFor({ tmdb_id: identity.tmdb_id, movie_id: identity.movie_id });
+                activeDraftWatch = null;
             } catch (_) {}
         }
 
@@ -691,18 +838,63 @@
             const form = document.querySelector('#app-root form');
             if (!form) return;
             const ctx = diaryDraftContext();
-            if (!ctx) return; // new entries only
+            if (!ctx) { diaryDraftForceRestore = false; return; } // new entries only
             ensureDiaryDraftGlobalListeners();
             // Typed fields fire 'input'; tier/genre are button clicks, so catch those too.
             form.addEventListener('input', scheduleDiaryDraftSave);
             form.addEventListener('click', (e) => {
                 if (e.target.closest('.tier-btn') || e.target.closest('[data-genre]')) scheduleDiaryDraftSave();
             });
-            const store = readDiaryDraftStore();
-            const draft = store[ctx.key];
-            if (draft && draft.fields && diaryDraftHasContent(draft.fields)) {
-                openDiaryDraftModal(draft);
-            }
+
+            activeDraftWatch = null;
+            const forceRestore = diaryDraftForceRestore;
+            diaryDraftForceRestore = false;
+
+            // Prefer the server draft (cross-device + carries "Rate Later" watch info),
+            // falling back to the per-device localStorage draft. Runs async so a slow
+            // network never blocks the form from rendering.
+            (async () => {
+                try {
+                    const localStore = readDiaryDraftStore();
+                    const localDraft = localStore[ctx.key] || null;
+                    const tmdb = Number(document.getElementById('fld-tmdb-id')?.value || 0);
+                    const serverRow = (Number.isFinite(tmdb) && tmdb > 0) ? await fetchReviewDraftForMovie(tmdb) : null;
+
+                    // Carry any stored watch date/method into the post-save prompt so it
+                    // skips re-asking those (it still asks "watched before?").
+                    if (serverRow && (serverRow.watch_date || serverRow.watch_method)) {
+                        activeDraftWatch = {
+                            watch_date: String(serverRow.watch_date || '').trim(),
+                            watch_method: String(serverRow.watch_method || '').trim() || null,
+                        };
+                    }
+
+                    let fields = null;
+                    let ts = 0;
+                    if (serverRow && serverDraftHasRatingContent(serverRow)) {
+                        fields = serverDraftToFields(serverRow);
+                        // Layer the localStorage draft's genre/detail fields on top —
+                        // the server row doesn't store those.
+                        if (localDraft && localDraft.fields) {
+                            if (localDraft.fields.details) fields.details = localDraft.fields.details;
+                            if (localDraft.fields.genre && !fields.genre) fields.genre = localDraft.fields.genre;
+                        }
+                        ts = Date.parse(serverRow.updated_at || '') || Date.now();
+                    } else if (localDraft && localDraft.fields && diaryDraftHasContent(localDraft.fields)) {
+                        fields = localDraft.fields;
+                        ts = Number(localDraft.ts || 0);
+                    }
+
+                    if (fields && diaryDraftHasContent(fields)) {
+                        if (forceRestore) {
+                            applyDiaryDraft(fields);
+                            showToast('Draft restored.');
+                        } else {
+                            openDiaryDraftModal({ ts, fields });
+                        }
+                    }
+                } catch (_) {}
+            })();
         }
 
         async function handleFormSubmit(e) {
@@ -988,7 +1180,16 @@
                 let historicalEntries = [];
 
                 if (entryType === 'new') {
-                    const details = await promptWatchDetails();
+                    // If this movie came from a "Rate Later" draft that already captured
+                    // the watch date + method, skip re-asking those — but STILL ask
+                    // "have you watched this before?" so the rewatch flow runs.
+                    const details = (activeDraftWatch && activeDraftWatch.watch_date)
+                        ? await promptWatchDetails({
+                            askDateMethod: false,
+                            prefillDate: activeDraftWatch.watch_date,
+                            prefillMethod: activeDraftWatch.watch_method,
+                        })
+                        : await promptWatchDetails();
                     if (!details) {
                         showToast('Save canceled.', { level: 'warn' });
                         return;

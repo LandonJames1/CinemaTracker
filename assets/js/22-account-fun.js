@@ -42,6 +42,25 @@
                     if (id) openUserProfile(id);
                     return;
                 }
+                if (action === 'rate_draft') {
+                    const tmdb = String(btn.dataset.tmdb || '').trim();
+                    if (tmdb) rateReviewDraft(tmdb);
+                    return;
+                }
+                if (action === 'remove_draft') {
+                    const tmdb = String(btn.dataset.tmdb || '').trim();
+                    if (tmdb) promptRemoveReviewDraft(tmdb, btn);
+                    return;
+                }
+                if (action === 'confirm_remove_draft') {
+                    const tmdb = String(btn.dataset.tmdb || '').trim();
+                    if (tmdb) removeReviewDraft(tmdb, btn);
+                    return;
+                }
+                if (action === 'cancel_remove_draft') {
+                    loadReviewDraftsPanel();
+                    return;
+                }
             });
 
             document.addEventListener('change', (e) => {
@@ -153,6 +172,9 @@
                 } catch (_) { setAccountFollowButton(false); }
             }
 
+            // --- To Rate queue (self-only) — refresh the tab count + list ---
+            if (isSelf) { loadReviewDraftsPanel().catch(() => {}); }
+
             // --- Profile overview (KPIs + Taste Match + grid) lives in 05-feed-library.js ---
             if (overviewEl) {
                 try { await loadAccountProfileOverview(uid, overviewEl); }
@@ -184,15 +206,19 @@
         // Switch between the Profile and Achievements tabs (self-only; viewing
         // someone else is forced to the Profile panel — see setAccountHomeViewMode).
         function setAccountHomeTab(tab) {
-            const t = (tab === 'achievements') ? 'achievements' : 'profile';
+            const valid = ['profile', 'torate', 'achievements'];
+            const t = valid.includes(tab) ? tab : 'profile';
             accountHomeActiveTab = t;
             const profilePanel = document.getElementById('account-panel-profile');
+            const toratePanel = document.getElementById('account-panel-torate');
             const achPanel = document.getElementById('account-panel-achievements');
             if (profilePanel) profilePanel.style.display = (t === 'profile') ? '' : 'none';
+            if (toratePanel) toratePanel.style.display = (t === 'torate') ? '' : 'none';
             if (achPanel) achPanel.style.display = (t === 'achievements') ? '' : 'none';
             document.querySelectorAll('.account-home-tab').forEach((b) => {
                 b.classList.toggle('is-active', b.dataset.accountHomeTab === t);
             });
+            if (t === 'torate') loadReviewDraftsPanel();
         }
 
         // Jump straight to YOUR Account page's Achievements tab (used by the
@@ -200,6 +226,123 @@
         function openAchievementsTab() {
             accountHomePendingTab = 'achievements';
             router.navigate('account');
+        }
+
+        // ---- To Rate tab (Review Drafts queue; self-only) -----------------------
+        // Lists the movies the user saved to finish rating later (server "Review
+        // Drafts" rows). "Rate now" opens the log form prefilled from the draft;
+        // "Remove" deletes it. Both DB helpers (fetchReviewDrafts / deleteReviewDraftFor /
+        // fetchReviewDraftForMovie) live in 10-logging-form.js.
+        function formatReviewDraftDate(d) {
+            const s = String(d || '').trim();
+            const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+            if (!m) return s;
+            return `${m[2]}/${m[3]}/${m[1].slice(2)}`;
+        }
+
+        function renderReviewDraftCard(row) {
+            const tmdb = Number(row?.tmdb_id || 0);
+            const title = escapeHtml(String(row?.title || 'Untitled').trim() || 'Untitled');
+            const year = row?.release_year ? ` (${escapeHtml(String(row.release_year))})` : '';
+            const poster = row?.poster_path ? dashBuildPosterUrl(row.poster_path, 'w185') : '';
+            const posterHtml = poster
+                ? `<img class="torate-poster" src="${poster}" alt="" loading="lazy">`
+                : `<div class="torate-poster torate-poster-fallback">${icons.film || ''}</div>`;
+            let meta;
+            if (row?.watch_date) {
+                const method = String(row?.watch_method || '').trim();
+                meta = `Watched ${escapeHtml(formatReviewDraftDate(row.watch_date))}${method ? ` · ${escapeHtml(method)}` : ''}`;
+            } else {
+                meta = 'Not watched yet';
+            }
+            const hasRatings = (typeof serverDraftHasRatingContent === 'function') && serverDraftHasRatingContent(row);
+            const status = hasRatings ? 'Review started' : 'No rating yet';
+            return `
+                <div class="torate-card" data-torate-tmdb="${tmdb}">
+                    ${posterHtml}
+                    <div class="torate-main">
+                        <div class="torate-title">${title}${year}</div>
+                        <div class="torate-meta">${meta}</div>
+                        <div class="torate-status">${escapeHtml(status)}</div>
+                    </div>
+                    <div class="torate-actions">
+                        <button type="button" class="btn btn-primary" data-account-home-action="rate_draft" data-tmdb="${tmdb}">Rate now</button>
+                        <button type="button" class="btn btn-outline" data-account-home-action="remove_draft" data-tmdb="${tmdb}">Remove</button>
+                    </div>
+                </div>`;
+        }
+
+        async function loadReviewDraftsPanel() {
+            const listEl = document.getElementById('account-torate-list');
+            const countEl = document.getElementById('account-torate-count');
+            if (!listEl) return;
+            // Self-only — never show another user's drafts.
+            if (accountHomeViewUserId !== getActiveUserId()) {
+                listEl.innerHTML = '';
+                if (countEl) countEl.style.display = 'none';
+                return;
+            }
+            let drafts = [];
+            try { drafts = await fetchReviewDrafts(); } catch (_) { drafts = []; }
+
+            if (countEl) {
+                if (drafts.length) { countEl.textContent = String(drafts.length); countEl.style.display = ''; }
+                else countEl.style.display = 'none';
+            }
+            if (!drafts.length) {
+                listEl.innerHTML = '<div class="account-torate-empty">No drafts right now. Tap “Rate Later” on a movie — or start a review and leave — to save one here.</div>';
+                return;
+            }
+            listEl.innerHTML = drafts.map(renderReviewDraftCard).join('');
+        }
+
+        async function rateReviewDraft(tmdb) {
+            const n = Number(tmdb);
+            if (!Number.isFinite(n) || n <= 0) return;
+            let row = null;
+            try { row = await fetchReviewDraftForMovie(n); } catch (_) {}
+            // Auto-apply the draft on the form (no "Restore draft?" prompt — the user
+            // explicitly chose to resume it here).
+            try { diaryDraftForceRestore = true; } catch (_) {}
+            const hasUuidMovie = (typeof isUuidLike === 'function') && isUuidLike(row?.movie_id);
+            router.selectedMovie = {
+                tmdb_id: n,
+                id: hasUuidMovie ? row.movie_id : n,
+                movie_id: hasUuidMovie ? row.movie_id : null,
+                title: String(row?.title || '').trim(),
+                release_year: row?.release_year || null,
+                poster_path: row?.poster_path || null,
+            };
+            router.pendingTitle = String(row?.title || '').trim();
+            try { await router.startNewEntry(); }
+            catch (e) { showToast(`Couldn’t open the form: ${String(e?.message || e)}`, { level: 'warn' }); }
+        }
+
+        // First click swaps the card's actions to an inline "Delete this draft?"
+        // confirm so a draft is never removed on a single accidental tap.
+        function promptRemoveReviewDraft(tmdb, btn) {
+            const card = btn?.closest?.('.torate-card');
+            const actions = card?.querySelector?.('.torate-actions');
+            if (!actions) return;
+            const t = escapeHtml(String(tmdb));
+            actions.innerHTML = `
+                <button type="button" class="btn torate-confirm-del" data-account-home-action="confirm_remove_draft" data-tmdb="${t}">Delete</button>
+                <button type="button" class="btn btn-glass" data-account-home-action="cancel_remove_draft" data-tmdb="${t}">Cancel</button>`;
+        }
+
+        async function removeReviewDraft(tmdb, btn) {
+            const n = Number(tmdb);
+            if (!Number.isFinite(n) || n <= 0) return;
+            if (guardGuestWrite()) return;
+            try {
+                await deleteReviewDraftFor({ tmdb_id: n });
+                const card = btn?.closest?.('.torate-card');
+                if (card) card.remove();
+                showToast('Draft deleted.');
+                loadReviewDraftsPanel();
+            } catch (e) {
+                showToast(`Delete failed: ${String(e?.message || e)}`, { level: 'warn' });
+            }
         }
 
         function setAccountFollowButton(isFollowing) {

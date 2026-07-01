@@ -2041,6 +2041,7 @@
                             <div id="account-home-tabs" class="account-home-tabs" role="tablist">
                                 <button type="button" class="account-home-tab is-active" data-account-home-tab="profile">Profile</button>
                                 <button type="button" class="account-home-tab" data-account-home-tab="achievements">Achievements</button>
+                                <button type="button" class="account-home-tab" data-account-home-tab="torate">Drafts<span id="account-torate-count" class="account-tab-count" style="display:none;"></span></button>
                             </div>
 
                             <div id="account-panel-profile" class="account-home-panel">
@@ -2059,6 +2060,14 @@
                                     </div>
                                     <div id="account-home-taste" class="account-home-taste"></div>
                                 </div>
+                            </div>
+
+                            <div id="account-panel-torate" class="account-home-panel" style="display:none;">
+                                <div class="account-torate-head">
+                                    <div class="account-torate-title">Draft reviews</div>
+                                    <div class="account-torate-sub">Movies you saved to finish rating later. They stay out of your feed until you post a review.</div>
+                                </div>
+                                <div id="account-torate-list" class="account-torate-list"></div>
                             </div>
 
                             <div id="account-panel-achievements" class="account-home-panel" style="display:none;">

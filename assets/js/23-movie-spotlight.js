@@ -248,7 +248,8 @@
             const primary = rated
                 ? `<button type="button" class="btn btn-primary ms-action" onclick="movieSpotlightAction('update')">${icons.edit3} Update Ratings</button>
                    <button type="button" class="btn btn-outline ms-action" onclick="movieSpotlightAction('quick')">${icons.refreshCw} Quick Watch +1</button>`
-                : `<button type="button" class="btn btn-primary ms-action" onclick="movieSpotlightAction('new')">${icons.plusCircle} Log as New Entry</button>`;
+                : `<button type="button" class="btn btn-primary ms-action" onclick="movieSpotlightAction('new')">${icons.plusCircle} Log as New Entry</button>
+                   <button type="button" class="btn btn-outline ms-action" onclick="movieSpotlightAction('later')">${icons.clock} Rate Later</button>`;
             return `
                 <div class="ms-actions-row ms-actions-primary">${primary}</div>
                 <div class="ms-actions-row">
@@ -265,6 +266,7 @@
             closeMovieSpotlight();
             try {
                 if (kind === 'new') router.startNewEntry();
+                else if (kind === 'later') saveMovieForLater(movie);
                 else if (kind === 'update') router.startUpdateRatings();
                 else if (kind === 'quick') router.quickIncrement();
                 else if (kind === 'list') openAddToListModal();

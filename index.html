@@ -1274,6 +1274,7 @@
                 <button class="auth-modal-close" type="button" onclick="closeWatchDetailsModal(null)">Close</button>
             </div>
 
+            <div id="watch-details-datemethod">
             <div style="margin-top: 0.85rem;">
                 <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">When did you watch?</label>
                 <input id="watch-details-date" type="date" class="input-field" onclick="openDatePickerFromInput(this)" onfocus="openDatePickerFromInput(this)" required>
@@ -1286,8 +1287,9 @@
                     <button type="button" class="choice-btn" data-wd-method-option="In Theater" onclick="selectWatchDetailsMethod('In Theater')">In Theater</button>
                 </div>
             </div>
+            </div>
 
-            <div style="margin-top: 0.85rem;">
+            <div id="watch-details-before" style="margin-top: 0.85rem;">
                 <label class="text-sm text-white font-bold mb-2 label-gap submit-label block capitalize">Was this your first time watching this film?</label>
                 <div style="display:flex; gap: 0.75rem;">
                     <button type="button" class="choice-btn" data-wd-before="false" onclick="selectWatchDetailsBefore(false)">Yes</button>
