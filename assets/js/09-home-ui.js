@@ -335,7 +335,19 @@
             out += '</div>';
             return out;
         }
+        // 'covers': the Lists OVERVIEW cover grid — the tiles are direct children of the
+        // existing `.lists-cover-grid` container (which is already a grid), so we emit no
+        // wrapping grid of our own (that would collapse into one cell). Each tile is a
+        // SQUARE art block + a short name line, matching a real `.lists-cover-card`.
+        function skeletonCovers(n = 9) {
+            let out = '';
+            for (let i = 0; i < n; i++) {
+                out += `<div class="skel-cover"><div class="skel skel-cover-art"></div><div class="skel skel-cover-label"></div></div>`;
+            }
+            return out;
+        }
         function loadingPlaceholder(kind) {
+            if (kind === 'covers') return skeletonCovers();
             return kind === 'posters' ? skeletonPosters() : skeletonRows();
         }
 

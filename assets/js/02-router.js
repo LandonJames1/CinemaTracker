@@ -866,7 +866,7 @@
                             <!-- OVERVIEW: cover grid of all lists (default view). The floating
                                  "New List" + button lives at body level (see index.html). -->
                             <div id="lists-overview" class="glass-panel lists-panel" style="padding: 1rem; border-radius: 1rem;">
-                                <div id="lists-overview-grid" class="lists-cover-grid">${loadingPlaceholder('posters')}</div>
+                                <div id="lists-overview-grid" class="lists-cover-grid">${loadingPlaceholder('covers')}</div>
                             </div>
 
                             <!-- DETAIL: one list's movies (opened from the grid). -->

@@ -1073,6 +1073,11 @@
         .skel-line.lg { height: 16px; width: 70%; }
         .skel-line.sm { width: 40%; }
         .skel-tile { width: 100%; aspect-ratio: 2 / 3; border-radius: 0.6rem; }
+        /* Lists OVERVIEW cover-grid skeleton — matches a real `.lists-cover-card`
+           (square art + short name line) so it fills the grid cells properly. */
+        .skel-cover { display: flex; flex-direction: column; gap: 0.4rem; }
+        .skel-cover-art { width: 100%; aspect-ratio: 1 / 1; border-radius: 0.9rem; }
+        .skel-cover-label { height: 12px; width: 70%; border-radius: 0.4rem; }
 
         /* Infinite-scroll sentinel (My Movies / Feed / Lists detail) — a thin element at
            the bottom of a list that, when scrolled near, auto-loads the next page. */
@@ -2914,20 +2919,30 @@
             box-shadow: none;
         }
 
-        /* Vibrant "a filter/sort is active" highlight — used on every filter/sort button
-           across the app (Feed, My Movies, Lists, Achievements). Solid (not see-through)
-           brand fill so it's obvious something is filtering the data. */
+        /* "A filter/sort is active" highlight — used on every filter/sort button across the
+           app (Feed, My Movies, Lists, Achievements). Modern, refined look: keeps a dark
+           OPAQUE surface (subtly brand-tinted), a crisp brand-colored ring, a brand-tinted
+           icon/label, and a soft brand glow — instead of a flat solid brand fill. */
         .filter-active,
         .btn.filter-active {
             position: relative;
-            background: var(--brand, #14b8a6) !important;
-            border-color: var(--brand, #14b8a6) !important;
-            color: #fff !important;
+            background: color-mix(in srgb, var(--brand, #14b8a6) 16%, #1b1b20) !important;
+            border-color: color-mix(in srgb, var(--brand, #14b8a6) 60%, transparent) !important;
+            color: color-mix(in srgb, var(--brand, #14b8a6) 78%, #ffffff) !important;
             font-weight: 800 !important;
+            box-shadow:
+                inset 0 0 0 1px color-mix(in srgb, var(--brand, #14b8a6) 45%, transparent),
+                0 4px 16px color-mix(in srgb, var(--brand, #14b8a6) 26%, transparent) !important;
+            transition: background 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
         }
         .filter-active:hover,
-        .btn.filter-active:hover { filter: brightness(1.08); }
-        /* Little white "a filter is on" dot at the button's top-right corner. */
+        .btn.filter-active:hover {
+            background: color-mix(in srgb, var(--brand, #14b8a6) 24%, #1b1b20) !important;
+            box-shadow:
+                inset 0 0 0 1px color-mix(in srgb, var(--brand, #14b8a6) 55%, transparent),
+                0 6px 20px color-mix(in srgb, var(--brand, #14b8a6) 34%, transparent) !important;
+        }
+        /* Little brand "a filter is on" dot at the button's top-right corner. */
         /* The view-toggle is always highlighted (it's not a filter), so hide the dot. */
         #library-view-toggle-btn.filter-active::after { display: none; }
         .filter-active::after {
@@ -2938,8 +2953,8 @@
             width: 7px;
             height: 7px;
             border-radius: 50%;
-            background: #fff;
-            box-shadow: 0 0 0 2px rgba(0,0,0,0.22);
+            background: var(--brand, #14b8a6);
+            box-shadow: 0 0 0 2px #1b1b20, 0 0 8px color-mix(in srgb, var(--brand, #14b8a6) 70%, transparent);
         }
 
         /* Detail-view top row (Back + Filter + Sort + Edit) stretches edge to edge on
