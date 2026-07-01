@@ -7643,6 +7643,9 @@
             #app-root .container .account-home-hero { padding: 1.3rem 1rem 1.2rem !important; }
             #app-root .container .account-home-card { padding: 1rem 1.1rem !important; }
             #app-root .container .account-home-blurb-card { padding: 1.4rem 1.2rem 1.5rem !important; }
+            /* Poster grids on the account page (Recent / Top Rated) sit directly in
+               the full-bleed overview — inset them so posters don't touch the edges. */
+            body[data-page="account"] #app-root .container .dash-fav-grid { padding: 0 0.75rem; }
         }
 
         /* Long review notes get their own scroll area inside review modals/pop-ups so a
