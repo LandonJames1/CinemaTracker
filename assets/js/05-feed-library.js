@@ -2435,6 +2435,7 @@
                     setNavBadge('nav-badge-lists', 0);
                     setToRateBadge(0);
                     setPwaAppBadge(0);
+                    try { if (typeof refreshNotifBadge === 'function') refreshNotifBadge(); } catch (_) {}
                     return;
                 }
                 const meId = String(cachedAuthUser?.id || '').trim();
@@ -2491,6 +2492,8 @@
             setNavBadge('nav-badge-burger', total);
             try { document.getElementById('menu-icon-btn')?.classList.toggle('has-unseen', total > 0); } catch (_) {}
             setPwaAppBadge(total);
+            // Activity inbox bell (own unread count; 24-notifications.js).
+            try { if (typeof refreshNotifBadge === 'function') refreshNotifBadge(); } catch (_) {}
         }
 
         // Persist last-seen server-side too, so push badge counts match "since I looked".

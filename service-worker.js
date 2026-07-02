@@ -14,7 +14,7 @@
  * open page to reload onto the new version.
  */
 
-const CACHE_VERSION = 'v103';
+const CACHE_VERSION = 'v105';
 const CACHE = `cinematracker-${CACHE_VERSION}`;
 
 self.addEventListener('install', () => {
@@ -77,7 +77,23 @@ self.addEventListener('push', (event) => {
     tag: data.tag || undefined,
   };
   event.waitUntil((async () => {
-    await self.registration.showNotification(title, options);
+    const clientsArr = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    // Is the app already open + in the foreground on this device?
+    const appFocused = clientsArr.some((c) => c.focused || c.visibilityState === 'visible');
+
+    // Always tell any open page a push arrived so it refreshes its in-app badges
+    // + the Activity sheet live (works even when the OS notification is suppressed
+    // below, and covers users who received the event while actively in the app).
+    for (const c of clientsArr) {
+      try { c.postMessage({ type: 'PUSH_RECEIVED', url: data.url || '', badge: data.badge }); } catch (_) {}
+    }
+
+    // Only pop the intrusive OS notification when the app ISN'T focused here — if
+    // the user is already in the app, the in-app bell/badges + sheet cover it.
+    if (!appFocused) {
+      await self.registration.showNotification(title, options);
+    }
+
     // Update the home-screen icon badge immediately (even while the app is closed).
     if (typeof data.badge === 'number' && self.navigator.setAppBadge) {
       try { data.badge > 0 ? await self.navigator.setAppBadge(data.badge) : await self.navigator.clearAppBadge?.(); } catch (_) {}

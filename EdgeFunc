@@ -37,6 +37,29 @@ async function sendPushToUser(supabaseAdmin, userId, payload) {
   return sent;
 }
 
+// Record in-app Activity-inbox rows (the bell icon → dropdown/sheet). Runs
+// alongside sendPushToUser at each notify site so the inbox works even when a
+// recipient has push disabled, and keeps a browsable history with per-item read
+// state. Inserted with the service role (bypasses RLS — clients only READ their
+// own rows + flip read_at). Best-effort: never throws, so a failure here can't
+// break the push flow. See notifications.sql for the table + backfill.
+async function recordNotifications(supabaseAdmin, rows) {
+  try {
+    const clean = (Array.isArray(rows) ? rows : []).filter((r) => r && r.user_id && r.type);
+    if (!clean.length) return;
+    const payload = clean.map((r) => ({
+      user_id: r.user_id,
+      actor_id: r.actor_id || null,
+      type: r.type,
+      title: r.title || null,
+      body: r.body || null,
+      url: r.url || null,
+      meta: r.meta || null,
+    }));
+    await supabaseAdmin.from("Notifications").insert(payload);
+  } catch (_) { /* table may not exist pre-migration; never block the push */ }
+}
+
 // Total "unseen" notification count for a user's home-screen app badge (the
 // little red number on the iOS PWA icon). Combines new feed activity (ratings
 // from people they follow since feed_seen_at) + recommendations received since
@@ -1773,6 +1796,17 @@ Deno.serve(async (req) => {
               .upsert({ from_user_id: sender.id, to_user_id: rid, movie_id: movieId }, { onConflict: "from_user_id,to_user_id,movie_id" });
           } catch (_) {}
 
+          // c2) In-app Activity inbox row (independent of push delivery).
+          await recordNotifications(supabaseAdmin, [{
+            user_id: rid,
+            actor_id: sender.id,
+            type: "recommendation",
+            title: isRepeat ? "Recommended again" : "New recommendation",
+            body: `${senderHandle} recommended you "${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`,
+            url: "/#recs",
+            meta: { movie_id: movieId },
+          }]);
+
           // d) Notify via web push (if the recipient has push enabled on any
           //    device). Best-effort — never fail the add on a notify error.
           try {
@@ -1865,6 +1899,7 @@ Deno.serve(async (req) => {
 
       const titlePart = `"${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`;
       let notified = 0;
+      const reviewNotifRows = [];
       for (const fid of followerIds) {
         try {
           const badge = await computeUnseenBadge(supabaseAdmin, fid);
@@ -1879,7 +1914,17 @@ Deno.serve(async (req) => {
           });
           if (pushed > 0) notified++;
         } catch (_) {}
+        reviewNotifRows.push({
+          user_id: fid,
+          actor_id: author.id,
+          type: "new_review",
+          title: "New review",
+          body: `${authorHandle} reviewed ${titlePart}`,
+          url: `/#review=${author.id}:${movieId}`,
+          meta: { movie_id: movieId },
+        });
       }
+      await recordNotifications(supabaseAdmin, reviewNotifRows);
 
       return jsonResponse({ ok: true, movie_id: movieId, followers: followerIds.length, notified }, 200);
     }
@@ -1929,6 +1974,14 @@ Deno.serve(async (req) => {
           tag: `follow-${follower.id}`,
         });
       } catch (_) {}
+      await recordNotifications(supabaseAdmin, [{
+        user_id: followedId,
+        actor_id: follower.id,
+        type: "new_follower",
+        title: "New follower",
+        body: `${followerHandle} started following you`,
+        url: `/#user=${follower.id}`,
+      }]);
 
       return jsonResponse({ ok: true, followed_id: followedId, notified }, 200);
     }
@@ -1995,6 +2048,7 @@ Deno.serve(async (req) => {
 
       const titlePart = `"${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`;
       let notified = 0;
+      const recReviewNotifRows = [];
       for (const recId of recommenderIds) {
         try {
           const badge = await computeUnseenBadge(supabaseAdmin, recId);
@@ -2007,7 +2061,17 @@ Deno.serve(async (req) => {
           });
           if (pushed > 0) notified++;
         } catch (_) {}
+        recReviewNotifRows.push({
+          user_id: recId,
+          actor_id: rater.id,
+          type: "rec_reviewed",
+          title: "Your rec got watched",
+          body: `${raterHandle} reviewed ${titlePart} you recommended`,
+          url: `/#review=${rater.id}:${movieId}`,
+          meta: { movie_id: movieId },
+        });
       }
+      await recordNotifications(supabaseAdmin, recReviewNotifRows);
 
       return jsonResponse({ ok: true, movie_id: movieId, recommenders: recommenderIds.length, notified }, 200);
     }
@@ -2091,6 +2155,7 @@ Deno.serve(async (req) => {
       const titlePart = `"${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`;
       const listPart = listName || "a shared list";
       let notified = 0;
+      const listAddNotifRows = [];
       for (const rid of recipientIds) {
         try {
           const badge = await computeUnseenBadge(supabaseAdmin, rid);
@@ -2103,7 +2168,17 @@ Deno.serve(async (req) => {
           });
           if (pushed > 0) notified++;
         } catch (_) {}
+        listAddNotifRows.push({
+          user_id: rid,
+          actor_id: adder.id,
+          type: "list_add",
+          title: `Added to ${listPart}`,
+          body: `${adderHandle} added ${titlePart} to ${listPart}`,
+          url: `/#list=${listId}`,
+          meta: { list_id: listId, movie_id: movieId },
+        });
       }
+      await recordNotifications(supabaseAdmin, listAddNotifRows);
 
       return jsonResponse({ ok: true, list_id: listId, recipients: recipientIds.length, notified }, 200);
     }
@@ -2184,6 +2259,15 @@ Deno.serve(async (req) => {
           tag: `reaction-${ratingId}`,
         });
       } catch (_) {}
+      await recordNotifications(supabaseAdmin, [{
+        user_id: authorId,
+        actor_id: reactor.id,
+        type: "review_reaction",
+        title: "New reaction",
+        body: `${reactorHandle} reacted ${emojiPart}to your review of ${titlePart}`,
+        url: `/#review=${authorId}:${movieId}`,
+        meta: { emoji, rating_id: ratingId },
+      }]);
 
       return jsonResponse({ ok: true, rating_id: ratingId, notified }, 200);
     }

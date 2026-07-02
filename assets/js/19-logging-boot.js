@@ -258,6 +258,15 @@
                     try { handleNotificationRoute(e.data.url); } catch (_) {}
                     return;
                 }
+                // A push arrived while the app is open (the SW suppressed the OS
+                // notification) — refresh all in-app badges + the Activity sheet
+                // live so the user still sees it without leaving the app.
+                if (e.data.type === 'PUSH_RECEIVED') {
+                    try { if (typeof refreshNavBadges === 'function') refreshNavBadges(); } catch (_) {}
+                    try { if (typeof refreshNotifBadge === 'function') refreshNotifBadge(); } catch (_) {}
+                    try { if (typeof notifOpen !== 'undefined' && notifOpen && typeof loadNotifications === 'function') loadNotifications(); } catch (_) {}
+                    return;
+                }
                 if (e.data.type !== 'SW_ACTIVATED') return;
                 try {
                     const v = String(e.data.version || '');

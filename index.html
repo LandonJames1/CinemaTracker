@@ -56,6 +56,11 @@
             </div>
 
             <div class="nav-actions">
+                <!-- Activity inbox bell (shown only when signed in; toggled in 24-notifications.js). -->
+                <button id="nav-notif-btn" class="nav-notif-btn" type="button" onclick="toggleNotifications(event)" aria-label="Activity" title="Activity" style="display:none; position:relative;">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+                    <span id="nav-badge-notif" class="nav-badge"></span>
+                </button>
                 <button id="nav-login-btn" class="nav-auth-btn" type="button" onclick="handleNavAccountButtonClick(event)">Login</button>
 
                 <div class="mobile-menu-btn">
@@ -154,6 +159,18 @@
          fixed child anchor to the page box instead of the viewport. Shown only on the Lists
          overview via setListsFabVisible() + a body[data-page] CSS gate. -->
     <button type="button" id="lists-fab" class="lists-fab" aria-label="Add" onclick="listsFabAction()" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>
+
+    <!-- Activity inbox: dropdown on desktop, bottom sheet on mobile. Body-level so
+         it works from the persistent navbar bell on any page. Logic in 24-notifications.js. -->
+    <div id="notif-overlay" class="notif-overlay" onclick="if(event.target===this) closeNotifications();">
+        <div class="notif-panel" role="dialog" aria-label="Activity">
+            <div class="notif-head">
+                <span class="notif-title">Activity</span>
+                <button type="button" id="notif-mark-all" class="notif-mark-all" onclick="markAllNotificationsRead()" style="display:none;">Mark all read</button>
+            </div>
+            <div id="notif-list" class="notif-list"></div>
+        </div>
+    </div>
 
     <div id="log-panel" class="log-panel" aria-live="polite">
         <div class="log-panel-header">
@@ -1354,6 +1371,7 @@
     <script src="assets/js/21-swipe-deck.js"></script>
     <script src="assets/js/22-account-fun.js"></script>
     <script src="assets/js/23-movie-spotlight.js"></script>
+    <script src="assets/js/24-notifications.js"></script>
     <script src="assets/js/19-logging-boot.js"></script>
 </body>
 </html>
