@@ -2514,6 +2514,9 @@
             setPwaAppBadge(lastFeedUnseen + lastRecsUnseen);
             setNavBadge('nav-badge-burger', lastFeedUnseen + lastRecsUnseen);
             try { refreshNavBadges(); } catch (_) {}
+            // Seeing the feed also "sees" the follow-review Activity rows, so the
+            // navbar bell badge clears too — no separate "Mark all read" needed.
+            try { if (typeof markNotificationsReadByType === 'function') markNotificationsReadByType(['new_review']); } catch (_) {}
         }
 
         function markRecsSeen() {
@@ -2525,6 +2528,8 @@
             setPwaAppBadge(lastFeedUnseen + lastRecsUnseen);
             setNavBadge('nav-badge-burger', lastFeedUnseen + lastRecsUnseen);
             try { refreshNavBadges(); } catch (_) {}
+            // Seeing the Recs list also "sees" the recommendation Activity rows.
+            try { if (typeof markNotificationsReadByType === 'function') markNotificationsReadByType(['recommendation']); } catch (_) {}
         }
 
         // ===== Public profile overview (opened by clicking a user in the Feed) =====

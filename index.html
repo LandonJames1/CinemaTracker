@@ -640,19 +640,6 @@
         </div>
     </div>
 
-    <div id="recs-movie-overlay" class="auth-overlay" onclick="if(event.target === this) closeRecsMovieModal();" style="display:none;">
-        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="recs-movie-title" style="max-width: 480px;">
-            <div class="auth-modal-header">
-                <div style="display:flex; align-items:center; gap:0.5rem; min-width:0;">
-                    <button class="auth-modal-close" type="button" id="recs-movie-back" onclick="recsMovieBack()" style="display:none;">‹ Back</button>
-                    <div class="auth-modal-title" id="recs-movie-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Recommended Movie</div>
-                </div>
-                <button class="auth-modal-close" type="button" onclick="closeRecsMovieModal()">Close</button>
-            </div>
-            <div id="recs-movie-body" style="margin-top: 0.6rem;"></div>
-        </div>
-    </div>
-
     <!-- Shared-list movie reviews: pick a member who has reviewed this movie to
          read their full review. Opened by tapping a poster on a SHARED list. -->
     <div id="shared-movie-overlay" class="auth-overlay" onclick="if(event.target === this) closeSharedListMovieModal();" style="display:none;">

@@ -19,6 +19,8 @@
         const DISCOVER_BATCH = 25;
         const DISCOVER_PREFETCH_AT = 5; // fetch more when this many cards remain
         const DISCOVER_DETAILS_AHEAD = 10; // preload full details this many cards ahead
+        const DISCOVER_MAX_EMPTY_RETRIES = 4; // walk this many deeper batches on an all-dupes page before declaring "caught up"
+        const DISCOVER_MAX_BATCH = 12; // don't page deeper than this per session (server also caps batch)
 
         async function discoverGetAuth() {
             try {
@@ -74,17 +76,27 @@
             discoverLoading = true;
             if (!append) showDiscoverLoading();
             try {
-                const data = await callSwiftApiPublic({ action: 'swipe_deck', limit: DISCOVER_BATCH, batch: discoverBatchCount });
-                discoverBatchCount += 1; // next fetch pages deeper on the server
-                const incoming = Array.isArray(data?.cards) ? data.cards : [];
-                // De-dupe against anything already in the deck.
-                const have = new Set(discoverDeck.map((c) => Number(c.tmdb_id)));
-                const fresh = incoming.filter((c) => c && Number.isFinite(Number(c.tmdb_id)) && !have.has(Number(c.tmdb_id)));
-                if (fresh.length === 0) {
-                    discoverExhausted = true;
-                } else {
-                    discoverDeck = discoverDeck.concat(fresh);
+                // Keep walking DEEPER batches until we actually pick up new cards. A single
+                // page that's all-duplicates or all-excluded (already watched/swiped/bucketed)
+                // must NOT flag the deck "caught up" — TMDB has far more movies than any one
+                // sorted page, so retry a few batches deeper before giving up. This is what
+                // keeps a full ~25-card deck flowing instead of collapsing after a few swipes.
+                let added = 0;
+                for (let attempt = 0; attempt < DISCOVER_MAX_EMPTY_RETRIES && discoverBatchCount <= DISCOVER_MAX_BATCH; attempt += 1) {
+                    const data = await callSwiftApiPublic({ action: 'swipe_deck', limit: DISCOVER_BATCH, batch: discoverBatchCount });
+                    discoverBatchCount += 1; // next fetch pages deeper on the server
+                    const incoming = Array.isArray(data?.cards) ? data.cards : [];
+                    // De-dupe against anything already in the deck.
+                    const have = new Set(discoverDeck.map((c) => Number(c.tmdb_id)));
+                    const fresh = incoming.filter((c) => c && Number.isFinite(Number(c.tmdb_id)) && !have.has(Number(c.tmdb_id)));
+                    if (fresh.length) {
+                        discoverDeck = discoverDeck.concat(fresh);
+                        added = fresh.length;
+                        break;
+                    }
+                    // else: empty / all-dupes → loop and try a deeper batch
                 }
+                if (added === 0) discoverExhausted = true; // genuinely dry after several deeper tries
                 renderDiscoverStack();
             } catch (err) {
                 if (!append) showDiscoverError(String(err?.message || err));

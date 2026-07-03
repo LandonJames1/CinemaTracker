@@ -2892,7 +2892,7 @@ Deno.serve(async (req) => {
 
       const url = new URL(`https://api.themoviedb.org/3/movie/${tmdb_id}`);
       url.searchParams.set("language", "en-US");
-      url.searchParams.set("append_to_response", "credits,release_dates,external_ids");
+      url.searchParams.set("append_to_response", "credits,release_dates,external_ids,watch/providers");
 
       const tmdbRes = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` },
@@ -2939,6 +2939,14 @@ Deno.serve(async (req) => {
       let genre = genres.length ? genres.join(", ") : "";
 
       let mpa = extractUsCertification(tmdbJson?.release_dates);
+
+      // Watch options (streaming platforms) for the Movie Spotlight "Movie Options"
+      // tab. Live from TMDb's watch/providers so it populates no matter where the
+      // spotlight was opened from; falls back to the stored catalog platforms below.
+      let watch_providers = extractProviderNamesFromWatchProvidersJson(
+        tmdbJson?.["watch/providers"],
+        "US",
+      );
 
       const imdb_id_raw = String(tmdbJson?.external_ids?.imdb_id ?? "").trim();
       const imdb_id = imdb_id_raw ? imdb_id_raw : null;
@@ -3046,6 +3054,26 @@ Deno.serve(async (req) => {
               }
             } catch (_) { /* best-effort */ }
           }
+
+          // Watch options — fall back to stored "Movie Platforms" → "Platforms" when
+          // TMDb's live watch/providers came up empty (e.g. rate-limited append).
+          if (!watch_providers.length) {
+            try {
+              const { data: mpRows } = await supabaseAdmin
+                .from("Movie Platforms")
+                .select("Platforms(name)")
+                .eq("movie_id", movieRow.id);
+              const dbPlatforms = uniqStrings(
+                (Array.isArray(mpRows) ? mpRows : []).map((r) => {
+                  const rel = r?.Platforms;
+                  return normalizePlatformName(
+                    String((Array.isArray(rel) ? rel[0]?.name : rel?.name) ?? "").trim(),
+                  );
+                }),
+              ).filter(Boolean);
+              if (dbPlatforms.length) watch_providers = dbPlatforms;
+            } catch (_) { /* best-effort */ }
+          }
         }
       } catch (_) { /* best-effort DB merge — never block prefill */ }
 
@@ -3069,6 +3097,7 @@ Deno.serve(async (req) => {
           genre,
           poster_path: tmdbJson?.poster_path ? String(tmdbJson.poster_path) : null,
           backdrop_path: tmdbJson?.backdrop_path ? String(tmdbJson.backdrop_path) : null,
+          watch_providers,
           imdb_id,
           imdb_rating_pct,
           imdb_votes,
@@ -3801,7 +3830,7 @@ Deno.serve(async (req) => {
       const uid = userData.user.id;
       // Batch cursor: the client increments this each time it fetches another deck this
       // session, so we walk DEEPER TMDB pages instead of re-returning the same top pages.
-      // (0 → pages 1-2, 1 → pages 3-4, …). Without this the pool repeats and runs dry.
+      // (0 → pages 1-3, 1 → pages 4-6, …). Without this the pool repeats and runs dry.
       const batch = Math.max(0, Math.min(50, Math.floor(Number(body?.batch) || 0)));
       // Today (UTC, YYYY-MM-DD) — used to drop unreleased movies from the deck.
       const todayStr = new Date().toISOString().slice(0, 10);
@@ -3947,14 +3976,15 @@ Deno.serve(async (req) => {
         return Array.isArray(j?.results) ? j.results : [];
       };
 
-      // Each batch walks two fresh pages deeper so successive decks don't repeat.
-      const pageA = batch * 2 + 1;
-      const pageB = batch * 2 + 2;
+      // Each batch walks three fresh pages deeper so successive decks don't repeat AND
+      // each batch has a big enough raw pool to still yield ~25 cards after exclusions
+      // (watched / swiped / bucketed). Stride matches the page count so batches never overlap.
+      const deckPages = [batch * 3 + 1, batch * 3 + 2, batch * 3 + 3];
 
       // Source 1 — your taste (top-affinity genres, popular within them).
       const genreIds = mapGenreNamesToIds(topGenres);
       if (genreIds.length) {
-        for (const p of [pageA, pageB]) {
+        for (const p of deckPages) {
           const r = await tmdbDiscover({ sort_by: "popularity.desc", with_genres: genreIds.join("|"), "vote_count.gte": 100, page: p });
           r.forEach((x) => addCand(x, "taste"));
         }
@@ -3972,7 +4002,7 @@ Deno.serve(async (req) => {
         }
       } catch (_) { /* best-effort */ }
       // Source 3 — all-time popular (highly-voted classics, not just current hits).
-      for (const p of [pageA, pageB]) {
+      for (const p of deckPages) {
         const r = await tmdbDiscover({ sort_by: "vote_count.desc", "vote_count.gte": 5000, page: p });
         r.forEach((x) => addCand(x, "popular"));
       }
@@ -4056,7 +4086,7 @@ Deno.serve(async (req) => {
         const taste_score = pred ? pred.score : null;
         const friends = (socialByTmdb.get(c.tmdb_id) || []).slice().sort((a, b) => b.overall - a.overall).slice(0, 3);
         const friendsCount = (socialByTmdb.get(c.tmdb_id) || []).length;
-        const socialBoost = friendsCount ? 6 : 0; // socially-validated picks surface a bit
+        const socialBoost = friendsCount ? 3 : 0; // socially-validated picks surface a bit (kept gentle so friends' picks don't dominate)
         const imdbVotes = votesByTmdb.get(c.tmdb_id) ?? null;
         const reviewBoost = (imdbVotes !== null && imdbVotes >= reviewThreshold) ? 6 : 0;
         const rankBase = (Number.isFinite(taste_score) ? taste_score : 45) + socialBoost + reviewBoost;

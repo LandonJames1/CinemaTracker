@@ -23,6 +23,8 @@
             loading: false,
             rated: false,
             token: 0,
+            reviews: null,        // null = not loaded yet; [] = loaded, none found
+            reviewsLoading: false,
         };
 
         function spotlightTmdbImg(path, size) {
@@ -75,6 +77,10 @@
                 genres,
                 poster_path: d.poster_path || m.poster_path || null,
                 backdrop_path: d.backdrop_path || m.backdrop_path || null,
+                watch_providers: (Array.isArray(d.watch_providers) && d.watch_providers.length)
+                    ? d.watch_providers
+                    : (Array.isArray(m.watch_providers) ? m.watch_providers
+                        : (Array.isArray(m.platforms) ? m.platforms : [])),
                 release_date: d.release_date || m.release_date || null,
                 imdb_rating_pct: (typeof d.imdb_rating_pct === 'number') ? d.imdb_rating_pct
                     : (typeof m.imdb_rating_pct === 'number' ? m.imdb_rating_pct : null),
@@ -143,6 +149,194 @@
             return html.trim() ? html : `<p class="ms-empty">No additional details available.</p>`;
         }
 
+        // Builds the "Where to Watch" tab — the color-coded streaming/watch-option pills:
+        // deduped to one pill per canonical service, ordered by popularity, brand-tinted via
+        // platformBrandTheme. Reuses the platform helpers from 04-lists.js (loads first).
+        function spotlightWatchOptionsHtml(mv) {
+            const canonMap = new Map();
+            (Array.isArray(mv.watch_providers) ? mv.watch_providers : []).forEach((p) => {
+                const raw = String(p || '').trim();
+                if (!raw) return;
+                const canon = platformCanonicalLabel(raw);
+                const key = canon.toLowerCase();
+                if (key && !canonMap.has(key)) canonMap.set(key, canon);
+            });
+            const platforms = Array.from(canonMap.values()).sort(comparePlatformsByPopularity);
+            if (!platforms.length) {
+                return `<p class="ms-empty">No watch options found for this movie yet.</p>`;
+            }
+            const pills = platforms.map((p) => {
+                const full = normalizePlatformName(p);
+                const label = platformShortLabel(full) || full;
+                const theme = platformBrandTheme(full);
+                const pillStyle = `background: ${theme.bg}; border: 1px solid ${theme.border}; color: ${theme.text};`;
+                return `
+                    <div style="display:flex; align-items:center; justify-content:center; padding:0.7rem; border-radius:0.85rem; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.10);">
+                        <span style="display:inline-flex; align-items:center; padding:0.28rem 0.6rem; border-radius:999px; font-weight:900; font-size:0.88rem; line-height:1; ${pillStyle}">${escapeHtml(label)}</span>
+                    </div>`;
+            }).join('');
+            return `<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:10px;">${pills}</div>`;
+        }
+
+        // ---- "User Reviews" tab -------------------------------------------------------
+        // Review cards for people the viewer FOLLOWS who have reviewed this movie. Mirrors
+        // the Feed card look/behavior (collapsed → tap to expand for sub-ratings/quote/notes)
+        // but WITHOUT the react + bucket-list buttons. Works no matter where the spotlight
+        // was opened from — it resolves the catalog movie id from the spotlight's movie
+        // (uuid id, or via tmdb_id), then reads the follows' Movie Ratings.
+        async function loadSpotlightReviews(token) {
+            movieSpotlightState.reviewsLoading = true;
+            try {
+                if (!supabaseClient) { finishSpotlightReviews(token, []); return; }
+                const { data: sess } = await supabaseClient.auth.getSession();
+                const meId = String(sess?.session?.user?.id || '').trim();
+                if (!meId) { finishSpotlightReviews(token, []); return; }
+
+                const movie_id = await resolveDbMovieIdFromSelectedMovie(movieSpotlightState.movie);
+                if (token !== movieSpotlightState.token) return;
+                if (!movie_id) { finishSpotlightReviews(token, []); return; }
+
+                // People I follow (excluding myself).
+                let followed = [];
+                try { await loadMyFollowingIds(); followed = Array.from(feedFollowingIds || []); } catch (_) {}
+                followed = followed.map(x => String(x || '').trim()).filter(x => x && x !== meId);
+                if (!followed.length) { finishSpotlightReviews(token, []); return; }
+
+                // Their reviews of this movie (only rows that actually carry a rating).
+                const cols = 'id, user_id, movie_id, overall_rating, tier, watch_date, fav_quote, notes, sound_rating, pacing_rating, imagery_rating, acting_rating, plot_rating, dialogue_rating';
+                const { data: rrows, error: rErr } = await supabaseClient
+                    .from('Movie Ratings')
+                    .select(cols)
+                    .eq('movie_id', movie_id)
+                    .in('user_id', followed);
+                if (rErr) throw rErr;
+                if (token !== movieSpotlightState.token) return;
+
+                const reviews = (Array.isArray(rrows) ? rrows : [])
+                    .filter(r => String(r?.overall_rating ?? '').trim() !== '' || dashNormalizeTierLabel(r?.tier));
+                if (!reviews.length) { finishSpotlightReviews(token, []); return; }
+
+                // Reviewer display info (username + icon).
+                const ids = Array.from(new Set(reviews.map(r => String(r?.user_id || '').trim()).filter(Boolean)));
+                const infoById = new Map();
+                try {
+                    let us = null;
+                    try {
+                        const r1 = await supabaseClient.from('Users').select('id, username, display_name, icon').in('id', ids);
+                        if (r1.error) throw r1.error; us = r1.data;
+                    } catch (e1) {
+                        if (/column\s+"?icon"?\s+does\s+not\s+exist/i.test(String(e1?.message || e1))) {
+                            const r2 = await supabaseClient.from('Users').select('id, username, display_name').in('id', ids);
+                            if (!r2.error) us = r2.data;
+                        }
+                    }
+                    for (const u of (Array.isArray(us) ? us : [])) {
+                        const uid = String(u?.id || '').trim();
+                        if (uid) infoById.set(uid, u);
+                    }
+                } catch (_) {}
+                if (token !== movieSpotlightState.token) return;
+
+                // Sort: highest overall first (nulls last).
+                reviews.sort((a, b) => (Number(b?.overall_rating) || -1) - (Number(a?.overall_rating) || -1));
+                for (const r of reviews) {
+                    const info = infoById.get(String(r?.user_id || '').trim()) || {};
+                    r._username = String(info?.username || '').trim();
+                    r._icon = String(info?.icon || '').trim();
+                }
+                finishSpotlightReviews(token, reviews);
+            } catch (e) {
+                try { emitLog('warn', 'Spotlight reviews load failed: ' + String(e?.message || e)); } catch (_) {}
+                finishSpotlightReviews(token, []);
+            }
+        }
+
+        function finishSpotlightReviews(token, reviews) {
+            if (token !== movieSpotlightState.token) return;
+            movieSpotlightState.reviews = Array.isArray(reviews) ? reviews : [];
+            movieSpotlightState.reviewsLoading = false;
+            // Re-emit the tab bar so the "User Reviews" tab appears (≥1 follow review)
+            // or stays hidden (none).
+            const tabsEl = document.getElementById('ms-tabs');
+            if (tabsEl) tabsEl.outerHTML = spotlightTabsHtml(movieSpotlightState.tab);
+            // Repaint the panel only if the reviews tab is still showing.
+            if (movieSpotlightState.tab === 'reviews') {
+                const panel = document.getElementById('ms-panel');
+                if (panel) panel.innerHTML = spotlightPanelHtml('reviews');
+            }
+        }
+
+        // Standalone KPI at the top of the User Reviews tab: the combined AVERAGE overall
+        // rating across all of the viewer's follows who reviewed this movie.
+        function spotlightReviewsAvgHtml(reviews) {
+            const nums = (Array.isArray(reviews) ? reviews : [])
+                .map(r => Number(r?.overall_rating))
+                .filter(n => Number.isFinite(n));
+            if (!nums.length) return '';
+            const avg = Math.round(nums.reduce((a, b) => a + b, 0) / nums.length);
+            const n = nums.length;
+            return `
+                <div class="ms-reviews-kpi">
+                    <div class="ms-reviews-kpi-num">${avg}<span>%</span></div>
+                    <div class="ms-reviews-kpi-meta">
+                        <div class="ms-reviews-kpi-label">Avg overall rating</div>
+                        <div class="ms-reviews-kpi-sub">from ${n} ${n === 1 ? 'person' : 'people'} you follow</div>
+                    </div>
+                </div>`;
+        }
+
+        // One review card — Feed-style: collapsed head (poster-less; reviewer avatar +
+        // name + score/tier + watch date) that expands to sub-ratings / quote / notes.
+        function spotlightReviewCardHtml(r) {
+            const username = r?._username ? `@${String(r._username).replace(/^@+/, '')}` : 'User';
+            const overall = dashFormatScoreWhole(r?.overall_rating);
+            const tierLabel = dashNormalizeTierLabel(r?.tier);
+            const watched = String(r?.watch_date ?? '').trim();
+            const quote = String(r?.fav_quote ?? '').trim();
+            const notes = String(r?.notes ?? '').trim();
+
+            const subRatingRows = [
+                { k: 'Sound', v: dashFormatScoreWhole(r?.sound_rating) },
+                { k: 'Pace', v: dashFormatScoreWhole(r?.pacing_rating) },
+                { k: 'Imagery', v: dashFormatScoreWhole(r?.imagery_rating) },
+                { k: 'Acting', v: dashFormatScoreWhole(r?.acting_rating) },
+                { k: 'Plot', v: dashFormatScoreWhole(r?.plot_rating) },
+                { k: 'Dialogue', v: dashFormatScoreWhole(r?.dialogue_rating) },
+            ].filter(x => String(x.v || '').trim());
+
+            const hasDetails = subRatingRows.length || quote || notes;
+            return `
+                <div class="glass-panel feed-item-card ms-review-card" data-ms-review-card="1" onclick="toggleSpotlightReviewCard(this)" style="padding: 0.9rem; border-radius: 1rem; cursor:${hasDetails ? 'pointer' : 'default'};">
+                    <div class="feed-card-row">
+                        <div class="feed-card-actor" style="margin-left:0;">
+                            ${renderUserIconHtml(r?._icon, 52)}
+                        </div>
+                        <div class="feed-card-main">
+                            <div class="text-white font-bold" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(username)}</div>
+                            ${(overall || tierLabel)
+                                ? `<div class="feed-metrics">${overall ? dashRenderHelpScore(overall) : ''}${tierLabel ? dashRenderHelpTier(tierLabel) : ''}</div>`
+                                : `<div class="text-xs text-gray" style="margin-top: 0.25rem;">No rating yet</div>`}
+                            ${watched ? `<div class="text-xs" style="margin-top: 0.25rem; color: rgba(255,255,255,0.55);">Watched: ${escapeHtml(watched)}</div>` : ''}
+                        </div>
+                        ${hasDetails ? `<div class="ms-review-chev" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></div>` : ''}
+                    </div>
+                    ${hasDetails ? `
+                    <div class="feed-card-details">
+                        ${subRatingRows.length
+                            ? `<div class="library-chip-row" style="margin-top: 0.55rem;">${subRatingRows.map(d => `<span class="dash-quote-pill">${escapeHtml(d.k)}: ${escapeHtml(d.v)}</span>`).join('')}</div>`
+                            : ''}
+                        ${quote ? `<div style="margin-top: 0.75rem;"><div class="text-xs text-gray" style="margin-bottom: 0.25rem;">Favorite Quote</div><div class="text-white" style="line-height: 1.4;">${escapeHtml(quote)}</div></div>` : ''}
+                        ${notes ? `<div style="margin-top: 0.75rem;"><div class="text-xs text-gray" style="margin-bottom: 0.25rem;">Notes</div><div class="text-white review-notes-scroll" style="line-height: 1.4; white-space: pre-wrap;">${escapeHtml(notes)}</div></div>` : ''}
+                    </div>` : ''}
+                </div>`;
+        }
+
+        // Expand/collapse a single review card (mirrors the Feed's is-open toggle). Uses its
+        // own handler so it doesn't depend on the Feed page's document listener being bound.
+        function toggleSpotlightReviewCard(cardEl) {
+            if (cardEl && cardEl.classList) cardEl.classList.toggle('is-open');
+        }
+
         async function openMovieSpotlight(movie) {
             if (!movie) return;
             const overlay = document.getElementById('movie-spotlight-overlay');
@@ -160,6 +354,8 @@
             movieSpotlightState.tab = 'details';
             movieSpotlightState.loading = !cached;
             movieSpotlightState.rated = false;
+            movieSpotlightState.reviews = null;
+            movieSpotlightState.reviewsLoading = false;
 
             // Reuse the home page's selection state so the action buttons (Log /
             // Update / Add to List / Recommend) work exactly as they do on Home.
@@ -172,6 +368,11 @@
 
             // Kick off the rated-state check immediately (in parallel with details).
             refreshSpotlightRatedState(token).catch(() => {});
+
+            // Eagerly load followed users' reviews so the "User Reviews" tab only appears
+            // when at least one follow has reviewed this movie (finishSpotlightReviews
+            // re-emits the tab bar). Runs in parallel; the tab render depends on it.
+            loadSpotlightReviews(token).catch(() => {});
 
             // Fetch full details (backdrop, cast, runtime, IMDb, etc.) if not cached.
             if (!cached && Number.isFinite(tmdbId) && tmdbId > 0) {
@@ -305,6 +506,26 @@
                 return `<div class="ms-cast-grid">${cards}</div>`;
             }
 
+            if (tab === 'watch') {
+                if (loading && !mv.watch_providers.length) {
+                    return `<div class="ms-loading"><div class="discover-spinner discover-spinner-sm"></div><span>Loading watch options…</span></div>`;
+                }
+                return spotlightWatchOptionsHtml(mv);
+            }
+
+            if (tab === 'reviews') {
+                const reviews = movieSpotlightState.reviews;
+                if (reviews === null) {
+                    // Not loaded yet — kick off the fetch (once) and show a spinner.
+                    if (!movieSpotlightState.reviewsLoading) loadSpotlightReviews(movieSpotlightState.token);
+                    return `<div class="ms-loading"><div class="discover-spinner discover-spinner-sm"></div><span>Loading reviews…</span></div>`;
+                }
+                if (!reviews.length) {
+                    return `<p class="ms-empty">No reviews yet from people you follow.</p>`;
+                }
+                return `${spotlightReviewsAvgHtml(reviews)}<div class="ms-reviews-list">${reviews.map(spotlightReviewCardHtml).join('')}</div>`;
+            }
+
             if (tab === 'details') {
                 if (loading) {
                     return `<div class="ms-loading"><div class="discover-spinner discover-spinner-sm"></div><span>Loading details…</span></div>`;
@@ -319,6 +540,22 @@
             return mv.overview
                 ? `<p class="ms-overview">${escapeHtml(mv.overview)}</p>`
                 : `<p class="ms-empty">No synopsis available.</p>`;
+        }
+
+        // Builds the tab bar. The "User Reviews" tab is only included when at least one
+        // followed user has reviewed this movie (reviews eagerly loaded on open) — until
+        // then / when none, the button is omitted. Re-emitted by finishSpotlightReviews.
+        function spotlightTabsHtml(tab) {
+            const reviews = movieSpotlightState.reviews;
+            const showReviews = Array.isArray(reviews) && reviews.length > 0;
+            return `
+                <div class="ms-tabs" id="ms-tabs">
+                    <button type="button" data-ms-tab="details" class="${tab === 'details' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('details')">Info</button>
+                    <button type="button" data-ms-tab="overview" class="${tab === 'overview' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('overview')">Brief</button>
+                    <button type="button" data-ms-tab="cast" class="${tab === 'cast' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('cast')">Cast</button>
+                    <button type="button" data-ms-tab="watch" class="${tab === 'watch' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('watch')">Where</button>
+                    ${showReviews ? `<button type="button" data-ms-tab="reviews" class="${tab === 'reviews' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('reviews')">User Reviews</button>` : ''}
+                </div>`;
         }
 
         function renderMovieSpotlight() {
@@ -349,11 +586,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="ms-tabs">
-                    <button type="button" data-ms-tab="details" class="${tab === 'details' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('details')">Details</button>
-                    <button type="button" data-ms-tab="overview" class="${tab === 'overview' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('overview')">Synopsis</button>
-                    <button type="button" data-ms-tab="cast" class="${tab === 'cast' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('cast')">Cast</button>
-                </div>
+                ${spotlightTabsHtml(tab)}
                 <div class="ms-panel" id="ms-panel">${spotlightPanelHtml(tab)}</div>
                 <div class="ms-actions" id="ms-actions">${spotlightActionsHtml()}</div>
             `;

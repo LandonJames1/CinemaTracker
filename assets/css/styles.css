@@ -7855,63 +7855,6 @@
         .review-notes-scroll::-webkit-scrollbar { width: 6px; }
         .review-notes-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 999px; }
 
-        /* Recommended-movie pop-up choice screen (recsMovieRenderChoice) ----------------- */
-        .recs-choice-btn {
-            display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box;
-            padding: 0.9rem 1rem; border-radius: 0.9rem; cursor: pointer; text-align: left;
-            color: #fff; font-weight: 800; font-size: 0.98rem;
-            background: #202024; border: 1px solid rgba(255,255,255,0.12);
-            transition: background 0.15s, border-color 0.15s, transform 0.05s;
-        }
-        .recs-choice-btn:hover { background: #26262b; border-color: rgba(255,255,255,0.22); }
-        .recs-choice-btn:active { transform: scale(0.99); }
-        .recs-choice-ico {
-            flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px;
-            display: inline-flex; align-items: center; justify-content: center;
-            background: color-mix(in srgb, var(--brand) 22%, transparent);
-            color: var(--brand);
-        }
-        .recs-choice-ico svg { width: 18px; height: 18px; }
-        .recs-choice-label { flex: 1 1 auto; min-width: 0; }
-        .recs-choice-chev { flex: 0 0 auto; color: rgba(255,255,255,0.4); font-size: 1.2rem; line-height: 1; }
-
-        .recs-reviewers-block { margin-top: 1rem; }
-        .recs-reviewers-head {
-            display: flex; align-items: center; gap: 10px; margin-bottom: 0.6rem;
-            color: rgba(255,255,255,0.6); font-size: 0.78rem; font-weight: 700;
-            text-transform: uppercase; letter-spacing: 0.04em;
-        }
-        .recs-reviewers-head .recs-choice-ico {
-            width: 26px; height: 26px; border-radius: 8px;
-            background: color-mix(in srgb, var(--brand-2, var(--brand)) 22%, transparent);
-            color: var(--brand-2, var(--brand));
-        }
-        .recs-reviewers-head .recs-choice-ico svg { width: 15px; height: 15px; }
-        .recs-reviewers-scroll {
-            display: flex; flex-direction: column; gap: 8px;
-            max-height: 260px; overflow-y: auto; overscroll-behavior: contain;
-            padding-right: 4px; -webkit-overflow-scrolling: touch;
-        }
-        .recs-reviewers-scroll::-webkit-scrollbar { width: 6px; }
-        .recs-reviewers-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 999px; }
-        .recs-reviewer-row {
-            display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box;
-            padding: 0.55rem 0.7rem; border-radius: 0.75rem; cursor: pointer; text-align: left;
-            background: #202024; border: 1px solid rgba(255,255,255,0.08);
-            transition: background 0.15s, border-color 0.15s;
-        }
-        .recs-reviewer-row:hover { background: #26262b; border-color: rgba(255,255,255,0.18); }
-        .recs-reviewer-name {
-            flex: 1 1 auto; min-width: 0; color: #fff; font-weight: 700;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        .recs-reviewer-score {
-            flex: 0 0 auto; padding: 0.18rem 0.55rem; border-radius: 999px;
-            font-size: 0.82rem; font-weight: 900; color: var(--brand);
-            background: color-mix(in srgb, var(--brand) 16%, transparent);
-            border: 1px solid color-mix(in srgb, var(--brand) 40%, transparent);
-        }
-
         /* =====================================================================
            Movie Spotlight modal (23-movie-spotlight.js)
            A rich, cinematic movie-detail popup opened from Home search results +
@@ -8002,10 +7945,12 @@
             display: flex; gap: 0.4rem; padding: 0 1.4rem;
             border-bottom: 1px solid rgba(255,255,255,0.08);
             background: #16161a; z-index: 3;
+            overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
         }
+        .ms-tabs::-webkit-scrollbar { display: none; }
         .ms-tabs button {
             appearance: none; background: none; border: none; cursor: pointer;
-            padding: 0.7rem 0.3rem; margin-right: 0.6rem;
+            padding: 0.7rem 0.3rem; margin-right: 0.6rem; white-space: nowrap; flex: 0 0 auto;
             font-size: 0.9rem; font-weight: 800; color: rgba(255,255,255,0.5);
             border-bottom: 2.5px solid transparent; transition: color 0.18s, border-color 0.18s;
         }
@@ -8093,6 +8038,33 @@
         .ms-cast-photo.ms-cast-noimg .ms-cast-fallback { display: block; }
         .ms-cast-name { margin-top: 0.4rem; font-size: 0.82rem; font-weight: 800; color: #fff; line-height: 1.2; }
         .ms-cast-char { font-size: 0.75rem; color: rgba(255,255,255,0.55); font-weight: 600; line-height: 1.2; margin-top: 0.1rem; }
+
+        /* ---- User Reviews tab (Feed-style collapsible cards) ---- */
+        .ms-reviews-kpi {
+            display: flex; align-items: center; gap: 0.9rem;
+            padding: 0.85rem 1rem; margin-bottom: 0.85rem;
+            border-radius: 0.9rem;
+            background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 22%, #1d1d22), #1d1d22);
+            border: 1px solid color-mix(in srgb, var(--brand) 45%, transparent);
+        }
+        .ms-reviews-kpi-num {
+            font-size: 2rem; font-weight: 900; line-height: 1; color: #fff;
+            flex: 0 0 auto;
+        }
+        .ms-reviews-kpi-num span { font-size: 1rem; font-weight: 800; opacity: 0.7; margin-left: 1px; }
+        .ms-reviews-kpi-meta { min-width: 0; }
+        .ms-reviews-kpi-label { font-size: 0.92rem; font-weight: 800; color: #fff; line-height: 1.2; }
+        .ms-reviews-kpi-sub { font-size: 0.78rem; font-weight: 600; color: rgba(255,255,255,0.6); line-height: 1.2; margin-top: 0.15rem; }
+        .ms-reviews-list { display: flex; flex-direction: column; gap: 0.6rem; }
+        .ms-review-card { background: #1d1d22; border: 1px solid rgba(255,255,255,0.08); }
+        .ms-review-card .feed-card-row { align-items: center; }
+        .ms-review-card .feed-card-actor { min-width: 0; margin-left: 0; }
+        .ms-review-chev {
+            flex: 0 0 auto; margin-left: auto; color: rgba(255,255,255,0.45);
+            display: inline-flex; align-items: center; justify-content: center;
+            transition: transform 0.18s ease;
+        }
+        .ms-review-card.is-open .ms-review-chev { transform: rotate(180deg); }
 
         /* ---- Action row (fixed footer) ---- */
         .ms-actions {

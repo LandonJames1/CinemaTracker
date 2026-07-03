@@ -420,318 +420,38 @@
             if (overlay) { overlay.style.display = 'none'; overlay.style.zIndex = ''; overlay.classList.remove('open'); }
         }
 
-        // ===== Movie poster viewer (Movie Details + followed users' reviews) =====
-        // Opened by clicking a poster in ANY list (the "Recs" list + every other list).
-        // The choice screen always shows: Movie Details + a Log/Update button, plus
-        // Watch Options + an inline reviewers list (people you follow who rated it) when
-        // available; tapping a reviewer opens their review.
-        let recsViewMovie = null;        // prefill row (title/genre/mpa/runtime/imdb/etc.)
-        let recsViewMovieId = '';        // the catalog movie id (for the Log/Update button)
-        let recsViewAlreadyRated = false;// has the current user already rated this movie?
-        let recsViewReviewers = [];      // [{ id, username, name, icon, row }]
-        let recsViewPlatforms = [];      // streaming platforms (the old "Watch Options")
-        let recsViewHasChoice = false;   // whether the choice screen applies
-        let recsViewState = 'choice';    // choice | details | reviewers | review | watch
-
-        async function openRecsMovieModal(movieId) {
+        // ===== Movie poster viewer (opens the full Movie Spotlight modal) =====
+        // Tapping a poster on a non-shared list (Recs / Bucket List / custom) opens the
+        // FULL Movie Spotlight modal directly — it already carries the Details / Synopsis /
+        // Cast / Where-to-Watch tabs AND the action footer (Log as New Entry / Rate Later /
+        // Update Ratings / Add to List / Recommend), so the old intermediate choice popup
+        // is no longer needed. Builds a spotlight-compatible movie object from the cached
+        // list prefill and seeds `watch_providers` from the list's known platforms so
+        // "Where to Watch" populates instantly, before the details fetch resolves.
+        function openListMovieSpotlight(movieId) {
             const mid = String(movieId || '').trim();
             if (!mid) return;
-            recsViewMovie = listsMoviePrefillById.get(mid) || null;
-            recsViewMovieId = mid;
-            recsViewAlreadyRated = false;
-            recsViewReviewers = [];
-
-            // Warm the Movie Spotlight details cache the INSTANT the poster is clicked,
-            // so the full-details popup ("Movie Details") opens with no spinner — the
-            // fetch runs in parallel with this modal's own data load, not after the user
-            // taps through. Fire-and-forget; prefetchMovieDetails dedupes + caches.
-            try {
-                const spotlightTmdbId = Number(recsViewMovie?.tmdb_id ?? recsViewMovie?.id);
-                if (Number.isFinite(spotlightTmdbId) && spotlightTmdbId > 0 && typeof prefetchMovieDetails === 'function') {
-                    prefetchMovieDetails(spotlightTmdbId).catch(() => {});
-                }
-            } catch (_) {}
-
-            // Candidates = people who recommended me this movie + people I follow.
-            const recommenders = (recByDataByMovieId.get(mid) || []).map(r => String(r?.id || '').trim()).filter(Boolean);
-            let followed = [];
-            try { await loadMyFollowingIds(); followed = Array.from(feedFollowingIds || []); } catch (_) {}
-            const myId = String(cachedAuthUser?.id || '').trim();
-            const candidates = Array.from(new Set([...recommenders, ...followed]
-                .map(x => String(x || '').trim()).filter(x => x && x !== myId)));
-
-            // Which of them actually rated this movie?
-            const rowByUser = new Map();
-            if (candidates.length) {
-                try {
-                    const { data } = await supabaseClient
-                        .from('Movie Ratings')
-                        .select('user_id, overall_rating, tier, watch_date, fav_quote, notes, sound_rating, pacing_rating, imagery_rating, acting_rating, plot_rating, dialogue_rating')
-                        .eq('movie_id', mid)
-                        .in('user_id', candidates);
-                    for (const row of (Array.isArray(data) ? data : [])) {
-                        const uid = String(row?.user_id || '').trim();
-                        if (uid) rowByUser.set(uid, row);
-                    }
-                } catch (_) {}
-            }
-
-            const reviewerIds = Array.from(rowByUser.keys());
-            // User info: seed from the recommender cache, then fetch any missing.
-            const infoById = new Map();
-            for (const r of (recByDataByMovieId.get(mid) || [])) {
-                const rid = String(r?.id || '').trim();
-                if (rid) infoById.set(rid, { id: rid, username: String(r?.username || '').trim(), icon: String(r?.icon || '').trim() });
-            }
-            const missing = reviewerIds.filter(id => !infoById.has(id));
-            if (missing.length) {
-                try {
-                    let us = null;
-                    try {
-                        const r1 = await supabaseClient.from('Users').select('id, username, display_name, icon').in('id', missing);
-                        if (r1.error) throw r1.error; us = r1.data;
-                    } catch (e1) {
-                        if (/column\s+"?icon"?\s+does\s+not\s+exist/i.test(String(e1?.message || e1))) {
-                            const r2 = await supabaseClient.from('Users').select('id, username, display_name').in('id', missing);
-                            if (!r2.error) us = r2.data;
-                        }
-                    }
-                    for (const u of (Array.isArray(us) ? us : [])) {
-                        const uid = String(u?.id || '').trim();
-                        if (uid) infoById.set(uid, { id: uid, username: String(u?.username || '').trim(), display_name: String(u?.display_name || '').trim(), icon: String(u?.icon || '').trim() });
-                    }
-                } catch (_) {}
-            }
-
-            recsViewReviewers = reviewerIds.map(uid => {
-                const info = infoById.get(uid) || { id: uid };
-                const username = String(info?.username || '').trim();
-                const name = String(info?.display_name || '').trim() || (username ? `@${username}` : 'User');
-                return { id: uid, username, name, icon: String(info?.icon || '').trim(), row: rowByUser.get(uid) };
-            });
-            // Streaming availability (the former standalone "Watch Options" button).
-            recsViewPlatforms = listsPlatformsByMovieId.get(mid) || [];
-            // The choice screen always applies now (it always offers Movie Details + the
-            // Log/Update button), so every sub-view gets a Back button.
-            recsViewHasChoice = true;
-
-            // Has the current user already rated this movie? Drives the Log/Update button
-            // label ("Log as New Entry" vs "Update Ratings"). Best-effort.
-            try {
-                const myId = String(cachedAuthUser?.id || '').trim();
-                recsViewAlreadyRated = myId ? await hasExistingMovieRating({ user_id: myId, movie_id: mid }) : false;
-            } catch (_) { recsViewAlreadyRated = false; }
-
-            const overlay = document.getElementById('recs-movie-overlay');
-            if (!overlay) return;
-            overlay.style.display = 'flex';
-            overlay.classList.add('open');
-
-            recsMovieRenderChoice();
-        }
-
-        function closeRecsMovieModal() {
-            const overlay = document.getElementById('recs-movie-overlay');
-            if (overlay) { overlay.style.display = 'none'; overlay.classList.remove('open'); }
-        }
-
-        function recsMovieBack() {
-            // The reviewer list now lives inline on the choice screen, so every sub-view
-            // (a review, watch options) goes back to the choice screen.
-            recsMovieRenderChoice();
-        }
-
-        function recsMovieSetBody(html, { title = 'Recommended Movie', showBack = false } = {}) {
-            const body = document.getElementById('recs-movie-body');
-            const titleEl = document.getElementById('recs-movie-title');
-            const backBtn = document.getElementById('recs-movie-back');
-            if (titleEl) titleEl.textContent = title;
-            if (backBtn) backBtn.style.display = showBack ? '' : 'none';
-            if (body) body.innerHTML = html;
-        }
-
-        function recsMovieRenderChoice() {
-            recsViewState = 'choice';
-
-            const actionBtn = (onclick, icon, label) => `
-                    <button type="button" class="recs-choice-btn" onclick="${onclick}">
-                        <span class="recs-choice-ico">${icon || ''}</span>
-                        <span class="recs-choice-label">${label}</span>
-                        <span class="recs-choice-chev">›</span>
-                    </button>`;
-
-            // Reviewers are now an inline, scrollable list right on the choice screen
-            // (no separate "User Reviews" pop-up). Tapping a person opens their review.
-            // The right-side "X%" score is tinted to the tier THAT reviewer gave it.
-            const reviewersSection = recsViewReviewers.length ? `
-                <div class="recs-reviewers-block">
-                    <div class="recs-reviewers-head">
-                        <span class="recs-choice-ico">${icons.users || ''}</span>
-                        <span>Reviews from people you follow</span>
-                    </div>
-                    <div class="recs-reviewers-scroll">
-                        ${recsViewReviewers.map(rv => {
-                            const score = dashFormatScoreWhole(rv?.row?.overall_rating);
-                            const tierLetter = dashTierLetterFromLabel(dashNormalizeTierLabel(rv?.row?.tier));
-                            const tierRgb = tierLetter ? `var(--tier-${tierLetter.toLowerCase()}-rgb)` : '107, 114, 128';
-                            const scoreStyle = `color:rgb(${tierRgb}); background:rgba(${tierRgb}, 0.16); border-color:rgba(${tierRgb}, 0.4);`;
-                            return `
-                            <button type="button" class="recs-reviewer-row" onclick="recsMovieRenderReview('${escapeHtml(rv.id)}')">
-                                ${renderUserIconHtml(rv.icon, 36)}
-                                <span class="recs-reviewer-name">${escapeHtml(rv.name)}</span>
-                                ${score ? `<span class="recs-reviewer-score" style="${scoreStyle}">${escapeHtml(score)}</span>` : ''}
-                                <span class="recs-choice-chev">›</span>
-                            </button>`;
-                        }).join('')}
-                    </div>
-                </div>` : '';
-
-            // Log/Update button — "Update Ratings" if the user already rated this movie,
-            // else "Log as New Entry". Opens the matching diary form for the movie.
-            const logLabel = recsViewAlreadyRated ? 'Update Ratings' : 'Log as New Entry';
-            const logIcon = recsViewAlreadyRated ? icons.edit3 : icons.plusCircle;
-
-            recsMovieSetBody(`
-                <div style="display:flex; flex-direction:column; gap:10px;">
-                    ${actionBtn('recsMovieRenderDetails()', icons.film, 'Movie Details')}
-                    ${recsViewPlatforms.length ? actionBtn('recsMovieRenderWatchOptions()', icons.tv, 'Watch Options') : ''}
-                    ${actionBtn('recsMovieLogEntry()', logIcon, logLabel)}
-                    ${!recsViewAlreadyRated ? actionBtn('recsMovieRateLater()', icons.clock, 'Rate Later') : ''}
-                </div>
-                ${reviewersSection}
-            `, { title: String(recsViewMovie?.title || 'Movie').trim() || 'Movie', showBack: false });
-        }
-
-        // Open the log/update form for the movie shown in the viewer. Re-checks the rating
-        // at click time so the right form opens even if the cached flag is stale.
-        function recsMovieLogEntry() {
-            const mid = String(recsViewMovieId || '').trim();
-            if (!mid) return;
-            (async () => {
-                const prefill = listsMoviePrefillById.get(mid) || null;
-                if (!prefill) { showToast('Movie details not available yet. Try Refresh.', { level: 'warn' }); return; }
-
-                let authedUser = null;
-                try { const res = await requireAuthOrThrow(); authedUser = res.user; }
-                catch (_) { openAuthModal(); return; }
-
-                const alreadyRated = await hasExistingMovieRating({ user_id: authedUser.id, movie_id: mid });
-                closeRecsMovieModal();
-
-                router.selectedMovie = { ...prefill, id: mid, detailsReadonly: false };
-                router.pendingTitle = String(prefill?.title || '').trim();
-                if (alreadyRated) await router.startUpdateRatings();
-                else await router.startNewEntry();
-            })().catch((err) => showToast(`Open entry failed: ${String(err?.message || err)}`, { level: 'warn' }));
-        }
-
-        // "Rate Later" → save the movie to the To Rate queue (watch date + method only),
-        // to finish rating from the Account → To Rate tab. Closes the viewer first.
-        function recsMovieRateLater() {
-            const mid = String(recsViewMovieId || '').trim();
-            const m = recsViewMovie || listsMoviePrefillById.get(mid) || {};
-            const movie = { ...m, tmdb_id: m?.tmdb_id, movie_id: (mid || m?.movie_id), id: (mid || m?.id) };
-            closeRecsMovieModal();
-            saveMovieForLater(movie);
-        }
-
-        // "Watch Options" → the streaming platforms the movie is available on (moved here
-        // from the old per-card "Watch Options" button).
-        function recsMovieRenderWatchOptions() {
-            recsViewState = 'watch';
-            // Dedupe by canonical service (no "Prime" four times) + order by popularity.
-            const canonMap = new Map();
-            (Array.isArray(recsViewPlatforms) ? recsViewPlatforms : []).forEach((p) => {
-                const raw = String(p || '').trim();
-                if (!raw) return;
-                const canon = platformCanonicalLabel(raw);
-                const key = canon.toLowerCase();
-                if (key && !canonMap.has(key)) canonMap.set(key, canon);
-            });
-            const platforms = Array.from(canonMap.values()).sort(comparePlatformsByPopularity);
-            const body = platforms.length ? `
-                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px;">
-                    ${platforms.map((p) => {
-                        const full = normalizePlatformName(p);
-                        const label = platformShortLabel(full) || full;
-                        const theme = platformBrandTheme(full);
-                        const pillStyle = `background: ${theme.bg}; border: 1px solid ${theme.border}; color: ${theme.text};`;
-                        return `
-                            <div style="display:flex; align-items:center; justify-content: center; padding: 0.7rem; border-radius: 0.85rem; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10);">
-                                <span style="display:inline-flex; align-items:center; padding: 0.28rem 0.6rem; border-radius: 999px; font-weight: 900; font-size: 0.88rem; line-height: 1; ${pillStyle}">${escapeHtml(label)}</span>
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
-            ` : `<div class="text-gray">No watch options found yet.</div>`;
-            recsMovieSetBody(body, { title: 'Watch Options', showBack: recsViewHasChoice });
-        }
-
-        // "Movie Details" — opens the FULL Home-page Movie Spotlight modal (backdrop hero +
-        // poster + Details/Synopsis/Cast tabs + action footer) so the in-list details view
-        // matches the Home search popup EXACTLY. It stacks ABOVE the choice popup, which is
-        // left open underneath so closing the spotlight returns you to the choice screen.
-        function recsMovieRenderDetails() {
-            const m = recsViewMovie || {};
+            const m = listsMoviePrefillById.get(mid) || {};
             if (!m || typeof openMovieSpotlight !== 'function') {
                 showToast('Movie details not available yet. Try Refresh.', { level: 'warn' });
                 return;
             }
             const tmdbId = Number(m?.tmdb_id ?? m?.id);
-            // Spotlight-compatible movie object built from the cached list prefill. The
-            // spotlight fetches full TMDB details by tmdb_id (backdrop / cast / director
-            // photo / release date / IMDb votes); the prefill values seed the hero + act
-            // as fallbacks. id stays the catalog movie id so the action buttons resolve.
+            const platforms = listsPlatformsByMovieId.get(mid) || [];
             const movie = {
                 ...m,
-                id: String(recsViewMovieId || m?.id || ''),
+                id: mid,
                 tmdb_id: Number.isFinite(tmdbId) && tmdbId > 0 ? tmdbId : undefined,
                 title: String(m?.title || '').trim(),
                 year: m?.year ?? m?.release_year ?? null,
                 poster_path: m?.poster_path || m?.posterPath || '',
                 genre: normalizeMovieFieldValue(m?.genre) || '',
                 imdb_rating_pct: (() => { const n = parsePercentLike(m?.imdb ?? m?.imdb_rating_pct ?? m?.imdb_pct ?? m?.imdb_rating, { imdb: true }); return (typeof n === 'number') ? n : undefined; })(),
+                watch_providers: Array.isArray(platforms) ? platforms : [],
             };
-            // Stack the spotlight overlay above the choice popup (both are .auth-overlay at
-            // z-index 200; the spotlight is earlier in the DOM so it'd otherwise be covered).
-            const ov = document.getElementById('movie-spotlight-overlay');
-            if (ov) ov.style.zIndex = '260';
             try { openMovieSpotlight(movie); } catch (e) {
                 showToast(`Open details failed: ${String(e?.message || e)}`, { level: 'warn' });
             }
-        }
-
-        function recsMovieRenderReview(userId) {
-            recsViewState = 'review';
-            const uid = String(userId || '').trim();
-            const rv = recsViewReviewers.find(x => String(x.id) === uid) || null;
-            const row = rv?.row || null;
-            const movieTitle = String(recsViewMovie?.title || 'this movie').trim();
-            if (!row) { recsMovieSetBody(`<div class="text-gray" style="padding:0.6rem;">No review found.</div>`, { title: 'Review', showBack: true }); return; }
-            const overall = dashFormatScoreWhole(row?.overall_rating);
-            const tierLabel = dashNormalizeTierLabel(row?.tier);
-            const watched = String(row?.watch_date || '').trim();
-            const quote = String(row?.fav_quote || '').trim();
-            const notes = String(row?.notes || '').trim();
-            const subs = [
-                ['Sound', dashFormatScoreWhole(row?.sound_rating)],
-                ['Pace', dashFormatScoreWhole(row?.pacing_rating)],
-                ['Imagery', dashFormatScoreWhole(row?.imagery_rating)],
-                ['Acting', dashFormatScoreWhole(row?.acting_rating)],
-                ['Plot', dashFormatScoreWhole(row?.plot_rating)],
-                ['Dialogue', dashFormatScoreWhole(row?.dialogue_rating)],
-            ].filter(x => String(x[1] || '').trim());
-            recsMovieSetBody(`
-                <div style="display:flex; align-items:center; gap:10px; margin-bottom:0.6rem;">
-                    ${renderUserIconHtml(rv?.icon, 30)}
-                    <div class="text-white" style="font-weight:800;">${escapeHtml(rv?.name || 'User')}</div>
-                </div>
-                ${(overall || tierLabel) ? `<div class="feed-metrics" style="margin-bottom:0.5rem;">${overall ? dashRenderHelpScore(overall) : ''}${tierLabel ? dashRenderHelpTier(tierLabel) : ''}</div>` : `<div class="text-xs text-gray">No rating recorded.</div>`}
-                ${watched ? `<div class="text-xs" style="color:rgba(255,255,255,0.55); margin-bottom:0.5rem;">Watched: ${escapeHtml(watched)}</div>` : ''}
-                ${subs.length ? `<div class="library-chip-row" style="margin-top:0.4rem;">${subs.map(([k, v]) => `<span class="dash-quote-pill">${escapeHtml(k)}: ${escapeHtml(v)}</span>`).join('')}</div>` : ''}
-                ${quote ? `<div style="margin-top:0.75rem;"><div class="text-xs text-gray" style="margin-bottom:0.25rem;">Favorite Quote</div><div class="text-white" style="line-height:1.4;">${escapeHtml(quote)}</div></div>` : ''}
-                ${notes ? `<div style="margin-top:0.75rem;"><div class="text-xs text-gray" style="margin-bottom:0.25rem;">Notes</div><div class="text-white review-notes-scroll" style="line-height:1.4; white-space:pre-wrap;">${escapeHtml(notes)}</div></div>` : ''}
-            `, { title: `${rv?.name || 'Review'} · ${movieTitle}`, showBack: true });
         }
 
         async function loadRecRecipients() {
@@ -3448,9 +3168,10 @@
                     }
 
                     // On EVERY other list (Recs, Bucket List, custom lists), a poster opens
-                    // the movie viewer (Movie Details / Watch Options / followed users'
-                    // reviews + a Log/Update button) instead of jumping straight to a form.
-                    openRecsMovieModal(mid).catch((err) => showToast(`Open failed: ${String(err?.message || err)}`, { level: 'warn' }));
+                    // the full Movie Spotlight modal directly (Details / Synopsis / Cast /
+                    // Where to Watch + the log/rate/list/recommend action footer) — no more
+                    // intermediate choice popup.
+                    openListMovieSpotlight(mid);
                     return;
                 }
 

@@ -260,3 +260,34 @@
             } catch (_) {}
             refreshNotifBadge();
         }
+
+        // Mark every unread Notifications row of the given type(s) read — the
+        // bridge that keeps the Activity bell in sync with the in-page "seen"
+        // surfaces. e.g. viewing the Feed "sees" the reviews, so their
+        // `new_review` rows should stop counting on the bell too (no need to
+        // ALSO open the Activity sheet + "Mark all read"). Called by markFeedSeen
+        // (`new_review`) / markRecsSeen (`recommendation`) in 05-feed-library.js.
+        // Optimistically clears any loaded rows + repaints, then persists + re-badges.
+        async function markNotificationsReadByType(types) {
+            try {
+                const list = Array.isArray(types) ? types.filter(Boolean) : [types].filter(Boolean);
+                if (!list.length) return;
+                if (!supabaseClient || typeof cachedIsAuthed === 'undefined' || !cachedIsAuthed) return;
+                const meId = String(cachedAuthUser?.id || '').trim();
+                if (!meId) return;
+                const nowIso = new Date().toISOString();
+                // Optimistic: clear locally-loaded rows of these types so an open
+                // sheet updates immediately (badge is reconciled by refreshNotifBadge).
+                let changed = false;
+                for (const n of notifItems) {
+                    if (!n.read_at && list.includes(n.type)) { n.read_at = nowIso; changed = true; }
+                }
+                if (changed) renderNotificationList();
+                await supabaseClient.from('Notifications')
+                    .update({ read_at: nowIso })
+                    .eq('user_id', meId)
+                    .is('read_at', null)
+                    .in('type', list);
+                refreshNotifBadge();
+            } catch (_) { /* table may not exist pre-migration */ }
+        }
