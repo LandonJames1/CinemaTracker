@@ -3,14 +3,21 @@ name: Seed daily games
 # Daily cron that seeds today's three game puzzles (spottle / rank / poster) into
 # "Game Daily" so every user gets the same puzzle. Idempotent — re-running won't
 # reseed a game already seeded for the day. The puzzle "day" boundary is decided
-# server-side in America/New_York, so this fires just after midnight ET.
+# server-side in America/Los_Angeles (Pacific), so the day rolls over at 12:00 AM PT.
+#
+# GitHub cron only understands UTC, and Pacific midnight is 07:00 UTC (PDT, summer)
+# or 08:00 UTC (PST, winter). We schedule BOTH times so exactly one of them fires
+# just after midnight PT year-round; the other lands on the already-seeded day and
+# no-ops (idempotent). The server computes the date at run time, so it always seeds
+# the correct Pacific day regardless of which entry fires.
 #
 # Also has workflow_dispatch so you can seed today's puzzles on demand for testing.
 # Reuses the same repo secrets as the IMDb refresh cron.
 
 on:
   schedule:
-    - cron: '5 5 * * *'   # 05:05 UTC ≈ 00:05/01:05 America/New_York
+    - cron: '10 7 * * *'   # 07:10 UTC = 00:10 PT during PDT (summer)
+    - cron: '10 8 * * *'   # 08:10 UTC = 00:10 PT during PST (winter)
   workflow_dispatch: {}
 
 jobs:

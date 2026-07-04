@@ -880,22 +880,35 @@ function applyMovieSetSourceToRule(rule, source, films) {
 // ---- Games: daily movie games (Games page, assets/js/25-games.js) ------------
 // Three daily games seeded server-side from the cached "Game Pool": spottle
 // (guess-the-movie via attribute feedback), rank (sort 4 by IMDb), poster
-// (un-blur). The puzzle "day" boundary is FIXED to America/New_York so every
-// user worldwide gets the same daily puzzle regardless of local timezone / the
-// UTC cron that seeds it.
+// (un-blur). The puzzle "day" boundary is FIXED to America/Los_Angeles (Pacific)
+// so every user worldwide gets the same daily puzzle regardless of local timezone /
+// the UTC cron that seeds it — the day rolls over at 12:00 AM Pacific.
 const GAME_LIST = ["spottle", "rank", "poster"];
 const GAME_MAX_GUESSES = { spottle: 10, poster: 6 };
-const GAME_POSTER_MAX_BLUR = 26; // px at zero correct guesses
+const GAME_POSTER_MAX_BLUR = 36; // px at zero guesses; steps to 0 exactly on the 6th guess
 const GAME_RANK_COUNT = 6;
-// Spottle: a helper hint (decade + primary genre of the answer) unlocks after
-// this many guesses. The button shows "Hint in N" until then.
+// RANK uses this FIXED set of 6 well-known films EVERY day (never rotates) so the
+// game doesn't burn through the pool. Curated for distinct IMDb ratings; must exist
+// in "Game Pool" (built by build_game_pool). Falls back to a deterministic pool
+// pick if any aren't present. tmdb: Shawshank / Godfather / Dark Knight / Inception /
+// The Matrix / Gladiator.
+const RANK_FIXED_TMDB_IDS = [278, 238, 155, 27205, 603, 98];
+// Spottle + Poster: a helper hint (decade + primary genre of the answer) unlocks
+// after this many guesses. The button shows "Hint in N" until then.
 const GAME_SPOTTLE_HINT_AFTER = 3;
+const GAME_POSTER_HINT_AFTER = 3;
+// The guesses-after threshold for each guess-based game, keyed by game name.
+const GAME_HINT_AFTER = { spottle: GAME_SPOTTLE_HINT_AFTER, poster: GAME_POSTER_HINT_AFTER };
+// Rank: the hint reveals the single highest-rated film (locks its #1 slot). Using
+// it costs this many points on submit (offsets the free correct placement).
+const GAME_RANK_HINT_PENALTY = 2;
 
-function gamePuzzleDateNY(d = new Date()) {
+function gamePuzzleDatePT(d = new Date()) {
   try {
-    // en-CA formats as YYYY-MM-DD; timeZone shifts wall-clock to New York.
+    // en-CA formats as YYYY-MM-DD; timeZone shifts wall-clock to Pacific so the
+    // puzzle "day" rolls over at 12:00 AM America/Los_Angeles.
     return new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/New_York",
+      timeZone: "America/Los_Angeles",
       year: "numeric", month: "2-digit", day: "2-digit",
     }).format(d);
   } catch (_) {
@@ -950,6 +963,51 @@ function tmdbToPoolRow(det, bucket) {
   };
 }
 
+// Resolve a spottle/poster GUESS movie to a pool-row-shaped object, allowing the
+// user to guess ANY movie on TMDB (not just the cached "Game Pool"). Order:
+//   1) the Game Pool row (fast, fully enriched) if we have it;
+//   2) else build one live from TMDB details via tmdbToPoolRow, filling the IMDb
+//      rating (for the SCORE tile) from the shared catalog ("Movie External
+//      Ratings") first and only falling back to OMDb — so common guesses don't
+//      each burn an OMDb call.
+// Returns null only when TMDB has no such movie.
+async function resolveGuessMovie(admin, tmdbId, tmdbToken, omdbKey) {
+  const id = Number(tmdbId);
+  if (!id) return null;
+  const { data: pooled } = await admin
+    .from("Game Pool").select("*").eq("tmdb_id", id).maybeSingle();
+  if (pooled) return pooled;
+
+  if (!tmdbToken) return null;
+  const det = await tmdbGetJson(
+    `movie/${id}`, { append_to_response: "credits,release_dates" }, tmdbToken);
+  const gm = tmdbToPoolRow(det, "guess");
+  if (!gm) return null;
+
+  // IMDb rating (0-100) for the SCORE tile: catalog first, then OMDb.
+  let imdb = null;
+  try {
+    const { data: mv } = await admin
+      .from("Movies").select("id").eq("tmdb_id", id).maybeSingle();
+    if (mv?.id) {
+      const { data: ext } = await admin
+        .from("Movie External Ratings").select("rating")
+        .eq("movie_id", mv.id).eq("source", "imdb").maybeSingle();
+      if (ext && ext.rating != null) imdb = Number(ext.rating);
+    }
+  } catch (_) { /* non-fatal — score tile just stays gray */ }
+  if (imdb == null && omdbKey) {
+    try {
+      const r = await fetchOmdbImdbRatingPercent({
+        imdb_id: gm.imdb_id, title: gm.title, year: gm.release_year, omdbApiKey: omdbKey,
+      });
+      if (r?.pct != null) imdb = Number(r.pct);
+    } catch (_) { /* non-fatal */ }
+  }
+  gm.imdb_rating = imdb;
+  return gm;
+}
+
 // Compact US$ box-office string, e.g. 710_000_000 → "$710M".
 function formatBoxOffice(n) {
   const v = Number(n);
@@ -960,9 +1018,10 @@ function formatBoxOffice(n) {
   return `$${Math.round(v)}`;
 }
 
-// A gentle spottle hint (unlocked after GAME_SPOTTLE_HINT_AFTER guesses): the
-// answer's decade + primary genre. Enough to narrow the field without giving it
-// away. Returned only once unlocked so it can't be read early.
+// A gentle movie hint (used by BOTH spottle + poster, unlocked after that game's
+// GAME_HINT_AFTER guesses): the answer's decade + primary genre. Enough to narrow
+// the field without giving it away. Returned only once unlocked so it can't be
+// read early.
 function spottleHint(a) {
   if (!a || typeof a !== "object") return null;
   const yr = Number(a.release_year);
@@ -992,8 +1051,8 @@ function spottleGuessFeedback(g, a) {
   // Box office (🟨 within $50M)
   const bc = cmpNum(g.box_office, a.box_office, 50e6);
   fb.box_office = { value: formatBoxOffice(g.box_office), status: bc.status, dir: bc.dir };
-  // Score = IMDb rating (stored 0-100; shown as NN/100; 🟨 within 5 pts)
-  const ic = cmpNum(g.imdb_rating, a.imdb_rating, 5);
+  // Score = IMDb rating (stored 0-100; shown as NN/100; 🟨 within 10 pts)
+  const ic = cmpNum(g.imdb_rating, a.imdb_rating, 10);
   fb.score = {
     value: Number(g.imdb_rating) > 0 ? `${Math.round(Number(g.imdb_rating))}/100` : "—",
     status: ic.status, dir: ic.dir,
@@ -1031,10 +1090,28 @@ function spottleGuessFeedback(g, a) {
   return fb;
 }
 
-// Points for a solved spottle/poster game — fewer guesses = more points.
-function gameGuessScore(solved, attempts, max) {
+// Points earned for a SOLVED spottle/poster game (0 if unsolved / gave up).
+//   spottle: 25 max, −2 per extra guess beyond the first, −1 if the hint was used.
+//   poster : 12 max, −2 per extra guess beyond the first, −1 if the hint was used.
+// (rank is scored separately in game_submit: 2 pts per movie in its correct slot.)
+function gameGuessScore(game, solved, attempts, usedHint) {
   if (!solved) return 0;
-  return Math.max(100, (max - attempts + 1) * 100);
+  const a = Math.max(1, Number(attempts) || 1);
+  if (game === "spottle") return Math.max(1, 25 - 2 * (a - 1) - (usedHint ? 1 : 0));
+  if (game === "poster") return Math.max(1, 12 - 2 * (a - 1) - (usedHint ? 1 : 0));
+  return 0;
+}
+
+// Best-effort cumulative game-points total on the user row (tracked over time).
+// Read-modify-write is fine here: a user only completes their own daily games.
+async function addUserGamePoints(admin, userId, delta) {
+  const d = Number(delta) || 0;
+  if (!d || !userId) return;
+  try {
+    const { data } = await admin.from("Users").select("game_points").eq("id", userId).maybeSingle();
+    const cur = Number(data?.game_points) || 0;
+    await admin.from("Users").update({ game_points: cur + d }).eq("id", userId);
+  } catch (_) { /* non-fatal — the per-result score is still stored in Game Results */ }
 }
 
 // Poster blur in px for the current attempt count (clears once the game is done).
@@ -1725,7 +1802,7 @@ Deno.serve(async (req) => {
     }
 
     // ---- Games: seed today's puzzles (cron job, no user session) --------------
-    // For each game with no row for today's date (America/New_York), picks movies
+    // For each game with no row for today's date (America/Los_Angeles), picks movies
     // from "Game Pool" and writes a "Game Daily" row whose payload holds the ANSWER
     // (server-only table). Idempotent. Gated by CRON_SECRET; run daily by
     // seed-daily-games.yml.
@@ -1736,7 +1813,7 @@ Deno.serve(async (req) => {
         return jsonResponse({ code: 401, message: "Invalid or missing cron secret." }, 401);
       }
       const force = !!body?.force;
-      const date = String(body?.date || "").trim() || gamePuzzleDateNY();
+      const date = String(body?.date || "").trim() || gamePuzzleDatePT();
       const RECENT_DAYS = 60;
 
       const { data: existingRows } = await supabaseAdmin
@@ -1792,23 +1869,35 @@ Deno.serve(async (req) => {
         seeded[game] = error ? `error: ${error.message}` : "seeded";
       }
 
-      // rank: 4 films with a meaningful IMDb spread (each ≥3 pts apart, 0-100).
+      // rank: the SAME fixed set of 6 films every day (never rotates) so we don't
+      // burn through the pool. Prefer the curated RANK_FIXED_TMDB_IDS; if any aren't
+      // in the pool, fall back to a DETERMINISTIC pool pick (top-by-votes, spread ≥3,
+      // no shuffle / no recency) so it's still identical day to day. Rank films are
+      // NOT added to usedIds — they're reused forever and never marked as used.
       if (alreadySeeded.has("rank") && !force) {
         seeded.rank = "exists";
       } else {
-        const picks = [];
-        for (const m of shuffle(recognizable)) {
-          if (picks.length >= GAME_RANK_COUNT) break;
-          if (usedIds.includes(Number(m.tmdb_id))) continue;
-          if (picks.every((p) => Math.abs(Number(p.imdb_rating) - Number(m.imdb_rating)) >= 3)) {
-            picks.push(m);
+        const byId = new Map(all.map((m) => [Number(m.tmdb_id), m]));
+        let picks = RANK_FIXED_TMDB_IDS
+          .map((id) => byId.get(Number(id)))
+          .filter((m) => m && Number(m.imdb_rating) > 0 && m.poster_path);
+        if (picks.length < GAME_RANK_COUNT) {
+          // Deterministic fallback — `all` is already ordered by imdb_votes desc.
+          picks = [];
+          for (const m of all) {
+            if (picks.length >= GAME_RANK_COUNT) break;
+            if (!(Array.isArray(m.genres) && m.genres.length && m.director)) continue;
+            if (!(Number(m.imdb_rating) > 0 && m.poster_path)) continue;
+            if (picks.some((p) => Number(p.tmdb_id) === Number(m.tmdb_id))) continue;
+            if (picks.every((p) => Math.abs(Number(p.imdb_rating) - Number(m.imdb_rating)) >= 3)) {
+              picks.push(m);
+            }
           }
         }
         if (picks.length < GAME_RANK_COUNT) {
-          seeded.rank = "insufficient_spread";
+          seeded.rank = "insufficient_pool";
         } else {
-          picks.forEach((m) => usedIds.push(Number(m.tmdb_id)));
-          const movies = picks.map((m) => ({
+          const movies = picks.slice(0, GAME_RANK_COUNT).map((m) => ({
             tmdb_id: Number(m.tmdb_id), title: m.title, release_year: m.release_year,
             poster_path: m.poster_path, imdb_rating: m.imdb_rating,
           }));
@@ -1841,7 +1930,7 @@ Deno.serve(async (req) => {
       const me = userData?.user || null;
       if (userErr || !me?.id) return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
 
-      const date = gamePuzzleDateNY();
+      const date = gamePuzzleDatePT();
       const { data: dailyRows } = await supabaseAdmin
         .from("Game Daily").select("game,payload").eq("puzzle_date", date);
       const { data: resRows } = await supabaseAdmin
@@ -1891,18 +1980,22 @@ Deno.serve(async (req) => {
           };
         } else if (game === "poster") {
           const done = solved || attempts >= max;
+          const gaveUp = Array.isArray(res?.guesses) && res.guesses.some((x) => x && x.gave_up);
           games.poster = {
-            max_guesses: max, attempts, solved, done,
+            max_guesses: max, attempts, solved, done, gave_up: gaveUp,
             poster_path: p?.answer?.poster_path || null,
             blur: gamePosterBlur(attempts, max, done),
             guesses: Array.isArray(res?.guesses) ? res.guesses : [],
             score: res?.score || 0,
             answer: done ? gameAnswerLite(p.answer) : null,
+            hint_after: GAME_POSTER_HINT_AFTER,
+            hint: (!done && attempts >= GAME_POSTER_HINT_AFTER) ? spottleHint(p.answer) : null,
             streak: streakFor("poster"),
           };
         } else if (game === "rank") {
           const movies = Array.isArray(p.movies) ? p.movies : [];
-          const done = !!res; // rank is one-shot
+          const gaveUp = Array.isArray(res?.guesses) && res.guesses.some((x) => x && x.gave_up);
+          const done = !!res; // rank is one-shot (a submit OR a give-up writes a row)
           // Strip imdb_rating + scramble for the unplayed board.
           const board = movies.map((m) => ({
             tmdb_id: m.tmdb_id, title: m.title, release_year: m.release_year, poster_path: m.poster_path,
@@ -1913,7 +2006,7 @@ Deno.serve(async (req) => {
           }
           const trueOrder = movies.slice().sort((a, b) => Number(b.imdb_rating) - Number(a.imdb_rating));
           games.rank = {
-            movies: board, done, solved, score: res?.score || 0,
+            movies: board, done, solved, gave_up: gaveUp, score: res?.score || 0,
             submitted_order: done && Array.isArray(res?.guesses) ? (res.guesses[0]?.order || null) : null,
             result: done ? trueOrder.map((m) => ({
               tmdb_id: m.tmdb_id, title: m.title, release_year: m.release_year,
@@ -1924,7 +2017,11 @@ Deno.serve(async (req) => {
         }
       }
 
-      return jsonResponse({ ok: true, date, games }, 200);
+      const { data: meRow } = await supabaseAdmin
+        .from("Users").select("game_points").eq("id", me.id).maybeSingle();
+      return jsonResponse({
+        ok: true, date, games, game_points: Number(meRow?.game_points) || 0,
+      }, 200);
     }
 
     // ---- Games: pool-scoped autocomplete for guess boxes (authenticated) ------
@@ -1988,7 +2085,7 @@ Deno.serve(async (req) => {
       const guessId = Number(body?.tmdb_id);
       if (!guessId) return jsonResponse({ ok: false, message: "Missing tmdb_id." }, 200);
 
-      const date = gamePuzzleDateNY();
+      const date = gamePuzzleDatePT();
       const { data: dailyRow } = await supabaseAdmin
         .from("Game Daily").select("payload").eq("puzzle_date", date).eq("game", game).maybeSingle();
       const answer = dailyRow?.payload?.answer;
@@ -2005,9 +2102,11 @@ Deno.serve(async (req) => {
         return jsonResponse({ ok: false, done: true, message: "Already played today." }, 200);
       }
 
-      const { data: gm } = await supabaseAdmin
-        .from("Game Pool").select("*").eq("tmdb_id", guessId).maybeSingle();
-      if (!gm) return jsonResponse({ ok: false, message: "That movie isn't a valid guess." }, 200);
+      // Allow ANY TMDB movie as a guess (not just the cached pool) — resolve it,
+      // building its attributes live from TMDB/OMDb when it's not already pooled.
+      const OMDB_API_KEY = Deno.env.get("OMDB_API_KEY");
+      const gm = await resolveGuessMovie(supabaseAdmin, guessId, TMDB_READ_ACCESS_TOKEN, OMDB_API_KEY);
+      if (!gm) return jsonResponse({ ok: false, message: "Couldn't find that movie. Try another." }, 200);
 
       attempts += 1;
       const correct = Number(guessId) === Number(answer.tmdb_id);
@@ -2018,7 +2117,8 @@ Deno.serve(async (req) => {
       });
       if (correct) solved = true;
       const done = solved || attempts >= max;
-      const score = gameGuessScore(solved, attempts, max);
+      const usedHint = (game === "spottle" || game === "poster") && !!body?.hint_used;
+      const score = gameGuessScore(game, solved, attempts, usedHint);
 
       const { error: upErr } = await supabaseAdmin.from("Game Results").upsert({
         user_id: me.id, puzzle_date: date, game, solved, attempts, score, guesses,
@@ -2026,12 +2126,16 @@ Deno.serve(async (req) => {
       }, { onConflict: "user_id,puzzle_date,game" });
       if (upErr) return jsonResponse({ ok: false, message: `Save failed: ${upErr.message}` }, 200);
 
+      // Bank the points to the user total exactly once — this is the guess that first
+      // reaches `done` (earlier guesses early-return above), so it can't double count.
+      if (done && score) await addUserGamePoints(supabaseAdmin, me.id, score);
+
       return jsonResponse({
         ok: true, correct, attempts, max_guesses: max, solved, done, score, feedback, guesses,
         blur: game === "poster" ? gamePosterBlur(attempts, max, done) : undefined,
         answer: done ? gameAnswerLite(answer) : undefined,
-        hint_after: game === "spottle" ? GAME_SPOTTLE_HINT_AFTER : undefined,
-        hint: (game === "spottle" && !done && attempts >= GAME_SPOTTLE_HINT_AFTER) ? spottleHint(answer) : undefined,
+        hint_after: GAME_HINT_AFTER[game],
+        hint: (!done && attempts >= (GAME_HINT_AFTER[game] || Infinity)) ? spottleHint(answer) : undefined,
       }, 200);
     }
 
@@ -2050,23 +2154,60 @@ Deno.serve(async (req) => {
       if (userErr || !me?.id) return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
 
       const game = String(body?.game || "").trim().toLowerCase();
-      if (game !== "spottle" && game !== "poster") {
+      if (!GAME_LIST.includes(game)) {
         return jsonResponse({ ok: false, message: "Unknown game." }, 200);
       }
-      const date = gamePuzzleDateNY();
+      const date = gamePuzzleDatePT();
       const { data: dailyRow } = await supabaseAdmin
         .from("Game Daily").select("payload").eq("puzzle_date", date).eq("game", game).maybeSingle();
-      const answer = dailyRow?.payload?.answer;
-      if (!answer) return jsonResponse({ ok: false, message: "No puzzle for today." }, 200);
+      const payload = dailyRow?.payload;
+      if (!payload) return jsonResponse({ ok: false, message: "No puzzle for today." }, 200);
 
-      const max = GAME_MAX_GUESSES[game] || 6;
       const { data: resRow } = await supabaseAdmin
         .from("Game Results").select("*")
         .eq("user_id", me.id).eq("puzzle_date", date).eq("game", game).maybeSingle();
+
+      // Rank is one-shot: a give-up writes an unsolved result row that reveals the
+      // correct order, exactly like a submit would (so it shows up as Done).
+      if (game === "rank") {
+        if (resRow) return jsonResponse({ ok: false, done: true, message: "Already played today." }, 200);
+        const movies = Array.isArray(payload?.movies) ? payload.movies : [];
+        if (!movies.length) return jsonResponse({ ok: false, message: "No puzzle for today." }, 200);
+        const trueOrder = movies.slice().sort((a, b) => Number(b.imdb_rating) - Number(a.imdb_rating));
+        const trueResult = trueOrder.map((m) => ({
+          tmdb_id: m.tmdb_id, title: m.title, release_year: m.release_year,
+          poster_path: m.poster_path, imdb_rating: m.imdb_rating,
+        }));
+        const { error: upErr } = await supabaseAdmin.from("Game Results").upsert({
+          user_id: me.id, puzzle_date: date, game, solved: false, attempts: 1, score: 0,
+          guesses: [{ gave_up: true }], completed_at: new Date().toISOString(),
+        }, { onConflict: "user_id,puzzle_date,game" });
+        if (upErr) return jsonResponse({ ok: false, message: `Save failed: ${upErr.message}` }, 200);
+        return jsonResponse({
+          ok: true, done: true, solved: false, gave_up: true, score: 0,
+          submitted_order: null, true_order: trueResult,
+        }, 200);
+      }
+
+      // spottle + poster: force attempts to max so the existing `done` logic resumes
+      // the finished state; record a gave_up marker in the guesses jsonb.
+      const answer = payload?.answer;
+      if (!answer) return jsonResponse({ ok: false, message: "No puzzle for today." }, 200);
+      const max = GAME_MAX_GUESSES[game] || 6;
       if (resRow?.solved || (resRow?.attempts || 0) >= max) {
         return jsonResponse({ ok: false, done: true, message: "Already played today." }, 200);
       }
       const guesses = Array.isArray(resRow?.guesses) ? resRow.guesses.slice() : [];
+      // For spottle, reveal the answer AS a fully-correct guess card (every tile
+      // green, poster + people shown) so the give-up screen displays the movie
+      // exactly as if it had been guessed right — not just its name in the banner.
+      if (game === "spottle") {
+        guesses.push({
+          tmdb_id: answer.tmdb_id, title: answer.title, release_year: answer.release_year,
+          poster_path: answer.poster_path, correct: true, revealed: true,
+          feedback: spottleGuessFeedback(answer, answer),
+        });
+      }
       guesses.push({ gave_up: true });
 
       const { error: upErr } = await supabaseAdmin.from("Game Results").upsert({
@@ -2080,6 +2221,38 @@ Deno.serve(async (req) => {
         score: 0, guesses, answer: gameAnswerLite(answer),
         blur: game === "poster" ? 0 : undefined,
       }, 200);
+    }
+
+    // ---- Games: reveal a hint for the RANK game (authenticated) ----------------
+    // Reveals ONLY the single highest-rated film (its correct #1 slot). The client
+    // places it at the top; using the hint costs GAME_RANK_HINT_PENALTY points on
+    // submit (client passes hint_used, exactly like spottle/poster trust it).
+    if (action === "game_hint") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const me = userData?.user || null;
+      if (userErr || !me?.id) return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+
+      const game = String(body?.game || "").trim().toLowerCase();
+      if (game !== "rank") return jsonResponse({ ok: false, message: "No hint for this game." }, 200);
+
+      const date = gamePuzzleDatePT();
+      const { data: dailyRow } = await supabaseAdmin
+        .from("Game Daily").select("payload").eq("puzzle_date", date).eq("game", "rank").maybeSingle();
+      const movies = Array.isArray(dailyRow?.payload?.movies) ? dailyRow.payload.movies : [];
+      if (!movies.length) return jsonResponse({ ok: false, message: "No puzzle for today." }, 200);
+
+      // Don't reveal after the game is already finished.
+      const { data: resRow } = await supabaseAdmin
+        .from("Game Results").select("id").eq("user_id", me.id).eq("puzzle_date", date).eq("game", "rank").maybeSingle();
+      if (resRow) return jsonResponse({ ok: false, done: true, message: "Already played today." }, 200);
+
+      const top = movies.slice().sort((a, b) => Number(b.imdb_rating) - Number(a.imdb_rating))[0];
+      return jsonResponse({ ok: true, game: "rank", position: 1, tmdb_id: Number(top.tmdb_id) }, 200);
     }
 
     // ---- Games: backfill box office + studio logo for the pool (cron) ----------
@@ -2150,7 +2323,7 @@ Deno.serve(async (req) => {
       if (userErr || !me?.id) return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
 
       const game = "rank";
-      const date = gamePuzzleDateNY();
+      const date = gamePuzzleDatePT();
       const { data: dailyRow } = await supabaseAdmin
         .from("Game Daily").select("payload").eq("puzzle_date", date).eq("game", game).maybeSingle();
       const movies = Array.isArray(dailyRow?.payload?.movies) ? dailyRow.payload.movies : [];
@@ -2179,17 +2352,23 @@ Deno.serve(async (req) => {
         && new Set(order).size === movies.length && order.every((id) => ids.has(id));
       if (!validPermutation) return jsonResponse({ ok: false, message: "Invalid ordering." }, 200);
 
-      // Score = 1 point per movie placed in its correct position.
+      // Score = 2 points per movie placed in its correct position, minus a flat
+      // penalty if the #1 hint was used (offsets the free correct placement).
       let correctPositions = 0;
       trueOrder.forEach((m, i) => { if (Number(order[i]) === Number(m.tmdb_id)) correctPositions++; });
       const solved = correctPositions === order.length;
-      const score = correctPositions;
+      const usedHint = !!body?.hint_used;
+      const score = Math.max(0, correctPositions * 2 - (usedHint ? GAME_RANK_HINT_PENALTY : 0));
 
       const { error: upErr } = await supabaseAdmin.from("Game Results").upsert({
         user_id: me.id, puzzle_date: date, game, solved, attempts: 1, score,
-        guesses: [{ order }], completed_at: new Date().toISOString(),
+        guesses: [{ order, hint_used: usedHint }], completed_at: new Date().toISOString(),
       }, { onConflict: "user_id,puzzle_date,game" });
       if (upErr) return jsonResponse({ ok: false, message: `Save failed: ${upErr.message}` }, 200);
+
+      // Bank the points to the user total (this handler early-returns above if a row
+      // already exists, so a resubmit can't double count).
+      if (score) await addUserGamePoints(supabaseAdmin, me.id, score);
 
       return jsonResponse({
         ok: true, done: true, solved, correct_positions: correctPositions,

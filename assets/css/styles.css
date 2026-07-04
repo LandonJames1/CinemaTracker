@@ -282,6 +282,24 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
+            gap: 0.4rem;
+        }
+        /* Little icon inside each desktop nav button (mirrors the mobile tab bar). */
+        .nav-link-ico {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+        }
+        .nav-link-ico svg {
+            width: 16px;
+            height: 16px;
+            display: block;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
         }
         /* Unread-notification badge (top-right of a nav button) */
         .nav-badge {
@@ -8334,6 +8352,7 @@
         .nav-more-item {
             text-align: left; padding: 10px 12px; border-radius: 10px; color: #e7e7ea;
             font-size: 0.92rem; background: transparent; border: none; cursor: pointer; width: 100%;
+            display: flex; align-items: center; gap: 0.55rem;
         }
         .nav-more-item:hover { background: rgba(255,255,255,0.08); }
         body[data-page="discover"]    #nav-more .nav-more-btn,
@@ -8378,7 +8397,6 @@
         .games-card.status-solved .games-status-pill { background: color-mix(in srgb, #22c55e 30%, #202024); color: #bbf7d0; }
         .games-card.status-progress .games-status-pill { background: color-mix(in srgb, var(--brand, #14b8a6) 30%, #202024); color: #fff; }
         .games-card.status-done .games-status-pill { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.7); }
-        .games-streak { font-size: 0.82rem; font-weight: 700; color: #fdba74; }
 
         /* Play surface shell — centered column on all widths */
         .games-play { margin: 4px auto 0; max-width: 680px; }
@@ -8390,7 +8408,6 @@
         }
         .games-back:hover { border-color: var(--brand, #14b8a6); }
         .games-back-caret { font-size: 1.1em; line-height: 1; }
-        .games-play-title { font-size: 1.15rem; font-weight: 700; color: #fff; }
 
         /* Guess box (spottle + poster) */
         .games-guess { position: relative; margin-top: 16px; max-width: 680px; }
@@ -8449,17 +8466,18 @@
         .spottle-hint-reveal strong { color: #fff; }
 
         /* Spottle guess card (poster + details on top, people underneath) */
-        .spottle-board { display: flex; flex-direction: column; gap: 14px; align-items: center; }
+        .spottle-board { display: flex; flex-direction: column; gap: 14px; align-items: center; margin-top: 16px; }
         .spottle-guess-card {
             display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 680px; padding: 16px;
             background: #0e1622; border: 1px solid #1e2a3a; border-radius: 16px;
         }
         .spottle-guess-card.is-correct { border-color: #22c55e; box-shadow: 0 0 0 1px #22c55e inset; }
-        .spottle-guess-top { display: flex; gap: 16px; align-items: flex-start; }
+        /* Title + genres sit full-width ABOVE this row; here the poster + KPI tiles sit
+           side by side and STRETCH to equal height so their bottom edges line up. */
+        .spottle-guess-top { display: flex; gap: 16px; align-items: stretch; }
         .spottle-guess-poster { width: 104px; flex: 0 0 104px; height: 156px; object-fit: cover;
             border-radius: 8px; background: #101826; align-self: flex-start; }
         .spottle-guess-poster-empty { background: #16202e; }
-        .spottle-guess-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
         .spottle-guess-title { font-size: 1.4rem; font-weight: 800; color: #fff; line-height: 1.1; }
         /* Genre pills */
         .spottle-genres { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -8468,9 +8486,12 @@
             background: #1b2738; color: #cbd5e1;
         }
         .spottle-genre-pill.is-match { background: #1f9d57; color: #eafff2; }
-        /* Attribute tiles: 3-col grid, STUDIO spans both rows on the right */
+        /* Attribute tiles: 3-col grid, STUDIO spans both rows on the right. `flex:1`
+           fills the width beside the poster; `1fr 1fr` rows split the stretched height
+           so the two tile rows always reach the poster's bottom edge. */
         .spottle-tiles {
-            display: grid; grid-template-columns: 1fr 1fr 1.15fr; grid-template-rows: auto auto; gap: 8px;
+            flex: 1; min-width: 0; display: grid;
+            grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 8px;
         }
         .spottle-tile {
             display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
@@ -8486,7 +8507,7 @@
         .spottle-tile-val { font-size: 0.98rem; font-weight: 800; color: #fff; display: inline-flex;
             align-items: baseline; gap: 2px; }
         .spottle-dir { font-size: 0.85em; opacity: 0.85; }
-        .spottle-studio-logo { max-width: 82%; max-height: 40px; object-fit: contain; filter: brightness(0) invert(1); }
+        .spottle-studio-logo { max-width: 78%; max-height: 34px; object-fit: contain; filter: brightness(0) invert(1); }
         .spottle-tile.is-green .spottle-studio-logo { filter: brightness(0) invert(1); }
         .spottle-studio-name { font-size: 0.86rem; }
         /* People row: Director · Lead Actor · Supporting Cast */
@@ -8508,40 +8529,115 @@
         .spottle-person-name { font-size: 0.68rem; text-align: center; color: #dbe5f0; line-height: 1.15; }
         .spottle-person.is-green .spottle-person-name { color: #bbf7d0; }
 
-        /* Poster blur */
-        .poster-stage { display: flex; justify-content: center; margin: 8px 0 16px; }
-        .poster-frame { width: 260px; max-width: 70vw; aspect-ratio: 2/3; border-radius: 16px; overflow: hidden; background: #16161a; }
-        .poster-img { width: 100%; height: 100%; object-fit: cover; transition: filter 0.4s ease; }
+        /* ============================================================
+           Poster Blur — cinematic reveal + animated wrong-guess feed
+           ============================================================ */
+        .poster-play { display: flex; flex-direction: column; align-items: center; max-width: 680px; margin: 0 auto; }
+        /* Guesses-remaining pips */
+        .poster-progress { display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 6px 0 14px; }
+        .poster-pips { display: flex; gap: 8px; }
+        .poster-pip {
+            width: 11px; height: 11px; border-radius: 50%; background: rgba(255,255,255,0.14);
+            border: 1px solid rgba(255,255,255,0.18); transition: background 0.3s ease, transform 0.3s ease;
+        }
+        .poster-pip.is-used { background: #ef4444; border-color: #ef4444; box-shadow: 0 0 10px rgba(239,68,68,0.5); }
+        .poster-pip.is-correct { background: #22c55e; border-color: #22c55e; box-shadow: 0 0 10px rgba(34,197,94,0.55); }
+        .poster-left-label { font-size: 0.82rem; font-weight: 700; letter-spacing: 0.02em; color: rgba(255,255,255,0.6); text-transform: uppercase; }
+        /* Poster stage */
+        .poster-stage { display: flex; justify-content: center; margin: 0 0 18px; }
+        .poster-frame {
+            position: relative; width: 216px; max-width: 58vw; aspect-ratio: 2/3; border-radius: 18px;
+            overflow: hidden; background: #16161a; border: 1px solid rgba(255,255,255,0.08);
+            box-shadow: 0 22px 50px rgba(0,0,0,0.55);
+        }
+        .poster-frame.is-revealed { border-color: #22c55e; box-shadow: 0 0 0 2px #22c55e, 0 22px 50px rgba(0,0,0,0.55); animation: posterReveal 0.6s ease; }
+        @keyframes posterReveal { 0% { transform: scale(0.96); } 55% { transform: scale(1.02); } 100% { transform: scale(1); } }
+        .poster-img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.06);
+            transition: filter 0.7s cubic-bezier(0.22,1,0.36,1); }
+        /* Subtle mystery vignette while the poster is still blurred */
+        .poster-scrim { position: absolute; inset: 0; pointer-events: none;
+            background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.5) 100%); }
         .poster-missing { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.4); }
-        .poster-guesses { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; justify-content: center; }
-        .poster-guess-chip { font-size: 0.82rem; padding: 5px 10px; border-radius: 999px; background: #3a3a40; color: #e7e7ea; }
-        .poster-guess-chip.is-correct { background: #16713b; color: #bbf7d0; }
+        /* Wrong/right guess feed */
+        .poster-guesses { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 460px; margin-top: 16px; }
+        .poster-guess-row {
+            display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-radius: 12px;
+            background: #17171c; border: 1px solid rgba(255,255,255,0.07);
+        }
+        .poster-guess-row.is-wrong { border-color: rgba(239,68,68,0.35); background: color-mix(in srgb, #ef4444 9%, #17171c); }
+        .poster-guess-row.is-correct { border-color: #22c55e; background: color-mix(in srgb, #22c55e 12%, #17171c); }
+        .poster-guess-row.is-new { animation: posterGuessIn 0.42s cubic-bezier(0.22,1,0.36,1); }
+        .poster-guess-row.is-new.is-wrong { animation: posterGuessIn 0.42s cubic-bezier(0.22,1,0.36,1), posterShake 0.4s 0.12s ease; }
+        @keyframes posterGuessIn { 0% { opacity: 0; transform: translateY(-14px) scale(0.97); } 100% { opacity: 1; transform: none; } }
+        @keyframes posterShake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(5px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
+        .poster-guess-mark {
+            flex: 0 0 26px; width: 26px; height: 26px; border-radius: 50%; display: inline-flex;
+            align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 800; color: #fff;
+        }
+        .poster-guess-row.is-wrong .poster-guess-mark { background: #ef4444; }
+        .poster-guess-row.is-correct .poster-guess-mark { background: #22c55e; }
+        .poster-guess-name { flex: 1; min-width: 0; color: #fff; font-weight: 600; font-size: 0.95rem;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .poster-guess-tag { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+        .poster-guess-row.is-wrong .poster-guess-tag { color: #fca5a5; }
+        .poster-guess-row.is-correct .poster-guess-tag { color: #86efac; }
 
-        /* Rank */
-        .rank-hint { font-size: 0.9rem; color: rgba(255,255,255,0.7); margin-bottom: 12px; }
-        .rank-list { display: flex; flex-direction: column; gap: 8px; }
+        /* ============================================================
+           Rank It — polished cards, gradient rank badges, real button
+           ============================================================ */
+        .rank-hint { font-size: 0.92rem; color: rgba(255,255,255,0.72); margin-bottom: 14px; line-height: 1.4; }
+        .rank-hint strong { color: #fff; }
+        .rank-list { display: flex; flex-direction: column; gap: 10px; }
         .rank-row, .rank-result-row {
-            display: flex; align-items: center; gap: 12px; background: #1d1d22; border-radius: 12px;
-            padding: 8px 12px; border: 1px solid rgba(255,255,255,0.06);
+            display: flex; align-items: center; gap: 14px; background: #17171c; border-radius: 14px;
+            padding: 10px 14px; border: 1px solid rgba(255,255,255,0.08);
+            transition: border-color 0.14s ease, box-shadow 0.14s ease, transform 0.1s ease, background 0.14s ease;
         }
         .rank-row { touch-action: none; cursor: grab; user-select: none; }
-        .rank-row.rank-dragging { cursor: grabbing; opacity: 0.95; box-shadow: 0 16px 34px rgba(0,0,0,0.5);
+        .rank-row:hover { border-color: rgba(255,255,255,0.2); }
+        .rank-row.rank-dragging { cursor: grabbing; background: #1f1f27; box-shadow: 0 20px 40px rgba(0,0,0,0.6);
             border-color: var(--brand, #14b8a6); position: relative; z-index: 5; }
-        .rank-grip { color: rgba(255,255,255,0.35); font-size: 1.1rem; line-height: 1; cursor: grab; }
-        .rank-result-row.is-correct { border-color: #22c55e; }
-        .rank-result-row.is-wrong { border-color: rgba(239,68,68,0.5); }
-        .rank-num { width: 22px; text-align: center; font-weight: 800; color: var(--brand, #14b8a6); }
-        .rank-poster { width: 40px; height: 60px; object-fit: cover; border-radius: 6px; background: #16161a; }
-        .rank-title { flex: 1; color: #fff; font-size: 0.95rem; }
-        .rank-imdb { font-weight: 800; color: #fbbf24; }
-        .rank-moves { display: flex; flex-direction: column; gap: 3px; }
-        .rank-move {
-            width: 30px; height: 24px; border-radius: 7px; background: #2a2a30; border: 1px solid rgba(255,255,255,0.1);
-            color: #e7e7ea; cursor: pointer; font-size: 0.72rem; line-height: 1;
+        .rank-grip { color: rgba(255,255,255,0.28); font-size: 1.2rem; line-height: 1; cursor: grab; letter-spacing: -2px; }
+        /* While the submitted order slides into the correct order, freeze interaction
+           and fade the drag affordances (the cards are mid-flight, not editable). */
+        .rank-list.rank-revealing { pointer-events: none; }
+        .rank-list.rank-revealing .rank-grip,
+        .rank-list.rank-revealing .rank-moves { opacity: 0; transition: opacity 0.2s ease; }
+        .rank-result-row.is-correct { border-color: #22c55e; background: color-mix(in srgb, #22c55e 10%, #17171c); }
+        .rank-result-row.is-wrong { border-color: rgba(239,68,68,0.4); background: color-mix(in srgb, #ef4444 7%, #17171c); }
+        .rank-num {
+            flex: 0 0 30px; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 50%; font-weight: 800; font-size: 0.95rem; color: #fff;
+            background: linear-gradient(135deg, var(--brand, #14b8a6), var(--brand-2, #6366f1));
+            box-shadow: 0 3px 10px rgba(0,0,0,0.35);
         }
-        .rank-move:disabled { opacity: 0.35; cursor: default; }
-        .rank-submit { margin-top: 14px; }
-        .rank-result-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+        .rank-poster { width: 46px; height: 69px; flex: 0 0 46px; object-fit: cover; border-radius: 9px; background: #16161a; }
+        .rank-title { flex: 1; min-width: 0; color: #fff; font-size: 0.98rem; font-weight: 600; line-height: 1.25; }
+        .rank-imdb { font-weight: 800; color: #fbbf24; background: rgba(251,191,36,0.13); padding: 5px 11px;
+            border-radius: 999px; font-size: 0.9rem; white-space: nowrap; }
+        .rank-moves { display: flex; flex-direction: column; gap: 5px; }
+        .rank-move {
+            width: 34px; height: 26px; border-radius: 9px; background: #26262e; border: 1px solid rgba(255,255,255,0.1);
+            color: #cbd5e1; cursor: pointer; font-size: 0.7rem; line-height: 1; display: inline-flex;
+            align-items: center; justify-content: center; transition: background 0.12s ease, color 0.12s ease, transform 0.1s ease;
+        }
+        .rank-move:hover:not(:disabled) { background: var(--brand, #14b8a6); color: #fff; border-color: var(--brand, #14b8a6); }
+        .rank-move:active:not(:disabled) { transform: scale(0.92); }
+        .rank-move:disabled { opacity: 0.3; cursor: default; }
+        .rank-submit {
+            margin-top: 20px; width: 100%; padding: 15px 22px; border: none; border-radius: 14px;
+            background: linear-gradient(135deg, var(--brand, #14b8a6), var(--brand-2, #6366f1));
+            color: #fff; font-size: 1rem; font-weight: 800; letter-spacing: 0.02em; cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+            box-shadow: 0 12px 28px rgba(0,0,0,0.4);
+            transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+        }
+        .rank-submit svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.4;
+            stroke-linecap: round; stroke-linejoin: round; }
+        .rank-submit:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 18px 38px rgba(0,0,0,0.5); filter: brightness(1.06); }
+        .rank-submit:active:not(:disabled) { transform: translateY(0); }
+        .rank-submit:disabled { opacity: 0.6; cursor: default; }
+        .rank-result-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
 
         /* Result banners */
         .games-result-banner {
@@ -8549,26 +8645,95 @@
             border: 1px solid rgba(255,255,255,0.10); color: #e7e7ea; font-size: 0.95rem;
         }
         .games-result-banner.is-win { border-color: #22c55e; background: color-mix(in srgb, #22c55e 12%, #1d1d22); }
-        .games-donenote { font-size: 0.82rem; color: rgba(255,255,255,0.55); margin-top: 6px; }
+        /* Cumulative total shown atop the games hub */
+        .games-points-total {
+            display: flex; align-items: center; gap: 8px; margin: 0 0 16px; padding: 12px 16px;
+            border-radius: 14px; background: #1d1d22; border: 1px solid rgba(255,255,255,0.09);
+        }
+        .games-points-total-ico { font-size: 1.15rem; }
+        .games-points-total-num { font-size: 1.3rem; font-weight: 900;
+            background: linear-gradient(135deg, var(--brand, #14b8a6), var(--brand-2, #6366f1));
+            -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+        .games-points-total-lbl { font-size: 0.86rem; font-weight: 700; color: rgba(255,255,255,0.6);
+            text-transform: uppercase; letter-spacing: 0.03em; }
+
+        /* Post-game network comparison — how you + your circle did on today's puzzle */
+        .games-compare {
+            margin-top: 20px; padding: 14px 16px 8px; border-radius: 16px;
+            background: #1d1d22; border: 1px solid rgba(255,255,255,0.09);
+            animation: gamesCompareIn 0.4s cubic-bezier(0.22,1,0.36,1);
+        }
+        @keyframes gamesCompareIn { 0% { opacity: 0; transform: translateY(8px); } 100% { opacity: 1; transform: translateY(0); } }
+        .games-compare-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+        .games-compare-title { font-size: 0.95rem; font-weight: 800; color: #f2f2f4;
+            letter-spacing: 0.01em; }
+        .games-compare-loading, .games-compare-empty { font-size: 0.85rem;
+            color: rgba(255,255,255,0.55); padding: 6px 2px 10px; }
+        .games-compare-solo { font-size: 0.8rem; color: rgba(255,255,255,0.55);
+            margin: 8px 2px 4px; line-height: 1.4; }
+        .games-compare-list { display: flex; flex-direction: column; gap: 6px; }
+        .games-compare-row {
+            display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+            border-radius: 12px; background: #202024; border: 1px solid transparent;
+        }
+        .games-compare-row.is-self {
+            border-color: color-mix(in srgb, var(--brand, #14b8a6) 55%, transparent);
+            background: color-mix(in srgb, var(--brand, #14b8a6) 12%, #202024);
+        }
+        .games-compare-rank { flex: 0 0 24px; text-align: center; font-size: 0.9rem;
+            font-weight: 800; color: rgba(255,255,255,0.55); }
+        .games-compare-medal { flex: 0 0 24px; text-align: center; font-size: 1.1rem; line-height: 1; }
+        .games-compare-avatar { flex: 0 0 auto; display: inline-flex; }
+        .games-compare-avatar img, .games-compare-avatar > span {
+            width: 34px; height: 34px; border-radius: 50%; object-fit: cover; }
+        .games-compare-who { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+        .games-compare-name { font-size: 0.9rem; font-weight: 700; color: #ececee;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .games-compare-when { font-size: 0.72rem; color: rgba(255,255,255,0.45); }
+        .games-compare-result { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+        .games-compare-stat { font-size: 0.82rem; font-weight: 700; padding: 3px 9px;
+            border-radius: 999px; white-space: nowrap; }
+        .games-compare-stat.is-ok { color: #86efac;
+            background: color-mix(in srgb, #22c55e 16%, #202024); }
+        .games-compare-stat.is-miss { color: rgba(255,255,255,0.6);
+            background: #2a2a30; }
+        .games-compare-pts { font-size: 0.78rem; font-weight: 800; color: rgba(255,255,255,0.5);
+            min-width: 26px; text-align: right; }
 
         @media (max-width: 768px) {
+            /* Task 3 — a small side buffer so NO game surface sits flush against the
+               window edge (the full-bleed #app-root .container rule strips it). Higher
+               specificity + later source order than that rule, so this wins. */
+            #app-root .games-container { padding-left: 12px !important; padding-right: 12px !important; }
             .games-grid { grid-template-columns: 1fr; gap: 12px; }
             .games-card { min-height: 0; flex-direction: row; align-items: center; }
             .games-card-foot { width: auto; margin-left: auto; flex-direction: column; align-items: flex-end; }
             .games-card-desc { display: none; }
-            .spottle-guess-card { gap: 12px; padding: 12px; }
+            .spottle-guess-card { gap: 10px; padding: 12px; }
             .spottle-guess-top { gap: 12px; }
-            .spottle-guess-poster { width: 84px; flex-basis: 84px; height: 126px; }
+            /* Poster stretches to match the tile stack so their bottoms line up. */
+            .spottle-guess-poster { width: 84px; flex: 0 0 84px; height: 126px; align-self: flex-start; }
             .spottle-guess-title { font-size: 1.15rem; }
-            .spottle-guess-info { gap: 10px; }
-            .spottle-tiles { gap: 6px; }
+            /* Mockup reflow: YEAR · GROSS · SCORE across the top, RATED + a wide STUDIO
+               tile across the bottom (studio drops from the right column to bottom-span). */
+            .spottle-tiles { gap: 6px; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+            .spottle-tiles > .spottle-tile-studio { grid-column: 2 / span 2; grid-row: 2; }
+            .spottle-tiles > .spottle-tile:nth-child(4) { grid-column: 1; grid-row: 2; } /* Rated */
+            .spottle-tiles > .spottle-tile:nth-child(5) { grid-column: 3; grid-row: 1; } /* Score */
             .spottle-tile { padding: 8px 3px; }
             .spottle-tile-val { font-size: 0.82rem; }
             .spottle-tile-label { font-size: 0.56rem; }
-            .spottle-people { gap: 12px; }
-            .spottle-person { width: 50px; }
-            .spottle-person-img { width: 42px; height: 42px; }
-            .spottle-person-row { gap: 8px; }
+            /* Keep Director + Lead + all Supporting headshots on ONE line no matter
+               how many there are — never wrap to a second row. Avatars size down with
+               the viewport (clamp) so up to 6 always fit; names below may wrap. */
+            .spottle-people { gap: 6px; flex-wrap: nowrap; align-items: flex-start; justify-content: space-between; }
+            .spottle-person-group { gap: 5px; }
+            .spottle-person-group-support { flex: 1 1 auto; min-width: 0; }
+            .spottle-person-row { gap: 4px; flex-wrap: nowrap; justify-content: flex-start; }
+            .spottle-person { width: clamp(32px, 11vw, 46px); gap: 3px; }
+            .spottle-person-img { width: clamp(32px, 11vw, 46px); height: clamp(32px, 11vw, 46px); }
+            .spottle-person-name { font-size: 0.58rem; }
+            .spottle-person-label { font-size: 0.55rem; }
             .spottle-topbar, .spottle-topbtn { font-size: 0.8rem; }
             .spottle-topbtn { padding: 7px 11px; }
         }
