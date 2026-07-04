@@ -281,6 +281,39 @@
             overlay.classList.remove('open');
         }
 
+        // Desktop top-nav "More" dropdown (secondary routes: Discover / AI Picks /
+        // Data Dash / Games / Leaderboard). Mirrors the mobile More sheet.
+        function toggleNavMore(event) {
+            if (event) { try { event.stopPropagation(); } catch (_) {} }
+            const menu = document.getElementById('nav-more-menu');
+            const btn = document.querySelector('#nav-more .nav-more-btn');
+            if (!menu) return;
+            const open = menu.classList.toggle('open');
+            if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            // Close on the next outside click.
+            if (open) {
+                setTimeout(() => {
+                    document.addEventListener('click', _navMoreOutsideClose, { once: true });
+                }, 0);
+            }
+        }
+        function closeNavMore() {
+            const menu = document.getElementById('nav-more-menu');
+            const btn = document.querySelector('#nav-more .nav-more-btn');
+            if (menu) menu.classList.remove('open');
+            if (btn) btn.setAttribute('aria-expanded', 'false');
+        }
+        function _navMoreOutsideClose(e) {
+            const wrap = document.getElementById('nav-more');
+            if (wrap && wrap.contains(e.target)) {
+                // Click was inside — re-arm the outside listener (a menu item's own
+                // onclick already calls closeNavMore).
+                document.addEventListener('click', _navMoreOutsideClose, { once: true });
+                return;
+            }
+            closeNavMore();
+        }
+
         // True only at phone widths — the native-feel touches below are mobile-only.
         function isMobileViewport() {
             try { return window.matchMedia('(max-width: 768px)').matches; } catch (_) { return false; }

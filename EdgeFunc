@@ -877,6 +877,132 @@ function applyMovieSetSourceToRule(rule, source, films) {
   return rule;
 }
 
+// ---- Games: daily movie games (Games page, assets/js/25-games.js) ------------
+// Three daily games seeded server-side from the cached "Game Pool": spottle
+// (guess-the-movie via attribute feedback), rank (sort 4 by IMDb), poster
+// (un-blur). The puzzle "day" boundary is FIXED to America/New_York so every
+// user worldwide gets the same daily puzzle regardless of local timezone / the
+// UTC cron that seeds it.
+const GAME_LIST = ["spottle", "rank", "poster"];
+const GAME_MAX_GUESSES = { spottle: 6, poster: 6 };
+const GAME_POSTER_MAX_BLUR = 26; // px at zero correct guesses
+const GAME_RANK_COUNT = 4;
+
+function gamePuzzleDateNY(d = new Date()) {
+  try {
+    // en-CA formats as YYYY-MM-DD; timeZone shifts wall-clock to New York.
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(d);
+  } catch (_) {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
+// Turn a TMDB movie details response (fetched with
+// append_to_response=credits,release_dates) into a "Game Pool" row.
+function tmdbToPoolRow(det, bucket) {
+  if (!det || !det.id) return null;
+  const genres = Array.isArray(det.genres)
+    ? det.genres.map((g) => String(g?.name || "").trim()).filter(Boolean) : [];
+  const crew = Array.isArray(det?.credits?.crew) ? det.credits.crew : [];
+  const director = (crew.find((c) => String(c?.job || "") === "Director")?.name || "").trim() || null;
+  const cast = Array.isArray(det?.credits?.cast) ? det.credits.cast : [];
+  const topCast = cast.slice(0, 5).map((c) => String(c?.name || "").trim()).filter(Boolean);
+  let mpa = null;
+  const rd = Array.isArray(det?.release_dates?.results) ? det.release_dates.results : [];
+  const us = rd.find((r) => String(r?.iso_3166_1 || "") === "US");
+  if (us && Array.isArray(us.release_dates)) {
+    const cert = us.release_dates.map((x) => String(x?.certification || "").trim()).find((c) => c);
+    if (cert) mpa = cert;
+  }
+  const yr = String(det?.release_date || "").slice(0, 4);
+  return {
+    tmdb_id: Number(det.id),
+    imdb_id: det?.imdb_id || null,
+    title: String(det?.title || det?.name || "").trim() || null,
+    release_year: yr ? Number(yr) : null,
+    runtime_minutes: Number(det?.runtime) > 0 ? Math.round(Number(det.runtime)) : null,
+    mpa_rating: mpa,
+    poster_path: det?.poster_path || null,
+    genres,
+    director,
+    top_cast: topCast,
+    popularity: Number(det?.popularity) || null,
+    bucket,
+  };
+}
+
+// Spottle attribute-closeness feedback comparing a GUESS pool row to the ANSWER.
+// Each field → { value, status: green|yellow|gray, dir?: up|down } where dir
+// points from the guess toward the answer (higher/lower).
+function spottleGuessFeedback(g, a) {
+  const fb = {};
+  const cmpNum = (gv, av, near) => {
+    const x = Number(gv), y = Number(av);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return { status: "gray", dir: null };
+    if (x === y) return { status: "green", dir: null };
+    return { status: Math.abs(x - y) <= near ? "yellow" : "gray", dir: y > x ? "up" : "down" };
+  };
+  // Year (🟨 within 5 yr)
+  const yc = cmpNum(g.release_year, a.release_year, 5);
+  fb.year = { value: g.release_year ?? "—", status: yc.status, dir: yc.dir };
+  // Genre overlap
+  const aset = new Set((a.genres || []).map((x) => String(x).toLowerCase()));
+  const gArr = (g.genres || []).map((x) => String(x).toLowerCase());
+  const overlap = gArr.filter((x) => aset.has(x));
+  let gStatus = "gray";
+  if (overlap.length > 0) {
+    const sameSet = aset.size === gArr.length && gArr.every((x) => aset.has(x));
+    gStatus = sameSet ? "green" : "yellow";
+  }
+  fb.genre = { value: (g.genres || []).join(", ") || "—", status: gStatus, dir: null };
+  // Director (exact)
+  const dirMatch = g.director && a.director && String(g.director).toLowerCase() === String(a.director).toLowerCase();
+  fb.director = { value: g.director || "—", status: dirMatch ? "green" : "gray", dir: null };
+  // IMDb rating (stored 0-100; shown as 0-10; 🟨 within 5 pts = 0.5)
+  const ic = cmpNum(g.imdb_rating, a.imdb_rating, 5);
+  fb.imdb = {
+    value: Number(g.imdb_rating) > 0 ? (Number(g.imdb_rating) / 10).toFixed(1) : "—",
+    status: ic.status, dir: ic.dir,
+  };
+  // Runtime (🟨 within 15 min)
+  const rc = cmpNum(g.runtime_minutes, a.runtime_minutes, 15);
+  fb.runtime = { value: Number(g.runtime_minutes) > 0 ? `${g.runtime_minutes}m` : "—", status: rc.status, dir: rc.dir };
+  // MPA (exact)
+  const mpaMatch = g.mpa_rating && a.mpa_rating && String(g.mpa_rating) === String(a.mpa_rating);
+  fb.mpa = { value: g.mpa_rating || "—", status: mpaMatch ? "green" : "gray", dir: null };
+  return fb;
+}
+
+// Points for a solved spottle/poster game — fewer guesses = more points.
+function gameGuessScore(solved, attempts, max) {
+  if (!solved) return 0;
+  return Math.max(100, (max - attempts + 1) * 100);
+}
+
+// Poster blur in px for the current attempt count (clears once the game is done).
+function gamePosterBlur(attempts, max, done) {
+  if (done) return 0;
+  const frac = Math.max(0, (max - attempts) / max);
+  return Math.round(GAME_POSTER_MAX_BLUR * frac);
+}
+
+// A trimmed answer object safe to reveal to the client once a game is OVER.
+function gameAnswerLite(a) {
+  if (!a || typeof a !== "object") return null;
+  return {
+    tmdb_id: a.tmdb_id ?? null,
+    title: a.title ?? null,
+    release_year: a.release_year ?? null,
+    poster_path: a.poster_path ?? null,
+    director: a.director ?? null,
+    genres: Array.isArray(a.genres) ? a.genres : [],
+    imdb_rating: a.imdb_rating ?? null,
+  };
+}
+
 function extractDirectorNameFromCredits(creditsJson) {
   const crew = Array.isArray(creditsJson?.crew) ? creditsJson.crew : [];
   const directors = crew
@@ -1444,6 +1570,460 @@ Deno.serve(async (req) => {
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, rows.length) }, worker));
 
       return jsonResponse({ ok: true, checked, updated, failed }, 200);
+    }
+
+    // ---- Games: build the cached movie pool (cron job, no user session) -------
+    // Pulls candidates from TMDB /discover (or /trending) for one BUCKET across a
+    // page range, enriches each NEW candidate with details+credits + the real IMDb
+    // rating/votes via OMDb, and upserts into "Game Pool" (keyed by tmdb_id; movies
+    // already present are skipped, so re-runs are cheap). Batched — run repeatedly
+    // (build-game-pool.yml) until pool_total reaches ~1000. Gated by CRON_SECRET.
+    if (action === "build_game_pool") {
+      const provided = String(req.headers.get("x-cron-secret") ?? "").trim();
+      const expected = String(Deno.env.get("CRON_SECRET") ?? "").trim();
+      if (!expected || provided !== expected) {
+        return jsonResponse({ code: 401, message: "Invalid or missing cron secret." }, 401);
+      }
+      const OMDB_API_KEY = Deno.env.get("OMDB_API_KEY");
+
+      const bucket = ["rating", "most_voted", "trending"].includes(String(body?.bucket || "").trim())
+        ? String(body.bucket).trim() : "most_voted";
+      const pageStart = Math.max(1, Number(body?.page_start) || 1);
+      const pages = Math.max(1, Math.min(10, Number(body?.pages) || 3));
+      const limit = Math.max(1, Math.min(500, Number(body?.limit) || 60));
+      const voteFloor = Math.max(0, Number(body?.vote_count_gte) || 5000);
+      const target = Math.max(1, Number(body?.target) || 1000);
+
+      // 1) Gather candidate tmdb ids from TMDB across the page range.
+      const candidateIds = [];
+      const seenIds = new Set();
+      for (let p = pageStart; p < pageStart + pages; p++) {
+        let path, params;
+        if (bucket === "trending") {
+          path = "trending/movie/week";
+          params = { page: p };
+        } else if (bucket === "rating") {
+          path = "discover/movie";
+          params = {
+            sort_by: "vote_average.desc", "vote_count.gte": voteFloor,
+            include_adult: "false", include_video: "false", page: p,
+          };
+        } else {
+          path = "discover/movie";
+          params = { sort_by: "vote_count.desc", include_adult: "false", include_video: "false", page: p };
+        }
+        const j = await tmdbGetJson(path, params, TMDB_READ_ACCESS_TOKEN);
+        const results = Array.isArray(j?.results) ? j.results : [];
+        for (const r of results) {
+          const id = Number(r?.id);
+          if (id && !seenIds.has(id)) { seenIds.add(id); candidateIds.push(id); }
+        }
+      }
+
+      // 2) Skip candidates already in the pool.
+      let alreadyHave = new Set();
+      if (candidateIds.length) {
+        const { data: existing } = await supabaseAdmin
+          .from("Game Pool").select("tmdb_id").in("tmdb_id", candidateIds);
+        alreadyHave = new Set((existing || []).map((e) => Number(e.tmdb_id)));
+      }
+      const todo = candidateIds.filter((id) => !alreadyHave.has(id)).slice(0, limit);
+
+      // 3) Enrich + upsert (bounded concurrency).
+      let inserted = 0, failed = 0;
+      let idx = 0;
+      const CONCURRENCY = 5;
+      const worker = async () => {
+        while (idx < todo.length) {
+          const id = todo[idx++];
+          try {
+            const det = await tmdbGetJson(`movie/${id}`,
+              { append_to_response: "credits,release_dates" }, TMDB_READ_ACCESS_TOKEN);
+            const row = tmdbToPoolRow(det, bucket);
+            if (!row || !row.title) { failed++; continue; }
+            if (OMDB_API_KEY) {
+              const om = await fetchOmdbImdbRatingPercent({
+                imdb_id: row.imdb_id, title: row.title, year: row.release_year, omdbApiKey: OMDB_API_KEY,
+              });
+              if (om?.ok && Number(om.pct) > 0) {
+                row.imdb_rating = om.pct;
+                if (Number(om.votes) > 0) row.imdb_votes = Math.round(Number(om.votes));
+              }
+            }
+            row.updated_at = new Date().toISOString();
+            const { error: upErr } = await supabaseAdmin
+              .from("Game Pool").upsert(row, { onConflict: "tmdb_id" });
+            upErr ? failed++ : inserted++;
+          } catch (_) { failed++; }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, todo.length) }, worker));
+
+      const { count } = await supabaseAdmin
+        .from("Game Pool").select("*", { count: "exact", head: true });
+      const poolTotal = Number(count) || 0;
+      return jsonResponse({
+        ok: true, bucket, considered: candidateIds.length, enriched: todo.length,
+        inserted, failed, pool_total: poolTotal,
+        remaining: Math.max(0, target - poolTotal), next_page: pageStart + pages,
+      }, 200);
+    }
+
+    // ---- Games: seed today's puzzles (cron job, no user session) --------------
+    // For each game with no row for today's date (America/New_York), picks movies
+    // from "Game Pool" and writes a "Game Daily" row whose payload holds the ANSWER
+    // (server-only table). Idempotent. Gated by CRON_SECRET; run daily by
+    // seed-daily-games.yml.
+    if (action === "seed_daily_games") {
+      const provided = String(req.headers.get("x-cron-secret") ?? "").trim();
+      const expected = String(Deno.env.get("CRON_SECRET") ?? "").trim();
+      if (!expected || provided !== expected) {
+        return jsonResponse({ code: 401, message: "Invalid or missing cron secret." }, 401);
+      }
+      const force = !!body?.force;
+      const date = String(body?.date || "").trim() || gamePuzzleDateNY();
+      const RECENT_DAYS = 60;
+
+      const { data: existingRows } = await supabaseAdmin
+        .from("Game Daily").select("game").eq("puzzle_date", date);
+      const alreadySeeded = new Set((existingRows || []).map((r) => r.game));
+
+      // Load a working set of recognizable films (has a real IMDb rating + poster).
+      const { data: pool } = await supabaseAdmin
+        .from("Game Pool")
+        .select("tmdb_id,title,release_year,runtime_minutes,mpa_rating,poster_path,genres,director,top_cast,imdb_rating,imdb_votes,last_used_date")
+        .not("imdb_rating", "is", null)
+        .not("poster_path", "is", null)
+        .order("imdb_votes", { ascending: false, nullsFirst: false })
+        .limit(600);
+      const all = Array.isArray(pool) ? pool : [];
+      const notRecent = (m) => {
+        if (!m.last_used_date) return true;
+        const used = new Date(m.last_used_date + "T00:00:00Z").getTime();
+        return (Date.now() - used) > RECENT_DAYS * 86400000;
+      };
+      const recognizable = all.filter((m) =>
+        notRecent(m) && Array.isArray(m.genres) && m.genres.length > 0 && m.director);
+      const shuffle = (arr) => {
+        const a = arr.slice();
+        for (let i = a.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+      };
+
+      const seeded = {};
+      const usedIds = [];
+      const mkAnswer = (m) => ({
+        tmdb_id: Number(m.tmdb_id), title: m.title, release_year: m.release_year,
+        runtime_minutes: m.runtime_minutes, mpa_rating: m.mpa_rating, poster_path: m.poster_path,
+        genres: m.genres || [], director: m.director, imdb_rating: m.imdb_rating,
+      });
+
+      // spottle + poster: one recognizable film each (distinct).
+      const pickPool = shuffle(recognizable);
+      let pi = 0;
+      for (const game of ["spottle", "poster"]) {
+        if (alreadySeeded.has(game) && !force) { seeded[game] = "exists"; continue; }
+        const m = pickPool[pi++];
+        if (!m) { seeded[game] = "no_candidate"; continue; }
+        usedIds.push(Number(m.tmdb_id));
+        const payload = { answer: mkAnswer(m), max_guesses: GAME_MAX_GUESSES[game] };
+        const { error } = await supabaseAdmin.from("Game Daily")
+          .upsert({ puzzle_date: date, game, payload }, { onConflict: "puzzle_date,game" });
+        seeded[game] = error ? `error: ${error.message}` : "seeded";
+      }
+
+      // rank: 4 films with a meaningful IMDb spread (each ≥3 pts apart, 0-100).
+      if (alreadySeeded.has("rank") && !force) {
+        seeded.rank = "exists";
+      } else {
+        const picks = [];
+        for (const m of shuffle(recognizable)) {
+          if (picks.length >= GAME_RANK_COUNT) break;
+          if (usedIds.includes(Number(m.tmdb_id))) continue;
+          if (picks.every((p) => Math.abs(Number(p.imdb_rating) - Number(m.imdb_rating)) >= 3)) {
+            picks.push(m);
+          }
+        }
+        if (picks.length < GAME_RANK_COUNT) {
+          seeded.rank = "insufficient_spread";
+        } else {
+          picks.forEach((m) => usedIds.push(Number(m.tmdb_id)));
+          const movies = picks.map((m) => ({
+            tmdb_id: Number(m.tmdb_id), title: m.title, release_year: m.release_year,
+            poster_path: m.poster_path, imdb_rating: m.imdb_rating,
+          }));
+          const { error } = await supabaseAdmin.from("Game Daily")
+            .upsert({ puzzle_date: date, game: "rank", payload: { movies } }, { onConflict: "puzzle_date,game" });
+          seeded.rank = error ? `error: ${error.message}` : "seeded";
+        }
+      }
+
+      // Stamp last_used_date so these films aren't reused for RECENT_DAYS.
+      if (usedIds.length) {
+        await supabaseAdmin.from("Game Pool")
+          .update({ last_used_date: date }).in("tmdb_id", usedIds);
+      }
+
+      return jsonResponse({ ok: true, date, seeded, pool_available: recognizable.length }, 200);
+    }
+
+    // ---- Games: fetch today's puzzles + the caller's progress (authenticated) --
+    // Returns each game's ANSWER-STRIPPED payload plus the caller's Game Results
+    // so an in-progress or finished game resumes. Never leaks ratings/answers for
+    // unfinished games.
+    if (action === "game_today") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const me = userData?.user || null;
+      if (userErr || !me?.id) return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+
+      const date = gamePuzzleDateNY();
+      const { data: dailyRows } = await supabaseAdmin
+        .from("Game Daily").select("game,payload").eq("puzzle_date", date);
+      const { data: resRows } = await supabaseAdmin
+        .from("Game Results").select("game,solved,attempts,score,guesses,completed_at")
+        .eq("user_id", me.id).eq("puzzle_date", date);
+      const resByGame = new Map((resRows || []).map((r) => [r.game, r]));
+
+      // Per-game current solve streaks (from full history).
+      const { data: hist } = await supabaseAdmin
+        .from("Game Results").select("game,puzzle_date,solved")
+        .eq("user_id", me.id).eq("solved", true).order("puzzle_date", { ascending: false });
+      const streakFor = (game) => {
+        const days = (hist || []).filter((h) => h.game === game).map((h) => h.puzzle_date);
+        const uniq = [...new Set(days)];
+        if (!uniq.length) return 0;
+        // Count consecutive days back from the most recent solved day.
+        let streak = 1;
+        for (let i = 1; i < uniq.length; i++) {
+          const prev = new Date(uniq[i - 1] + "T00:00:00Z").getTime();
+          const cur = new Date(uniq[i] + "T00:00:00Z").getTime();
+          if (Math.round((prev - cur) / 86400000) === 1) streak++;
+          else break;
+        }
+        return streak;
+      };
+
+      const games = {};
+      for (const row of (dailyRows || [])) {
+        const game = row.game;
+        const p = row.payload || {};
+        const res = resByGame.get(game) || null;
+        const max = GAME_MAX_GUESSES[game] || 6;
+        const attempts = res?.attempts || 0;
+        const solved = !!res?.solved;
+
+        if (game === "spottle") {
+          const done = solved || attempts >= max;
+          games.spottle = {
+            max_guesses: max, attempts, solved, done,
+            guesses: Array.isArray(res?.guesses) ? res.guesses : [],
+            score: res?.score || 0,
+            answer: done ? gameAnswerLite(p.answer) : null,
+            streak: streakFor("spottle"),
+          };
+        } else if (game === "poster") {
+          const done = solved || attempts >= max;
+          games.poster = {
+            max_guesses: max, attempts, solved, done,
+            poster_path: p?.answer?.poster_path || null,
+            blur: gamePosterBlur(attempts, max, done),
+            guesses: Array.isArray(res?.guesses) ? res.guesses : [],
+            score: res?.score || 0,
+            answer: done ? gameAnswerLite(p.answer) : null,
+            streak: streakFor("poster"),
+          };
+        } else if (game === "rank") {
+          const movies = Array.isArray(p.movies) ? p.movies : [];
+          const done = !!res; // rank is one-shot
+          // Strip imdb_rating + scramble for the unplayed board.
+          const board = movies.map((m) => ({
+            tmdb_id: m.tmdb_id, title: m.title, release_year: m.release_year, poster_path: m.poster_path,
+          }));
+          for (let i = board.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [board[i], board[j]] = [board[j], board[i]];
+          }
+          const trueOrder = movies.slice().sort((a, b) => Number(b.imdb_rating) - Number(a.imdb_rating));
+          games.rank = {
+            movies: board, done, solved, score: res?.score || 0,
+            submitted_order: done && Array.isArray(res?.guesses) ? (res.guesses[0]?.order || null) : null,
+            result: done ? trueOrder.map((m) => ({
+              tmdb_id: m.tmdb_id, title: m.title, release_year: m.release_year,
+              poster_path: m.poster_path, imdb_rating: m.imdb_rating,
+            })) : null,
+            streak: streakFor("rank"),
+          };
+        }
+      }
+
+      return jsonResponse({ ok: true, date, games }, 200);
+    }
+
+    // ---- Games: pool-scoped autocomplete for guess boxes (authenticated) ------
+    // Returns only title/year/poster (NO ratings) so guesses are bounded to real
+    // answers without leaking the attributes the games test.
+    if (action === "game_search") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      if (userErr || !userData?.user?.id) return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+
+      const q = String(body?.query || "").trim();
+      if (q.length < 1) return jsonResponse({ ok: true, results: [] }, 200);
+      const { data } = await supabaseAdmin
+        .from("Game Pool").select("tmdb_id,title,release_year,poster_path")
+        .ilike("title", `%${q}%`)
+        .order("imdb_votes", { ascending: false, nullsFirst: false })
+        .limit(8);
+      return jsonResponse({
+        ok: true,
+        results: (data || []).map((m) => ({
+          tmdb_id: Number(m.tmdb_id), title: m.title, release_year: m.release_year, poster_path: m.poster_path,
+        })),
+      }, 200);
+    }
+
+    // ---- Games: submit a spottle/poster guess (authenticated) -----------------
+    // Compares the guess's pool attributes to the secret answer server-side and
+    // returns feedback; writes Game Results with the service role.
+    if (action === "game_guess") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const me = userData?.user || null;
+      if (userErr || !me?.id) return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+
+      const game = String(body?.game || "").trim().toLowerCase();
+      if (game !== "spottle" && game !== "poster") {
+        return jsonResponse({ ok: false, message: "Unknown game." }, 200);
+      }
+      const guessId = Number(body?.tmdb_id);
+      if (!guessId) return jsonResponse({ ok: false, message: "Missing tmdb_id." }, 200);
+
+      const date = gamePuzzleDateNY();
+      const { data: dailyRow } = await supabaseAdmin
+        .from("Game Daily").select("payload").eq("puzzle_date", date).eq("game", game).maybeSingle();
+      const answer = dailyRow?.payload?.answer;
+      if (!answer) return jsonResponse({ ok: false, message: "No puzzle for today." }, 200);
+
+      const max = GAME_MAX_GUESSES[game] || 6;
+      const { data: resRow } = await supabaseAdmin
+        .from("Game Results").select("*")
+        .eq("user_id", me.id).eq("puzzle_date", date).eq("game", game).maybeSingle();
+      let attempts = resRow?.attempts || 0;
+      let solved = !!resRow?.solved;
+      const guesses = Array.isArray(resRow?.guesses) ? resRow.guesses.slice() : [];
+      if (solved || attempts >= max) {
+        return jsonResponse({ ok: false, done: true, message: "Already played today." }, 200);
+      }
+
+      const { data: gm } = await supabaseAdmin
+        .from("Game Pool").select("*").eq("tmdb_id", guessId).maybeSingle();
+      if (!gm) return jsonResponse({ ok: false, message: "That movie isn't a valid guess." }, 200);
+
+      attempts += 1;
+      const correct = Number(guessId) === Number(answer.tmdb_id);
+      const feedback = game === "spottle" ? spottleGuessFeedback(gm, answer) : { correct };
+      guesses.push({
+        tmdb_id: guessId, title: gm.title, release_year: gm.release_year,
+        poster_path: gm.poster_path, correct, feedback,
+      });
+      if (correct) solved = true;
+      const done = solved || attempts >= max;
+      const score = gameGuessScore(solved, attempts, max);
+
+      const { error: upErr } = await supabaseAdmin.from("Game Results").upsert({
+        user_id: me.id, puzzle_date: date, game, solved, attempts, score, guesses,
+        completed_at: done ? new Date().toISOString() : null,
+      }, { onConflict: "user_id,puzzle_date,game" });
+      if (upErr) return jsonResponse({ ok: false, message: `Save failed: ${upErr.message}` }, 200);
+
+      return jsonResponse({
+        ok: true, correct, attempts, max_guesses: max, solved, done, score, feedback, guesses,
+        blur: game === "poster" ? gamePosterBlur(attempts, max, done) : undefined,
+        answer: done ? gameAnswerLite(answer) : undefined,
+      }, 200);
+    }
+
+    // ---- Games: submit the rank ordering (authenticated) ----------------------
+    // Scores a rank submission (Kendall-tau inversions) server-side; one shot/day.
+    if (action === "game_submit") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const me = userData?.user || null;
+      if (userErr || !me?.id) return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+
+      const game = "rank";
+      const date = gamePuzzleDateNY();
+      const { data: dailyRow } = await supabaseAdmin
+        .from("Game Daily").select("payload").eq("puzzle_date", date).eq("game", game).maybeSingle();
+      const movies = Array.isArray(dailyRow?.payload?.movies) ? dailyRow.payload.movies : [];
+      if (!movies.length) return jsonResponse({ ok: false, message: "No puzzle for today." }, 200);
+
+      const trueOrder = movies.slice().sort((a, b) => Number(b.imdb_rating) - Number(a.imdb_rating));
+      const trueResult = trueOrder.map((m) => ({
+        tmdb_id: m.tmdb_id, title: m.title, release_year: m.release_year,
+        poster_path: m.poster_path, imdb_rating: m.imdb_rating,
+      }));
+
+      // If already submitted, just return the stored result.
+      const { data: resRow } = await supabaseAdmin
+        .from("Game Results").select("*")
+        .eq("user_id", me.id).eq("puzzle_date", date).eq("game", game).maybeSingle();
+      if (resRow) {
+        return jsonResponse({
+          ok: true, done: true, already: true, solved: !!resRow.solved, score: resRow.score || 0,
+          submitted_order: resRow.guesses?.[0]?.order || null, true_order: trueResult,
+        }, 200);
+      }
+
+      const order = Array.isArray(body?.order) ? body.order.map(Number) : [];
+      const ids = new Set(movies.map((m) => Number(m.tmdb_id)));
+      const validPermutation = order.length === movies.length
+        && new Set(order).size === movies.length && order.every((id) => ids.has(id));
+      if (!validPermutation) return jsonResponse({ ok: false, message: "Invalid ordering." }, 200);
+
+      const rankOf = new Map(trueOrder.map((m, i) => [Number(m.tmdb_id), i]));
+      let inversions = 0;
+      for (let i = 0; i < order.length; i++) {
+        for (let j = i + 1; j < order.length; j++) {
+          if (rankOf.get(order[i]) > rankOf.get(order[j])) inversions++;
+        }
+      }
+      let correctPositions = 0;
+      trueOrder.forEach((m, i) => { if (Number(order[i]) === Number(m.tmdb_id)) correctPositions++; });
+      const maxInv = (order.length * (order.length - 1)) / 2;
+      const solved = inversions === 0;
+      const score = Math.round((1 - inversions / maxInv) * 400);
+
+      const { error: upErr } = await supabaseAdmin.from("Game Results").upsert({
+        user_id: me.id, puzzle_date: date, game, solved, attempts: 1, score,
+        guesses: [{ order }], completed_at: new Date().toISOString(),
+      }, { onConflict: "user_id,puzzle_date,game" });
+      if (upErr) return jsonResponse({ ok: false, message: `Save failed: ${upErr.message}` }, 200);
+
+      return jsonResponse({
+        ok: true, done: true, solved, inversions, correct_positions: correctPositions,
+        score, submitted_order: order, true_order: trueResult,
+      }, 200);
     }
 
     // ---- Daily "you have movies to rate" reminder (cron job, no user session) --

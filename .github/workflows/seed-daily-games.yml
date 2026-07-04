@@ -1,0 +1,27 @@
+name: Seed daily games
+
+# Daily cron that seeds today's three game puzzles (spottle / rank / poster) into
+# "Game Daily" so every user gets the same puzzle. Idempotent — re-running won't
+# reseed a game already seeded for the day. The puzzle "day" boundary is decided
+# server-side in America/New_York, so this fires just after midnight ET.
+#
+# Also has workflow_dispatch so you can seed today's puzzles on demand for testing.
+# Reuses the same repo secrets as the IMDb refresh cron.
+
+on:
+  schedule:
+    - cron: '5 5 * * *'   # 05:05 UTC ≈ 00:05/01:05 America/New_York
+  workflow_dispatch: {}
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger seed_daily_games
+        run: |
+          curl -sS -X POST "${{ secrets.SUPABASE_FUNCTION_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -d '{"action":"seed_daily_games"}' \
+            --fail-with-body

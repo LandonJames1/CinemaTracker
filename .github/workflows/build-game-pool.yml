@@ -1,0 +1,78 @@
+name: Build games movie pool
+
+# One-time (manual) job to fill the cached "Game Pool" (~1000 movies) used by the
+# daily games. Loops the swift-api `build_game_pool` action across three buckets
+# (most_voted / rating / trending), paging deeper each pass and enriching new
+# candidates with real IMDb rating/votes via OMDb, until the pool reaches TARGET.
+# Run it from the Actions tab; re-run any time to top the pool up. After the pool
+# is full you never need this again — the daily games read the cached rows.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Target pool size (stop once reached)'
+        required: false
+        default: '1000'
+      pages_per_call:
+        description: 'TMDB pages per call (each page ~20 movies)'
+        required: false
+        default: '3'
+      limit_per_call:
+        description: 'Max movies enriched per call (OMDb-bounded)'
+        required: false
+        default: '60'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build the game pool until target reached
+        env:
+          URL: ${{ secrets.SUPABASE_FUNCTION_URL }}
+          APIKEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TARGET: ${{ github.event.inputs.target || '1000' }}
+          PAGES: ${{ github.event.inputs.pages_per_call || '3' }}
+          LIMIT: ${{ github.event.inputs.limit_per_call || '60' }}
+        run: |
+          set -euo pipefail
+          done=0
+          for bucket in most_voted rating trending; do
+            page=1
+            for i in $(seq 1 30); do
+              echo "--- bucket=$bucket page_start=$page ---"
+              resp=$(curl -sS -X POST "$URL" \
+                -H "Content-Type: application/json" \
+                -H "apikey: $APIKEY" \
+                -H "x-cron-secret: $CRON_SECRET" \
+                -d "{\"action\":\"build_game_pool\",\"bucket\":\"$bucket\",\"page_start\":$page,\"pages\":$PAGES,\"limit\":$LIMIT,\"target\":$TARGET}" \
+                --fail-with-body)
+              echo "$resp"
+
+              ok=$(echo "$resp" | jq -r '.ok // false')
+              if [ "$ok" != "true" ]; then
+                echo "::error::build_game_pool did not return ok:true"
+                exit 1
+              fi
+
+              pool_total=$(echo "$resp" | jq -r '.pool_total // 0')
+              next_page=$(echo "$resp" | jq -r '.next_page // 0')
+              considered=$(echo "$resp" | jq -r '.considered // 0')
+              page=$next_page
+
+              if [ "$pool_total" -ge "$TARGET" ]; then
+                echo "Pool reached $pool_total (target $TARGET). Done."
+                done=1
+                break
+              fi
+              # If TMDB returned nothing for this page range, move to the next bucket.
+              if [ "$considered" = "0" ]; then
+                echo "No more candidates for bucket $bucket; next bucket."
+                break
+              fi
+              sleep 2
+            done
+            if [ "$done" = "1" ]; then break; fi
+          done
+          echo "Pool build pass complete."

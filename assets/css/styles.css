@@ -677,6 +677,7 @@
             body[data-page="account"]       #tab-more,
             body[data-page="settings"]      #tab-more,
             body[data-page="leaderboard"]   #tab-more,
+            body[data-page="games"]         #tab-more,
             body[data-page="theme_creator"] #tab-more { color: var(--brand, #14b8a6); }
             /* Badge sits at the top-right of the individual tab BUTTON (anchored just
                right of the centred icon so it's width-independent), not the whole bar. */
@@ -8315,4 +8316,166 @@
                 background: rgba(255, 255, 255, 0.28);
                 margin: 0.5rem auto 0;
             }
+        }
+
+        /* ============================================================
+           Desktop top-nav "More" dropdown (secondary routes)
+           ============================================================ */
+        .nav-more { position: relative; display: inline-flex; }
+        .nav-more-btn { display: inline-flex; align-items: center; gap: 4px; }
+        .nav-more-caret { font-size: 0.7em; opacity: 0.8; }
+        .nav-more-menu {
+            position: absolute; top: calc(100% + 8px); right: 0;
+            min-width: 190px; background: #202024; border: 1px solid rgba(255,255,255,0.10);
+            border-radius: 14px; padding: 6px; box-shadow: 0 18px 40px rgba(0,0,0,0.5);
+            display: none; flex-direction: column; z-index: 120;
+        }
+        .nav-more-menu.open { display: flex; }
+        .nav-more-item {
+            text-align: left; padding: 10px 12px; border-radius: 10px; color: #e7e7ea;
+            font-size: 0.92rem; background: transparent; border: none; cursor: pointer; width: 100%;
+        }
+        .nav-more-item:hover { background: rgba(255,255,255,0.08); }
+        body[data-page="discover"]    #nav-more .nav-more-btn,
+        body[data-page="ai_picks"]    #nav-more .nav-more-btn,
+        body[data-page="dashboard"]   #nav-more .nav-more-btn,
+        body[data-page="games"]       #nav-more .nav-more-btn,
+        body[data-page="leaderboard"] #nav-more .nav-more-btn { color: var(--brand, #14b8a6); }
+
+        /* ============================================================
+           Games page (route `games`) — 25-games.js
+           ============================================================ */
+        .games-dim { color: rgba(255,255,255,0.5); font-weight: 400; }
+        .games-error { color: #fca5a5; font-size: 0.9rem; padding: 12px 2px; }
+        .games-empty, .games-guess-empty { color: rgba(255,255,255,0.55); font-size: 0.9rem; padding: 12px 2px; }
+
+        /* Hub cards */
+        .games-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+        .games-card {
+            display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+            text-align: left; padding: 18px; border-radius: 18px; cursor: pointer;
+            background: #1d1d22; border: 1px solid rgba(255,255,255,0.08);
+            transition: transform 0.12s ease, border-color 0.12s ease; min-height: 190px;
+        }
+        .games-card:hover { transform: translateY(-2px); border-color: var(--brand, #14b8a6); }
+        .games-card:disabled { opacity: 0.55; cursor: default; transform: none; }
+        .games-card-ico {
+            width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 12px; background: color-mix(in srgb, var(--brand, #14b8a6) 22%, #202024);
+            color: var(--brand, #14b8a6);
+        }
+        .games-card-ico svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2;
+            stroke-linecap: round; stroke-linejoin: round; }
+        .games-card-body { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+        .games-card-title { font-size: 1.1rem; font-weight: 700; color: #fff; }
+        .games-card-tag { font-size: 0.78rem; color: var(--brand, #14b8a6); text-transform: uppercase; letter-spacing: 0.04em; }
+        .games-card-desc { font-size: 0.86rem; color: rgba(255,255,255,0.62); margin-top: 4px; }
+        .games-card-foot { display: flex; align-items: center; gap: 10px; width: 100%; }
+        .games-status-pill {
+            font-size: 0.74rem; font-weight: 700; padding: 4px 10px; border-radius: 999px;
+            background: rgba(255,255,255,0.10); color: #e7e7ea;
+        }
+        .games-card.status-solved .games-status-pill { background: color-mix(in srgb, #22c55e 30%, #202024); color: #bbf7d0; }
+        .games-card.status-progress .games-status-pill { background: color-mix(in srgb, var(--brand, #14b8a6) 30%, #202024); color: #fff; }
+        .games-card.status-done .games-status-pill { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.7); }
+        .games-streak { font-size: 0.82rem; font-weight: 700; color: #fdba74; }
+
+        /* Play surface shell */
+        .games-play { margin-top: 4px; }
+        .games-play-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+        .games-back {
+            display: inline-flex; align-items: center; gap: 4px; background: #202024;
+            border: 1px solid rgba(255,255,255,0.10); color: #e7e7ea; border-radius: 10px;
+            padding: 7px 12px; cursor: pointer; font-size: 0.88rem;
+        }
+        .games-back:hover { border-color: var(--brand, #14b8a6); }
+        .games-back-caret { font-size: 1.1em; line-height: 1; }
+        .games-play-title { font-size: 1.15rem; font-weight: 700; color: #fff; }
+
+        /* Guess box (spottle + poster) */
+        .games-guess { position: relative; margin-top: 16px; max-width: 460px; }
+        .games-guess-input {
+            width: 100%; padding: 12px 14px; border-radius: 12px; background: #16161a;
+            border: 1px solid rgba(255,255,255,0.14); color: #fff; font-size: 0.95rem;
+        }
+        .games-guess-input:focus { outline: none; border-color: var(--brand, #14b8a6); }
+        .games-guess-results {
+            position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 30;
+            background: #202024; border-radius: 12px; overflow: hidden;
+            box-shadow: 0 18px 40px rgba(0,0,0,0.5);
+        }
+        .games-guess-results:empty { display: none; }
+        .games-guess-item {
+            display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+            padding: 8px 12px; background: transparent; border: none; color: #e7e7ea; cursor: pointer;
+            font-size: 0.9rem;
+        }
+        .games-guess-item:hover { background: rgba(255,255,255,0.08); }
+        .games-guess-item img { width: 30px; height: 45px; object-fit: cover; border-radius: 4px; background: #16161a; }
+
+        /* Spottle board */
+        .spottle-legend { font-size: 0.8rem; color: rgba(255,255,255,0.6); margin-bottom: 12px; }
+        .spottle-board { display: flex; flex-direction: column; gap: 10px; }
+        .spottle-row { background: #1d1d22; border-radius: 14px; padding: 12px; border: 1px solid rgba(255,255,255,0.06); }
+        .spottle-row.is-correct { border-color: #22c55e; }
+        .spottle-guess-title { font-weight: 700; color: #fff; margin-bottom: 8px; }
+        .spottle-tiles { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+        .spottle-tile {
+            display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px;
+            border-radius: 10px; text-align: center; background: #3a3a40;
+        }
+        .spottle-tile.is-green { background: #16713b; }
+        .spottle-tile.is-yellow { background: #9a7b1b; }
+        .spottle-tile.is-gray { background: #3a3a40; }
+        .spottle-tile-label { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.04em; color: rgba(255,255,255,0.75); }
+        .spottle-tile-val { font-size: 0.82rem; font-weight: 700; color: #fff; }
+        .spottle-dir { font-size: 0.9em; }
+
+        /* Poster blur */
+        .poster-stage { display: flex; justify-content: center; margin: 8px 0 16px; }
+        .poster-frame { width: 260px; max-width: 70vw; aspect-ratio: 2/3; border-radius: 16px; overflow: hidden; background: #16161a; }
+        .poster-img { width: 100%; height: 100%; object-fit: cover; transition: filter 0.4s ease; }
+        .poster-missing { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.4); }
+        .poster-guesses { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; justify-content: center; }
+        .poster-guess-chip { font-size: 0.82rem; padding: 5px 10px; border-radius: 999px; background: #3a3a40; color: #e7e7ea; }
+        .poster-guess-chip.is-correct { background: #16713b; color: #bbf7d0; }
+
+        /* Rank */
+        .rank-hint { font-size: 0.9rem; color: rgba(255,255,255,0.7); margin-bottom: 12px; }
+        .rank-list { display: flex; flex-direction: column; gap: 8px; }
+        .rank-row, .rank-result-row {
+            display: flex; align-items: center; gap: 12px; background: #1d1d22; border-radius: 12px;
+            padding: 8px 12px; border: 1px solid rgba(255,255,255,0.06);
+        }
+        .rank-result-row.is-correct { border-color: #22c55e; }
+        .rank-result-row.is-wrong { border-color: rgba(239,68,68,0.5); }
+        .rank-num { width: 22px; text-align: center; font-weight: 800; color: var(--brand, #14b8a6); }
+        .rank-poster { width: 40px; height: 60px; object-fit: cover; border-radius: 6px; background: #16161a; }
+        .rank-title { flex: 1; color: #fff; font-size: 0.95rem; }
+        .rank-imdb { font-weight: 800; color: #fbbf24; }
+        .rank-moves { display: flex; flex-direction: column; gap: 3px; }
+        .rank-move {
+            width: 30px; height: 24px; border-radius: 7px; background: #2a2a30; border: 1px solid rgba(255,255,255,0.1);
+            color: #e7e7ea; cursor: pointer; font-size: 0.72rem; line-height: 1;
+        }
+        .rank-move:disabled { opacity: 0.35; cursor: default; }
+        .rank-submit { margin-top: 14px; }
+        .rank-result-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+
+        /* Result banners */
+        .games-result-banner {
+            margin-top: 16px; padding: 14px 16px; border-radius: 14px; background: #1d1d22;
+            border: 1px solid rgba(255,255,255,0.10); color: #e7e7ea; font-size: 0.95rem;
+        }
+        .games-result-banner.is-win { border-color: #22c55e; background: color-mix(in srgb, #22c55e 12%, #1d1d22); }
+        .games-donenote { font-size: 0.82rem; color: rgba(255,255,255,0.55); margin-top: 6px; }
+
+        @media (max-width: 768px) {
+            .games-grid { grid-template-columns: 1fr; gap: 12px; }
+            .games-card { min-height: 0; flex-direction: row; align-items: center; }
+            .games-card-foot { width: auto; margin-left: auto; flex-direction: column; align-items: flex-end; }
+            .games-card-desc { display: none; }
+            .spottle-tiles { gap: 4px; }
+            .spottle-tile { padding: 6px 2px; }
+            .spottle-tile-val { font-size: 0.72rem; }
         }

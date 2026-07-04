@@ -80,7 +80,7 @@
 
             navigate(page, mode = 'new', navMode = 'push') {
                 // If the user is not logged in, open the auth modal with demo option.
-                const authGatedPages = ['dashboard','dashboard_kpi','dashboard_pie_filter','feed','library','lists','account','leaderboard','theme_creator','discover'];
+                const authGatedPages = ['dashboard','dashboard_kpi','dashboard_pie_filter','feed','library','lists','account','leaderboard','theme_creator','discover','games'];
                 if (authGatedPages.includes(page) && !cachedIsAuthed) {
                     _pendingGuestPage = page;
                     openAuthModal();
@@ -159,6 +159,7 @@
                             discover: 'Discover',
                             ai_picks: 'AI Picks', dashboard: 'Data Dash', account: 'Account', settings: 'Settings',
                             leaderboard: 'Leaderboard', submit: 'Log Entry', theme_creator: 'Theme Creator',
+                            games: 'Games',
                         };
                         // The submit page serves both new entries and rating updates; show
                         // the right header for each (it's the only header now that the
@@ -253,6 +254,11 @@
                     root.innerHTML = this.renderThemeCreator();
                     refreshAuthStateAndUI();
                     initThemeCreatorPage();
+                } else if (page === 'games') {
+                    root.innerHTML = this.renderGames();
+                    refreshAuthStateAndUI();
+                    initGamesPage();
+                    loadGamesHub();
                 } else if (page === 'submit') {
                     root.innerHTML = this.renderSubmit();
                     initializeWatchMethodToggle();
@@ -1937,6 +1943,26 @@
                             <div id="lb-content">
                                 <div class="text-xs text-gray">Loading leaderboard…</div>
                             </div>
+                        </div>
+                    </div>
+                `;
+            },
+
+            // Games hub (route 'games'). The hub cards + each game's play surface are
+            // rendered by 25-games.js (loadGamesHub / openGame). One route holds both
+            // the hub (#games-hub) and the active-game panel (#games-play).
+            renderGames() {
+                return `
+                    <div class="fade-in">
+                        <div class="container games-container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
+                            <div class="glass-panel page-title-card mb-6">
+                                <h1 class="text-3xl font-bold text-white">Games</h1>
+                                <p class="text-gray mt-2">Three new movie puzzles every day. Come back tomorrow for more.</p>
+                            </div>
+                            <div id="games-hub" class="games-hub">
+                                <div class="text-xs text-gray">Loading today's games…</div>
+                            </div>
+                            <div id="games-play" class="games-play" hidden></div>
                         </div>
                     </div>
                 `;
