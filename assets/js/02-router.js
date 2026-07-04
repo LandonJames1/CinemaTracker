@@ -1955,10 +1955,6 @@
                 return `
                     <div class="fade-in">
                         <div class="container games-container" style="padding-top: 2rem; padding-bottom: 3rem; position: relative;">
-                            <div class="glass-panel page-title-card mb-6">
-                                <h1 class="text-3xl font-bold text-white">Games</h1>
-                                <p class="text-gray mt-2">Three new movie puzzles every day. Come back tomorrow for more.</p>
-                            </div>
                             <div id="games-hub" class="games-hub">
                                 <div class="text-xs text-gray">Loading today's games…</div>
                             </div>

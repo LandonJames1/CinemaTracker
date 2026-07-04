@@ -1,0 +1,60 @@
+name: Backfill game pool meta
+
+# One-time catch-up: fills box_office + studio_logo_path for every existing
+# "Game Pool" movie that doesn't have them yet, via the swift-api
+# `backfill_game_pool_meta` Edge action. build_game_pool skips movies already in
+# the pool, so it never refreshes existing rows — this does. New pool rows get
+# both fields automatically on the normal build_game_pool path.
+# Run it from the Actions tab → "Run workflow". It LOOPS internally — one click
+# keeps calling the function (a batch at a time, to respect the TMDB rate limit)
+# until every row is filled, so you don't have to re-run it manually.
+#
+# Required repo secrets (same ones the other jobs use):
+#   SUPABASE_FUNCTION_URL    -> the .../functions/v1/swift-api URL
+#   SUPABASE_PUBLISHABLE_KEY -> the sb_publishable_... key
+#   CRON_SECRET              -> matches the swift-api CRON_SECRET edge secret
+on:
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: 'Movies per call (max 200; lower = gentler on TMDB)'
+        required: false
+        default: '60'
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Backfill pool box office + studio logo until complete
+        env:
+          URL: ${{ secrets.SUPABASE_FUNCTION_URL }}
+          APIKEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BATCH: ${{ github.event.inputs.batch_size || '60' }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 80); do
+            echo "--- pass $i ---"
+            resp=$(curl -sS -X POST "$URL" \
+              -H "Content-Type: application/json" \
+              -H "apikey: $APIKEY" \
+              -H "x-cron-secret: $CRON_SECRET" \
+              -d "{\"action\":\"backfill_game_pool_meta\",\"limit\": $BATCH}" \
+              --fail-with-body)
+            echo "$resp"
+
+            ok=$(echo "$resp" | jq -r '.ok // false')
+            if [ "$ok" != "true" ]; then
+              echo "::error::Backfill call did not return ok:true"
+              exit 1
+            fi
+
+            remaining=$(echo "$resp" | jq -r '.remaining')
+            if [ "$remaining" = "0" ]; then
+              echo "Every Game Pool movie has box office + studio logo. Done."
+              exit 0
+            fi
+
+            sleep 3
+          done
+          echo "::warning::Hit the 80-pass cap; run again if some pool rows still lack meta."

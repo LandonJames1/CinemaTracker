@@ -884,9 +884,12 @@ function applyMovieSetSourceToRule(rule, source, films) {
 // user worldwide gets the same daily puzzle regardless of local timezone / the
 // UTC cron that seeds it.
 const GAME_LIST = ["spottle", "rank", "poster"];
-const GAME_MAX_GUESSES = { spottle: 6, poster: 6 };
+const GAME_MAX_GUESSES = { spottle: 10, poster: 6 };
 const GAME_POSTER_MAX_BLUR = 26; // px at zero correct guesses
 const GAME_RANK_COUNT = 6;
+// Spottle: a helper hint (decade + primary genre of the answer) unlocks after
+// this many guesses. The button shows "Hint in N" until then.
+const GAME_SPOTTLE_HINT_AFTER = 3;
 
 function gamePuzzleDateNY(d = new Date()) {
   try {
@@ -922,7 +925,10 @@ function tmdbToPoolRow(det, bucket) {
     if (cert) mpa = cert;
   }
   const companies = Array.isArray(det?.production_companies) ? det.production_companies : [];
-  const studio = (companies.find((c) => String(c?.name || "").trim())?.name || "").trim() || null;
+  const primaryCo = companies.find((c) => String(c?.name || "").trim()) || null;
+  const studio = (primaryCo?.name || "").trim() || null;
+  const studioLogo = primaryCo?.logo_path || null;
+  const boxOffice = Number(det?.revenue) > 0 ? Math.round(Number(det.revenue)) : null;
   const yr = String(det?.release_date || "").slice(0, 4);
   return {
     tmdb_id: Number(det.id),
@@ -936,15 +942,42 @@ function tmdbToPoolRow(det, bucket) {
     director,
     director_profile_path: directorProfile,
     studio,
+    studio_logo_path: studioLogo,
+    box_office: boxOffice,
     top_cast: topCast,
     popularity: Number(det?.popularity) || null,
     bucket,
   };
 }
 
+// Compact US$ box-office string, e.g. 710_000_000 → "$710M".
+function formatBoxOffice(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return "—";
+  if (v >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
+  if (v >= 1e6) return `$${Math.round(v / 1e6)}M`;
+  if (v >= 1e3) return `$${Math.round(v / 1e3)}K`;
+  return `$${Math.round(v)}`;
+}
+
+// A gentle spottle hint (unlocked after GAME_SPOTTLE_HINT_AFTER guesses): the
+// answer's decade + primary genre. Enough to narrow the field without giving it
+// away. Returned only once unlocked so it can't be read early.
+function spottleHint(a) {
+  if (!a || typeof a !== "object") return null;
+  const yr = Number(a.release_year);
+  const decade = Number.isFinite(yr) && yr > 0 ? `${Math.floor(yr / 10) * 10}s` : null;
+  const genre = Array.isArray(a.genres) && a.genres.length ? String(a.genres[0]) : null;
+  const parts = [decade, genre].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+
 // Spottle attribute-closeness feedback comparing a GUESS pool row to the ANSWER.
-// Each field → { value, status: green|yellow|gray, dir?: up|down } where dir
-// points from the guess toward the answer (higher/lower).
+// Numeric fields → { value, status: green|yellow|gray, dir?: up|down } where dir
+// points from the guess toward the answer (higher/lower). The card shows the
+// GUESS's own attributes tinted by closeness: year / box office / rated (MPA) /
+// score (IMDb) / studio (with logo), genre pills, plus director + lead actor +
+// supporting cast (each green when that person is also in the answer's cast).
 function spottleGuessFeedback(g, a) {
   const fb = {};
   const cmpNum = (gv, av, near) => {
@@ -956,46 +989,45 @@ function spottleGuessFeedback(g, a) {
   // Year (🟨 within 5 yr)
   const yc = cmpNum(g.release_year, a.release_year, 5);
   fb.year = { value: g.release_year ?? "—", status: yc.status, dir: yc.dir };
-  // Genre overlap
-  const aset = new Set((a.genres || []).map((x) => String(x).toLowerCase()));
-  const gArr = (g.genres || []).map((x) => String(x).toLowerCase());
-  const overlap = gArr.filter((x) => aset.has(x));
-  let gStatus = "gray";
-  if (overlap.length > 0) {
-    const sameSet = aset.size === gArr.length && gArr.every((x) => aset.has(x));
-    gStatus = sameSet ? "green" : "yellow";
-  }
-  fb.genre = { value: (g.genres || []).join(", ") || "—", status: gStatus, dir: null };
-  // Director (exact) — carries the guess's director HEADSHOT so the UI can show it.
-  const dirMatch = g.director && a.director && String(g.director).toLowerCase() === String(a.director).toLowerCase();
-  fb.director = {
-    value: g.director || "—", status: dirMatch ? "green" : "gray", dir: null,
-    profile_path: g.director_profile_path || null,
+  // Box office (🟨 within $50M)
+  const bc = cmpNum(g.box_office, a.box_office, 50e6);
+  fb.box_office = { value: formatBoxOffice(g.box_office), status: bc.status, dir: bc.dir };
+  // Score = IMDb rating (stored 0-100; shown as NN/100; 🟨 within 5 pts)
+  const ic = cmpNum(g.imdb_rating, a.imdb_rating, 5);
+  fb.score = {
+    value: Number(g.imdb_rating) > 0 ? `${Math.round(Number(g.imdb_rating))}/100` : "—",
+    status: ic.status, dir: ic.dir,
   };
-  // Cast overlap — top-billed people shared between the guess and the answer,
-  // matched by TMDB person id, returned with photo so the UI can show them green.
+  // MPA / Rated (exact)
+  const mpaMatch = g.mpa_rating && a.mpa_rating && String(g.mpa_rating) === String(a.mpa_rating);
+  fb.mpa = { value: g.mpa_rating || "—", status: mpaMatch ? "green" : "gray", dir: null };
+  // Studio (exact by name; carries the guess's studio LOGO for the tile image)
+  const studioMatch = g.studio && a.studio && String(g.studio).toLowerCase() === String(a.studio).toLowerCase();
+  fb.studio = {
+    value: g.studio || "—", status: studioMatch ? "green" : "gray", dir: null,
+    logo_path: g.studio_logo_path || null,
+  };
+  // Genre pills — each guess genre tinted green when it's also in the answer.
+  const aset = new Set((a.genres || []).map((x) => String(x).toLowerCase()));
+  fb.genres = (g.genres || []).map((name) => ({
+    name: String(name), match: aset.has(String(name).toLowerCase()),
+  }));
+  // People — director + lead actor + supporting cast, each green when that TMDB
+  // person also appears in the answer (director by name, cast by person id).
   const aCast = Array.isArray(a.top_cast) ? a.top_cast : [];
   const gCast = Array.isArray(g.top_cast) ? g.top_cast : [];
   const aCastIds = new Set(aCast.map((c) => Number(c?.id)).filter(Boolean));
-  const shared = gCast
-    .filter((c) => c && Number(c.id) && aCastIds.has(Number(c.id)))
-    .map((c) => ({ name: c.name, profile_path: c.profile_path || null }));
-  fb.cast = { status: shared.length ? "green" : "gray", shared };
-  // IMDb rating (stored 0-100; shown as 0-10; 🟨 within 5 pts = 0.5)
-  const ic = cmpNum(g.imdb_rating, a.imdb_rating, 5);
-  fb.imdb = {
-    value: Number(g.imdb_rating) > 0 ? (Number(g.imdb_rating) / 10).toFixed(1) : "—",
-    status: ic.status, dir: ic.dir,
+  const dirMatch = g.director && a.director && String(g.director).toLowerCase() === String(a.director).toLowerCase();
+  fb.director = {
+    name: g.director || "—", status: dirMatch ? "green" : "gray",
+    profile_path: g.director_profile_path || null,
   };
-  // Runtime (🟨 within 15 min)
-  const rc = cmpNum(g.runtime_minutes, a.runtime_minutes, 15);
-  fb.runtime = { value: Number(g.runtime_minutes) > 0 ? `${g.runtime_minutes}m` : "—", status: rc.status, dir: rc.dir };
-  // MPA (exact)
-  const mpaMatch = g.mpa_rating && a.mpa_rating && String(g.mpa_rating) === String(a.mpa_rating);
-  fb.mpa = { value: g.mpa_rating || "—", status: mpaMatch ? "green" : "gray", dir: null };
-  // Studio / production company (exact)
-  const studioMatch = g.studio && a.studio && String(g.studio).toLowerCase() === String(a.studio).toLowerCase();
-  fb.studio = { value: g.studio || "—", status: studioMatch ? "green" : "gray", dir: null };
+  const castPerson = (c) => ({
+    name: c?.name || "—", profile_path: c?.profile_path || null,
+    status: Number(c?.id) && aCastIds.has(Number(c.id)) ? "green" : "gray",
+  });
+  fb.lead = gCast.length ? castPerson(gCast[0]) : null;
+  fb.supporting = gCast.slice(1, 5).map(castPerson);
   return fb;
 }
 
@@ -1714,7 +1746,7 @@ Deno.serve(async (req) => {
       // Load a working set of recognizable films (has a real IMDb rating + poster).
       const { data: pool } = await supabaseAdmin
         .from("Game Pool")
-        .select("tmdb_id,title,release_year,runtime_minutes,mpa_rating,poster_path,genres,director,director_profile_path,studio,top_cast,imdb_rating,imdb_votes,last_used_date")
+        .select("tmdb_id,title,release_year,runtime_minutes,mpa_rating,poster_path,genres,director,director_profile_path,studio,studio_logo_path,box_office,top_cast,imdb_rating,imdb_votes,last_used_date")
         .not("imdb_rating", "is", null)
         .not("poster_path", "is", null)
         .order("imdb_votes", { ascending: false, nullsFirst: false })
@@ -1742,7 +1774,8 @@ Deno.serve(async (req) => {
         tmdb_id: Number(m.tmdb_id), title: m.title, release_year: m.release_year,
         runtime_minutes: m.runtime_minutes, mpa_rating: m.mpa_rating, poster_path: m.poster_path,
         genres: m.genres || [], director: m.director, director_profile_path: m.director_profile_path,
-        studio: m.studio, top_cast: Array.isArray(m.top_cast) ? m.top_cast : [], imdb_rating: m.imdb_rating,
+        studio: m.studio, studio_logo_path: m.studio_logo_path, box_office: m.box_office,
+        top_cast: Array.isArray(m.top_cast) ? m.top_cast : [], imdb_rating: m.imdb_rating,
       });
 
       // spottle + poster: one recognizable film each (distinct).
@@ -1846,11 +1879,14 @@ Deno.serve(async (req) => {
 
         if (game === "spottle") {
           const done = solved || attempts >= max;
+          const gaveUp = Array.isArray(res?.guesses) && res.guesses.some((x) => x && x.gave_up);
           games.spottle = {
-            max_guesses: max, attempts, solved, done,
+            max_guesses: max, attempts, solved, done, gave_up: gaveUp,
             guesses: Array.isArray(res?.guesses) ? res.guesses : [],
             score: res?.score || 0,
             answer: done ? gameAnswerLite(p.answer) : null,
+            hint_after: GAME_SPOTTLE_HINT_AFTER,
+            hint: (!done && attempts >= GAME_SPOTTLE_HINT_AFTER) ? spottleHint(p.answer) : null,
             streak: streakFor("spottle"),
           };
         } else if (game === "poster") {
@@ -1994,6 +2030,110 @@ Deno.serve(async (req) => {
         ok: true, correct, attempts, max_guesses: max, solved, done, score, feedback, guesses,
         blur: game === "poster" ? gamePosterBlur(attempts, max, done) : undefined,
         answer: done ? gameAnswerLite(answer) : undefined,
+        hint_after: game === "spottle" ? GAME_SPOTTLE_HINT_AFTER : undefined,
+        hint: (game === "spottle" && !done && attempts >= GAME_SPOTTLE_HINT_AFTER) ? spottleHint(answer) : undefined,
+      }, 200);
+    }
+
+    // ---- Games: give up on a spottle/poster puzzle (authenticated) ------------
+    // Ends today's game as unsolved and reveals the answer. Records a "gave_up"
+    // marker in the guesses jsonb (so no schema change) and forces attempts=max so
+    // the existing `done = attempts >= max` logic resumes the finished state.
+    if (action === "game_giveup") {
+      const authHeader = req.headers.get("Authorization") ?? "";
+      if (!authHeader) return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
+      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
+      const me = userData?.user || null;
+      if (userErr || !me?.id) return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
+
+      const game = String(body?.game || "").trim().toLowerCase();
+      if (game !== "spottle" && game !== "poster") {
+        return jsonResponse({ ok: false, message: "Unknown game." }, 200);
+      }
+      const date = gamePuzzleDateNY();
+      const { data: dailyRow } = await supabaseAdmin
+        .from("Game Daily").select("payload").eq("puzzle_date", date).eq("game", game).maybeSingle();
+      const answer = dailyRow?.payload?.answer;
+      if (!answer) return jsonResponse({ ok: false, message: "No puzzle for today." }, 200);
+
+      const max = GAME_MAX_GUESSES[game] || 6;
+      const { data: resRow } = await supabaseAdmin
+        .from("Game Results").select("*")
+        .eq("user_id", me.id).eq("puzzle_date", date).eq("game", game).maybeSingle();
+      if (resRow?.solved || (resRow?.attempts || 0) >= max) {
+        return jsonResponse({ ok: false, done: true, message: "Already played today." }, 200);
+      }
+      const guesses = Array.isArray(resRow?.guesses) ? resRow.guesses.slice() : [];
+      guesses.push({ gave_up: true });
+
+      const { error: upErr } = await supabaseAdmin.from("Game Results").upsert({
+        user_id: me.id, puzzle_date: date, game, solved: false, attempts: max, score: 0, guesses,
+        completed_at: new Date().toISOString(),
+      }, { onConflict: "user_id,puzzle_date,game" });
+      if (upErr) return jsonResponse({ ok: false, message: `Save failed: ${upErr.message}` }, 200);
+
+      return jsonResponse({
+        ok: true, done: true, solved: false, gave_up: true, attempts: max, max_guesses: max,
+        score: 0, guesses, answer: gameAnswerLite(answer),
+        blur: game === "poster" ? 0 : undefined,
+      }, 200);
+    }
+
+    // ---- Games: backfill box office + studio logo for the pool (cron) ----------
+    // build_game_pool skips movies already in "Game Pool", so it never refreshes
+    // existing rows. This walks pool rows still missing box_office OR
+    // studio_logo_path, re-fetches TMDB details and fills those two columns.
+    // Returns `remaining` so a workflow can loop until 0. Gated by CRON_SECRET.
+    if (action === "backfill_game_pool_meta") {
+      const provided = String(req.headers.get("x-cron-secret") ?? "").trim();
+      const expected = String(Deno.env.get("CRON_SECRET") ?? "").trim();
+      if (!expected || provided !== expected) {
+        return jsonResponse({ code: 401, message: "Invalid or missing cron secret." }, 401);
+      }
+      const limit = Math.max(1, Math.min(200, Number(body?.limit) || 60));
+
+      // Rows still missing either extra (box_office OR studio_logo_path).
+      const { data: rows } = await supabaseAdmin
+        .from("Game Pool").select("tmdb_id")
+        .or("box_office.is.null,studio_logo_path.is.null")
+        .limit(limit);
+      const todo = (rows || []).map((r) => Number(r.tmdb_id)).filter(Boolean);
+
+      let updated = 0, failed = 0, idx = 0;
+      const CONCURRENCY = 5;
+      const worker = async () => {
+        while (idx < todo.length) {
+          const id = todo[idx++];
+          try {
+            const det = await tmdbGetJson(`movie/${id}`,
+              { append_to_response: "credits,release_dates" }, TMDB_READ_ACCESS_TOKEN);
+            const row = tmdbToPoolRow(det, null);
+            if (!row) { failed++; continue; }
+            // Coalesce unknowns to sentinels (0 / "") so a movie TMDB simply has no
+            // revenue/logo for stops matching the "still null" filter — otherwise the
+            // looping workflow would never reach remaining=0. formatBoxOffice(0) and an
+            // empty logo both render as "no data" on the card.
+            const { error: upErr } = await supabaseAdmin.from("Game Pool")
+              .update({
+                box_office: row.box_office ?? 0,
+                studio_logo_path: row.studio_logo_path ?? "",
+                updated_at: new Date().toISOString(),
+              })
+              .eq("tmdb_id", id);
+            upErr ? failed++ : updated++;
+          } catch (_) { failed++; }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, todo.length) }, worker));
+
+      const { count } = await supabaseAdmin
+        .from("Game Pool").select("*", { count: "exact", head: true })
+        .or("box_office.is.null,studio_logo_path.is.null");
+      return jsonResponse({
+        ok: true, processed: todo.length, updated, failed, remaining: Number(count) || 0,
       }, 200);
     }
 

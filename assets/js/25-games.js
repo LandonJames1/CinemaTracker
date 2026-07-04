@@ -137,7 +137,12 @@
             play.hidden = false;
             // Warm the guess autocomplete index so the first keystroke is instant.
             if (game === 'spottle' || game === 'poster') { try { loadGameSearchIndex(); } catch (_) {} }
-            if (game === 'spottle') renderSpottle();
+            if (game === 'spottle') {
+                spottleHintRevealed = false;
+                spottleGiveUpArmed = false;
+                if (spottleGiveUpTimer) { clearTimeout(spottleGiveUpTimer); spottleGiveUpTimer = null; }
+                renderSpottle();
+            }
             else if (game === 'rank') renderRank();
             else if (game === 'poster') renderPoster();
             try { window.scrollTo({ top: 0, behavior: 'auto' }); } catch (_) {}
@@ -164,11 +169,13 @@
         }
 
         function gameGuessInputHtml(context, left) {
+            const searchIco = (typeof icons === 'object' && icons.search) ? icons.search : '';
             return `
                 <div class="games-guess">
                     <input id="game-guess-input" class="games-guess-input" type="text"
-                           placeholder="Guess a movie…${left != null ? ` (${left} left)` : ''}"
+                           placeholder="Search for a movie…"
                            autocomplete="off" spellcheck="false" data-game-context="${context}">
+                    <span class="games-guess-ico" aria-hidden="true">${searchIco}</span>
                     <div id="game-guess-results" class="games-guess-results"></div>
                 </div>`;
         }
@@ -181,7 +188,9 @@
                 : 'the movie';
             const msg = win
                 ? `Solved in ${d.attempts} ${d.attempts === 1 ? 'guess' : 'guesses'}! It was <strong>${title}</strong>.`
-                : `Out of guesses — it was <strong>${title}</strong>.`;
+                : (d.gave_up
+                    ? `You gave up — it was <strong>${title}</strong>.`
+                    : `Out of guesses — it was <strong>${title}</strong>.`);
             return `
                 <div class="games-result-banner ${win ? 'is-win' : ''}">
                     <div>${msg}</div>
@@ -190,52 +199,125 @@
         }
 
         // ---- Spottle -------------------------------------------------------------
+        // Small inline icons (not in the shared `icons` map).
+        const SPOTTLE_LOCK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>';
+        const SPOTTLE_FLAG_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>';
+        let spottleHintRevealed = false;     // per-play: whether the Hint text is shown
+        let spottleGiveUpArmed = false;      // two-tap confirm state for Give Up
+        let spottleGiveUpTimer = null;
+
+        // "Christopher Nolan" -> "C. Nolan"; single-word names pass through.
+        function spottleAbbrevName(name) {
+            const n = String(name || '').trim();
+            if (!n || n === '—') return '—';
+            const parts = n.split(/\s+/);
+            if (parts.length === 1) return parts[0];
+            return `${parts[0][0].toUpperCase()}. ${parts.slice(1).join(' ')}`;
+        }
+
         function spottleTileHtml(label, fb) {
             const st = (fb && fb.status) || 'gray';
-            const dir = fb && fb.dir === 'up' ? '▲' : (fb && fb.dir === 'down' ? '▼' : '');
+            const dir = fb && fb.dir === 'up' ? '↑' : (fb && fb.dir === 'down' ? '↓' : '');
             const val = (fb && fb.value != null) ? String(fb.value) : '—';
             return `
                 <div class="spottle-tile is-${st}">
                     <span class="spottle-tile-label">${escapeHtml(label)}</span>
-                    <span class="spottle-tile-val">${escapeHtml(val)}${dir ? ` <span class="spottle-dir">${dir}</span>` : ''}</span>
+                    <span class="spottle-tile-val">${escapeHtml(val)}${dir ? `<span class="spottle-dir">${dir}</span>` : ''}</span>
                 </div>`;
         }
 
-        function spottlePersonHtml(name, profilePath, status, label) {
-            const url = profilePath ? gamesPosterUrl(profilePath, 'w185') : '';
+        // The tall STUDIO tile — shows the production company's LOGO if we have one,
+        // else its name. Green when the studio matches the answer.
+        function spottleStudioTileHtml(fb) {
+            const st = (fb && fb.status) || 'gray';
+            const logo = fb && fb.logo_path ? gamesPosterUrl(fb.logo_path, 'w185') : '';
+            const val = (fb && fb.value != null) ? String(fb.value) : '—';
+            const inner = logo
+                ? `<img class="spottle-studio-logo" src="${logo}" alt="${escapeHtml(val)}">`
+                : `<span class="spottle-tile-val spottle-studio-name">${escapeHtml(val)}</span>`;
+            return `
+                <div class="spottle-tile spottle-tile-studio is-${st}">
+                    <span class="spottle-tile-label">Studio</span>
+                    ${inner}
+                </div>`;
+        }
+
+        // One person avatar (abbreviated name below), green when shared with answer.
+        function spottlePersonTileHtml(p) {
+            const person = p || {};
+            const name = person.name || '—';
+            const url = person.profile_path ? gamesPosterUrl(person.profile_path, 'w185') : '';
             const initials = String(name || '?').trim().split(/\s+/).map((w) => w[0] || '').slice(0, 2).join('').toUpperCase() || '?';
             const face = url
                 ? `<img class="spottle-person-img" src="${url}" alt="">`
                 : `<div class="spottle-person-img spottle-person-noimg">${escapeHtml(initials)}</div>`;
             return `
-                <div class="spottle-person is-${status || 'gray'}">
+                <div class="spottle-person is-${person.status || 'gray'}">
                     ${face}
-                    <span class="spottle-person-name">${escapeHtml(name || '—')}</span>
-                    ${label ? `<span class="spottle-person-label">${escapeHtml(label)}</span>` : ''}
+                    <span class="spottle-person-name">${escapeHtml(spottleAbbrevName(name))}</span>
+                </div>`;
+        }
+
+        // A labeled people group (label above one or more avatars).
+        function spottlePersonGroupHtml(label, tilesHtml, extraClass) {
+            return `
+                <div class="spottle-person-group ${extraClass || ''}">
+                    <div class="spottle-person-label">${escapeHtml(label)}</div>
+                    <div class="spottle-person-row">${tilesHtml}</div>
                 </div>`;
         }
 
         function spottleRowHtml(g) {
+            if (!g || g.gave_up) return '';   // skip the give-up sentinel
             const fb = g.feedback || {};
-            const dir = fb.director || {};
-            const dirHtml = spottlePersonHtml(dir.value || 'Unknown', dir.profile_path, dir.status || 'gray', 'Director');
-            const shared = (fb.cast && Array.isArray(fb.cast.shared)) ? fb.cast.shared : [];
-            const castHtml = shared.length
-                ? shared.map((c) => spottlePersonHtml(c.name, c.profile_path, 'green', 'Shared cast')).join('')
-                : '';
+            const genres = Array.isArray(fb.genres) ? fb.genres : [];
+            const genrePills = genres.map((gp) =>
+                `<span class="spottle-genre-pill ${gp && gp.match ? 'is-match' : ''}">${escapeHtml(gp.name || '')}</span>`).join('');
             const tiles = [
                 spottleTileHtml('Year', fb.year),
-                spottleTileHtml('Genre', fb.genre),
-                spottleTileHtml('IMDb', fb.imdb),
-                spottleTileHtml('Runtime', fb.runtime),
-                spottleTileHtml('MPA', fb.mpa),
-                spottleTileHtml('Studio', fb.studio),
+                spottleTileHtml('Box Office', fb.box_office),
+                spottleStudioTileHtml(fb.studio),
+                spottleTileHtml('Rated', fb.mpa),
+                spottleTileHtml('Score', fb.score),
             ].join('');
+            const director = spottlePersonGroupHtml('Director', spottlePersonTileHtml(fb.director));
+            const lead = fb.lead ? spottlePersonGroupHtml('Lead Actor', spottlePersonTileHtml(fb.lead)) : '';
+            const support = (Array.isArray(fb.supporting) && fb.supporting.length)
+                ? spottlePersonGroupHtml('Supporting Cast', fb.supporting.map(spottlePersonTileHtml).join(''), 'spottle-person-group-support')
+                : '';
+            const poster = g.poster_path
+                ? `<img class="spottle-guess-poster" src="${gamesPosterUrl(g.poster_path, 'w185')}" alt="">`
+                : '<div class="spottle-guess-poster spottle-guess-poster-empty"></div>';
             return `
-                <div class="spottle-row ${g.correct ? 'is-correct' : ''}">
-                    <div class="spottle-guess-title">${escapeHtml(g.title || '')}${g.release_year ? ` <span class="games-dim">(${g.release_year})</span>` : ''}</div>
-                    <div class="spottle-people">${dirHtml}${castHtml}</div>
-                    <div class="spottle-tiles">${tiles}</div>
+                <div class="spottle-guess-card ${g.correct ? 'is-correct' : ''}">
+                    <div class="spottle-guess-top">
+                        ${poster}
+                        <div class="spottle-guess-info">
+                            <div class="spottle-guess-title">${escapeHtml(g.title || '')}</div>
+                            ${genrePills ? `<div class="spottle-genres">${genrePills}</div>` : ''}
+                            <div class="spottle-tiles">${tiles}</div>
+                        </div>
+                    </div>
+                    <div class="spottle-people">${director}${lead}${support}</div>
+                </div>`;
+        }
+
+        // Top control bar: Hint (lock) · Guess N of M · Give Up (flag).
+        function spottleTopbarHtml(d) {
+            const max = d.max_guesses || 10;
+            const attempts = d.attempts || 0;
+            const cur = Math.min(max, attempts + 1);
+            const hintAfter = (d.hint_after != null) ? d.hint_after : 3;
+            const unlocked = attempts >= hintAfter;
+            const remaining = Math.max(0, hintAfter - attempts);
+            const hintBtn = unlocked
+                ? `<button class="spottle-topbtn spottle-hint-btn" type="button" data-spottle-hint>${SPOTTLE_LOCK_ICON} Hint</button>`
+                : `<button class="spottle-topbtn spottle-hint-btn is-locked" type="button" disabled>${SPOTTLE_LOCK_ICON} Hint in ${remaining}</button>`;
+            return `
+                <div class="spottle-topbar">
+                    ${hintBtn}
+                    <div class="spottle-counter">Guess <span class="spottle-counter-num">${cur}</span> of ${max}</div>
+                    <button class="spottle-topbtn spottle-giveup-btn ${spottleGiveUpArmed ? 'is-armed' : ''}" type="button" data-spottle-giveup>${SPOTTLE_FLAG_ICON} ${spottleGiveUpArmed ? 'Confirm' : 'Give Up'}</button>
                 </div>`;
         }
 
@@ -244,15 +326,56 @@
             const d = gamesTodayData?.games?.spottle;
             if (!play) return;
             if (!d) { play.innerHTML = gamePlayHeadHtml('spottle') + '<div class="games-error">No puzzle available today.</div>'; return; }
-            const rows = (d.guesses || []).map(spottleRowHtml).join('')
-                || '<div class="games-empty">Make your first guess below.</div>';
-            const left = Math.max(0, (d.max_guesses || 6) - (d.attempts || 0));
-            const footer = d.done ? gameResultBanner('spottle', d) : gameGuessInputHtml('spottle', left);
+            const realGuesses = (d.guesses || []).filter((g) => g && !g.gave_up);
+            // Newest guess on top, right under the search bar.
+            const rows = realGuesses.slice().reverse().map(spottleRowHtml).join('');
+            const hintText = d.hint && spottleHintRevealed
+                ? `<div class="spottle-hint-reveal">💡 Hint: <strong>${escapeHtml(d.hint)}</strong></div>` : '';
+            const board = rows || '<div class="games-empty">Make your first guess to see how close you are.</div>';
+            const footer = d.done
+                ? gameResultBanner('spottle', d)
+                : `${spottleTopbarHtml(d)}${hintText}${gameGuessInputHtml('spottle')}`;
             play.innerHTML = `
                 ${gamePlayHeadHtml('spottle')}
-                <div class="spottle-legend">🟩 exact · 🟨 close · ⬛ off · ▲ answer is higher / ▼ lower. The director + any <strong>shared cast</strong> (green) also appear per guess.</div>
-                <div class="spottle-board">${rows}</div>
-                ${footer}`;
+                ${footer}
+                <div class="spottle-board">${board}</div>`;
+        }
+
+        // Reveal the (already-delivered) hint text.
+        function spottleToggleHint() {
+            const d = gamesTodayData?.games?.spottle;
+            if (!d || !d.hint) return;
+            spottleHintRevealed = true;
+            renderSpottle();
+        }
+
+        // Two-tap Give Up: first tap arms + relabels "Confirm", second gives up.
+        async function spottleGiveUp() {
+            const d = gamesTodayData?.games?.spottle;
+            if (!d || d.done) return;
+            if (!spottleGiveUpArmed) {
+                spottleGiveUpArmed = true;
+                renderSpottle();
+                if (spottleGiveUpTimer) clearTimeout(spottleGiveUpTimer);
+                spottleGiveUpTimer = setTimeout(() => { spottleGiveUpArmed = false; renderSpottle(); }, 3500);
+                return;
+            }
+            if (spottleGiveUpTimer) clearTimeout(spottleGiveUpTimer);
+            spottleGiveUpArmed = false;
+            try {
+                const res = await gamesApi({ action: 'game_giveup', game: 'spottle' });
+                if (!res?.ok) { showToast(res?.message || 'Could not give up.', { level: 'warn' }); return; }
+                d.attempts = res.attempts;
+                d.solved = false;
+                d.done = true;
+                d.gave_up = true;
+                d.score = 0;
+                if (Array.isArray(res.guesses)) d.guesses = res.guesses;
+                if (res.answer) d.answer = res.answer;
+                renderSpottle();
+            } catch (e) {
+                showToast(String(e?.message || e), { level: 'error' });
+            }
         }
 
         // ---- Poster --------------------------------------------------------------
@@ -342,15 +465,13 @@
         // is rebuilt from DOM order on release.
         function onRankPointerDown(e) {
             if (e.target && e.target.closest && e.target.closest('.rank-move')) return; // let ▲▼ work
+            if (e.button != null && e.button !== 0) return; // primary button / touch only
             const row = e.currentTarget;
             const list = document.getElementById('rank-list');
             if (!list) return;
             e.preventDefault();
-            const startY = e.clientY;
-            const startTop = row.getBoundingClientRect().top;
-            const offsetY = startY - startTop;
+            const offsetY = e.clientY - row.getBoundingClientRect().top;
             row.classList.add('rank-dragging');
-            try { row.setPointerCapture(e.pointerId); } catch (_) {}
 
             const renumber = () => {
                 Array.from(list.querySelectorAll('.rank-row')).forEach((r, i) => {
@@ -359,7 +480,11 @@
                 });
             };
 
+            // Listen on DOCUMENT (not the row) so the drag keeps tracking even when
+            // the pointer moves off the row — the row-level + pointer-capture version
+            // was unreliable with a desktop mouse.
             const onMove = (ev) => {
+                ev.preventDefault();
                 const siblings = Array.from(list.querySelectorAll('.rank-row:not(.rank-dragging)'));
                 let placed = false;
                 for (const sib of siblings) {
@@ -374,15 +499,15 @@
             const onUp = () => {
                 row.classList.remove('rank-dragging');
                 row.style.transform = '';
-                row.removeEventListener('pointermove', onMove);
-                row.removeEventListener('pointerup', onUp);
-                row.removeEventListener('pointercancel', onUp);
+                document.removeEventListener('pointermove', onMove);
+                document.removeEventListener('pointerup', onUp);
+                document.removeEventListener('pointercancel', onUp);
                 rankOrderIds = Array.from(list.querySelectorAll('.rank-row')).map((r) => Number(r.getAttribute('data-rank-id')));
                 paintRankList(); // clean re-render (resets transforms + ▲▼ disabled states)
             };
-            row.addEventListener('pointermove', onMove);
-            row.addEventListener('pointerup', onUp);
-            row.addEventListener('pointercancel', onUp);
+            document.addEventListener('pointermove', onMove);
+            document.addEventListener('pointerup', onUp);
+            document.addEventListener('pointercancel', onUp);
         }
 
         function renderRankResult(d) {
@@ -501,7 +626,13 @@
                 d.score = res.score || 0;
                 if (res.answer) d.answer = res.answer;
                 if (game === 'poster' && res.blur != null) d.blur = res.blur;
-                if (game === 'spottle') renderSpottle();
+                if (game === 'spottle') {
+                    if (res.hint_after != null) d.hint_after = res.hint_after;
+                    d.hint = res.hint || null;
+                    spottleGiveUpArmed = false;   // a new guess disarms Give Up
+                    if (spottleGiveUpTimer) { clearTimeout(spottleGiveUpTimer); spottleGiveUpTimer = null; }
+                    renderSpottle();
+                }
                 else renderPoster();
                 if (d.done && d.solved) { try { showToast('Solved! 🎉', { durationMs: 1400 }); } catch (_) {} }
             } catch (e) {
@@ -518,6 +649,8 @@
             if (t.closest('[data-game-back]')) { e.preventDefault(); closeGame(); return; }
             const pick = t.closest('[data-game-guess-pick]');
             if (pick) { e.preventDefault(); submitGuess(pick.getAttribute('data-tmdb-id')); return; }
+            if (t.closest('[data-spottle-hint]')) { e.preventDefault(); spottleToggleHint(); return; }
+            if (t.closest('[data-spottle-giveup]')) { e.preventDefault(); spottleGiveUp(); return; }
             const mv = t.closest('[data-rank-move]');
             if (mv) { e.preventDefault(); rankMove(mv.getAttribute('data-rank-id'), mv.getAttribute('data-rank-move')); return; }
             if (t.closest('[data-rank-submit]')) { e.preventDefault(); submitRank(); return; }

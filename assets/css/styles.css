@@ -8380,8 +8380,8 @@
         .games-card.status-done .games-status-pill { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.7); }
         .games-streak { font-size: 0.82rem; font-weight: 700; color: #fdba74; }
 
-        /* Play surface shell */
-        .games-play { margin-top: 4px; }
+        /* Play surface shell — centered column on all widths */
+        .games-play { margin: 4px auto 0; max-width: 680px; }
         .games-play-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
         .games-back {
             display: inline-flex; align-items: center; gap: 4px; background: #202024;
@@ -8393,12 +8393,19 @@
         .games-play-title { font-size: 1.15rem; font-weight: 700; color: #fff; }
 
         /* Guess box (spottle + poster) */
-        .games-guess { position: relative; margin-top: 16px; max-width: 460px; }
+        .games-guess { position: relative; margin-top: 16px; max-width: 680px; }
         .games-guess-input {
-            width: 100%; padding: 12px 14px; border-radius: 12px; background: #16161a;
-            border: 1px solid rgba(255,255,255,0.14); color: #fff; font-size: 0.95rem;
+            width: 100%; padding: 13px 42px 13px 16px; border-radius: 12px; background: #101826;
+            border: 1px solid #24344a; color: #fff; font-size: 0.95rem;
         }
+        .games-guess-input::placeholder { color: rgba(178,196,220,0.55); }
         .games-guess-input:focus { outline: none; border-color: var(--brand, #14b8a6); }
+        .games-guess-ico {
+            position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+            color: rgba(178,196,220,0.7); pointer-events: none; display: inline-flex;
+        }
+        .games-guess-ico svg { width: 18px; height: 18px; fill: none; stroke: currentColor;
+            stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
         .games-guess-results {
             position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 30;
             background: #202024; border-radius: 12px; overflow: hidden;
@@ -8414,36 +8421,92 @@
         .games-guess-item img { width: 30px; height: 45px; object-fit: cover; border-radius: 4px; background: #16161a; }
         .games-guess-item.no-poster { padding: 11px 12px; }
 
-        /* Spottle board */
-        .spottle-legend { font-size: 0.8rem; color: rgba(255,255,255,0.6); margin-bottom: 12px; }
-        .spottle-board { display: flex; flex-direction: column; gap: 10px; }
-        .spottle-row { background: #1d1d22; border-radius: 14px; padding: 12px; border: 1px solid rgba(255,255,255,0.06); }
-        .spottle-row.is-correct { border-color: #22c55e; }
-        .spottle-guess-title { font-weight: 700; color: #fff; margin-bottom: 8px; }
-        /* People row: director headshot + any shared cast (green) */
-        .spottle-people { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-        .spottle-person {
-            display: flex; flex-direction: column; align-items: center; width: 62px; gap: 3px;
-            padding: 6px 4px; border-radius: 10px; background: #2a2a30; border: 1px solid transparent;
+        /* Spottle — top control bar: Hint · Guess N of M · Give Up */
+        .spottle-topbar {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            max-width: 680px; margin: 4px 0 14px;
         }
-        .spottle-person.is-green { background: color-mix(in srgb, #22c55e 20%, #2a2a30); border-color: #22c55e; }
-        .spottle-person-img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #16161a; }
-        .spottle-person-noimg { display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 700; color: rgba(255,255,255,0.7); }
-        .spottle-person-name { font-size: 0.66rem; text-align: center; color: #fff; line-height: 1.1; max-width: 100%; }
-        .spottle-person-label { font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.03em; color: rgba(255,255,255,0.55); }
-        .spottle-person.is-green .spottle-person-label { color: #bbf7d0; }
-        .spottle-tiles { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
-        .spottle-tiles.spottle-tiles-5 { grid-template-columns: repeat(5, 1fr); }
+        .spottle-topbtn {
+            display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px;
+            background: #16202e; border: 1px solid #2a3a52; color: #dbe5f0; cursor: pointer;
+            font-size: 0.86rem; font-weight: 600; line-height: 1;
+        }
+        .spottle-topbtn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2;
+            stroke-linecap: round; stroke-linejoin: round; }
+        .spottle-topbtn:hover { border-color: var(--brand, #14b8a6); }
+        .spottle-topbtn.is-locked { opacity: 0.6; cursor: default; }
+        .spottle-topbtn.is-locked:hover { border-color: #2a3a52; }
+        .spottle-giveup-btn { color: #fca5a5; border-color: #4a2530; }
+        .spottle-giveup-btn:hover { border-color: #ef4444; }
+        .spottle-giveup-btn.is-armed { background: #ef4444; color: #fff; border-color: #ef4444; }
+        .spottle-counter { font-size: 0.95rem; font-weight: 600; color: #dbe5f0; text-align: center; }
+        .spottle-counter-num { color: #f5a623; font-weight: 800; }
+        .spottle-hint-reveal {
+            max-width: 680px; margin: -6px 0 12px; padding: 10px 14px; border-radius: 12px;
+            background: color-mix(in srgb, #f5a623 14%, #101826); border: 1px solid #4a3a1a;
+            color: #fde68a; font-size: 0.9rem;
+        }
+        .spottle-hint-reveal strong { color: #fff; }
+
+        /* Spottle guess card (poster + details on top, people underneath) */
+        .spottle-board { display: flex; flex-direction: column; gap: 14px; align-items: center; }
+        .spottle-guess-card {
+            display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 680px; padding: 16px;
+            background: #0e1622; border: 1px solid #1e2a3a; border-radius: 16px;
+        }
+        .spottle-guess-card.is-correct { border-color: #22c55e; box-shadow: 0 0 0 1px #22c55e inset; }
+        .spottle-guess-top { display: flex; gap: 16px; align-items: flex-start; }
+        .spottle-guess-poster { width: 104px; flex: 0 0 104px; height: 156px; object-fit: cover;
+            border-radius: 8px; background: #101826; align-self: flex-start; }
+        .spottle-guess-poster-empty { background: #16202e; }
+        .spottle-guess-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+        .spottle-guess-title { font-size: 1.4rem; font-weight: 800; color: #fff; line-height: 1.1; }
+        /* Genre pills */
+        .spottle-genres { display: flex; flex-wrap: wrap; gap: 8px; }
+        .spottle-genre-pill {
+            font-size: 0.78rem; font-weight: 600; padding: 5px 13px; border-radius: 999px;
+            background: #1b2738; color: #cbd5e1;
+        }
+        .spottle-genre-pill.is-match { background: #1f9d57; color: #eafff2; }
+        /* Attribute tiles: 3-col grid, STUDIO spans both rows on the right */
+        .spottle-tiles {
+            display: grid; grid-template-columns: 1fr 1fr 1.15fr; grid-template-rows: auto auto; gap: 8px;
+        }
         .spottle-tile {
-            display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px;
-            border-radius: 10px; text-align: center; background: #3a3a40;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+            padding: 10px 6px; border-radius: 12px; text-align: center; background: #152030;
         }
-        .spottle-tile.is-green { background: #16713b; }
-        .spottle-tile.is-yellow { background: #9a7b1b; }
-        .spottle-tile.is-gray { background: #3a3a40; }
-        .spottle-tile-label { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.04em; color: rgba(255,255,255,0.75); }
-        .spottle-tile-val { font-size: 0.82rem; font-weight: 700; color: #fff; }
-        .spottle-dir { font-size: 0.9em; }
+        .spottle-tile.is-green { background: #1f9d57; }
+        .spottle-tile.is-yellow { background: #a16207; }
+        .spottle-tile.is-gray { background: #152030; }
+        .spottle-tile-studio { grid-column: 3; grid-row: 1 / span 2; }
+        .spottle-tile-label { font-size: 0.62rem; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.05em; color: rgba(178,196,220,0.75); }
+        .spottle-tile.is-green .spottle-tile-label { color: rgba(255,255,255,0.85); }
+        .spottle-tile-val { font-size: 0.98rem; font-weight: 800; color: #fff; display: inline-flex;
+            align-items: baseline; gap: 2px; }
+        .spottle-dir { font-size: 0.85em; opacity: 0.85; }
+        .spottle-studio-logo { max-width: 82%; max-height: 40px; object-fit: contain; filter: brightness(0) invert(1); }
+        .spottle-tile.is-green .spottle-studio-logo { filter: brightness(0) invert(1); }
+        .spottle-studio-name { font-size: 0.86rem; }
+        /* People row: Director · Lead Actor · Supporting Cast */
+        .spottle-people {
+            display: flex; flex-wrap: wrap; gap: 18px; padding-top: 12px;
+            border-top: 1px solid #1e2a3a; align-items: flex-start;
+        }
+        .spottle-person-group { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+        .spottle-person-group-support { flex: 1; min-width: 0; }
+        .spottle-person-label { font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.06em; color: rgba(178,196,220,0.7); }
+        .spottle-person-row { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+        .spottle-person { display: flex; flex-direction: column; align-items: center; width: 58px; gap: 5px; }
+        .spottle-person-img { width: 48px; height: 48px; border-radius: 50%; object-fit: cover;
+            background: #101826; filter: grayscale(1) contrast(1.05); border: 2px solid transparent; }
+        .spottle-person.is-green .spottle-person-img { filter: none; border-color: #22c55e; }
+        .spottle-person-noimg { display: flex; align-items: center; justify-content: center; filter: none;
+            font-size: 0.9rem; font-weight: 700; color: rgba(255,255,255,0.7); }
+        .spottle-person-name { font-size: 0.68rem; text-align: center; color: #dbe5f0; line-height: 1.15; }
+        .spottle-person.is-green .spottle-person-name { color: #bbf7d0; }
 
         /* Poster blur */
         .poster-stage { display: flex; justify-content: center; margin: 8px 0 16px; }
@@ -8493,7 +8556,19 @@
             .games-card { min-height: 0; flex-direction: row; align-items: center; }
             .games-card-foot { width: auto; margin-left: auto; flex-direction: column; align-items: flex-end; }
             .games-card-desc { display: none; }
-            .spottle-tiles { gap: 4px; }
-            .spottle-tile { padding: 6px 2px; }
-            .spottle-tile-val { font-size: 0.72rem; }
+            .spottle-guess-card { gap: 12px; padding: 12px; }
+            .spottle-guess-top { gap: 12px; }
+            .spottle-guess-poster { width: 84px; flex-basis: 84px; height: 126px; }
+            .spottle-guess-title { font-size: 1.15rem; }
+            .spottle-guess-info { gap: 10px; }
+            .spottle-tiles { gap: 6px; }
+            .spottle-tile { padding: 8px 3px; }
+            .spottle-tile-val { font-size: 0.82rem; }
+            .spottle-tile-label { font-size: 0.56rem; }
+            .spottle-people { gap: 12px; }
+            .spottle-person { width: 50px; }
+            .spottle-person-img { width: 42px; height: 42px; }
+            .spottle-person-row { gap: 8px; }
+            .spottle-topbar, .spottle-topbtn { font-size: 0.8rem; }
+            .spottle-topbtn { padding: 7px 11px; }
         }
