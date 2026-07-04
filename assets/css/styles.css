@@ -8412,6 +8412,7 @@
         }
         .games-guess-item:hover { background: rgba(255,255,255,0.08); }
         .games-guess-item img { width: 30px; height: 45px; object-fit: cover; border-radius: 4px; background: #16161a; }
+        .games-guess-item.no-poster { padding: 11px 12px; }
 
         /* Spottle board */
         .spottle-legend { font-size: 0.8rem; color: rgba(255,255,255,0.6); margin-bottom: 12px; }
@@ -8419,7 +8420,20 @@
         .spottle-row { background: #1d1d22; border-radius: 14px; padding: 12px; border: 1px solid rgba(255,255,255,0.06); }
         .spottle-row.is-correct { border-color: #22c55e; }
         .spottle-guess-title { font-weight: 700; color: #fff; margin-bottom: 8px; }
+        /* People row: director headshot + any shared cast (green) */
+        .spottle-people { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+        .spottle-person {
+            display: flex; flex-direction: column; align-items: center; width: 62px; gap: 3px;
+            padding: 6px 4px; border-radius: 10px; background: #2a2a30; border: 1px solid transparent;
+        }
+        .spottle-person.is-green { background: color-mix(in srgb, #22c55e 20%, #2a2a30); border-color: #22c55e; }
+        .spottle-person-img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #16161a; }
+        .spottle-person-noimg { display: flex; align-items: center; justify-content: center; font-size: 0.8rem; font-weight: 700; color: rgba(255,255,255,0.7); }
+        .spottle-person-name { font-size: 0.66rem; text-align: center; color: #fff; line-height: 1.1; max-width: 100%; }
+        .spottle-person-label { font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.03em; color: rgba(255,255,255,0.55); }
+        .spottle-person.is-green .spottle-person-label { color: #bbf7d0; }
         .spottle-tiles { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+        .spottle-tiles.spottle-tiles-5 { grid-template-columns: repeat(5, 1fr); }
         .spottle-tile {
             display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px;
             border-radius: 10px; text-align: center; background: #3a3a40;
@@ -8447,6 +8461,10 @@
             display: flex; align-items: center; gap: 12px; background: #1d1d22; border-radius: 12px;
             padding: 8px 12px; border: 1px solid rgba(255,255,255,0.06);
         }
+        .rank-row { touch-action: none; cursor: grab; user-select: none; }
+        .rank-row.rank-dragging { cursor: grabbing; opacity: 0.95; box-shadow: 0 16px 34px rgba(0,0,0,0.5);
+            border-color: var(--brand, #14b8a6); position: relative; z-index: 5; }
+        .rank-grip { color: rgba(255,255,255,0.35); font-size: 1.1rem; line-height: 1; cursor: grab; }
         .rank-result-row.is-correct { border-color: #22c55e; }
         .rank-result-row.is-wrong { border-color: rgba(239,68,68,0.5); }
         .rank-num { width: 22px; text-align: center; font-weight: 800; color: var(--brand, #14b8a6); }

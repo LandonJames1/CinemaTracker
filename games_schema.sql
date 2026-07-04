@@ -40,7 +40,9 @@ create table if not exists public."Game Pool" (
   poster_path     text,
   genres          text[]  not null default '{}',
   director        text,
-  top_cast        text[]  not null default '{}',
+  director_profile_path text,            -- TMDB headshot path for the director
+  studio          text,                  -- primary TMDB production company
+  top_cast        jsonb   not null default '[]',  -- [{ id, name, profile_path }] top billed
   imdb_rating     numeric,               -- 0-100 %, matching "Movie External Ratings"
   imdb_votes      bigint,
   bucket          text,                  -- 'rating' | 'most_voted' | 'trending'
@@ -51,6 +53,22 @@ create table if not exists public."Game Pool" (
 create index if not exists game_pool_bucket_idx    on public."Game Pool" (bucket);
 create index if not exists game_pool_lastused_idx  on public."Game Pool" (last_used_date nulls first);
 create index if not exists game_pool_votes_idx     on public."Game Pool" (imdb_votes desc nulls last);
+
+-- Safety for re-runs on an older table: ensure the cast/director-photo columns
+-- exist and top_cast is jsonb (convert from an older text[] shape if needed).
+alter table public."Game Pool" add column if not exists director_profile_path text;
+alter table public."Game Pool" add column if not exists studio text;
+do $$
+begin
+  if exists (select 1 from information_schema.columns
+             where table_schema='public' and table_name='Game Pool'
+               and column_name='top_cast' and data_type='ARRAY') then
+    alter table public."Game Pool" alter column top_cast drop default;
+    alter table public."Game Pool" alter column top_cast type jsonb using to_jsonb(top_cast);
+    alter table public."Game Pool" alter column top_cast set default '[]'::jsonb;
+  end if;
+end
+$$;
 
 alter table public."Game Pool" enable row level security;
 -- Intentionally NO select policy: server-only (service role bypasses RLS).

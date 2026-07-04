@@ -24,6 +24,8 @@
         let _gamesBound = false;
         let gameSearchTimer = null;     // debounce for the autocomplete
         let rankOrderIds = [];          // current rank ordering (tmdb_id[])
+        let gamesSearchIndex = null;    // cached full pool title index (fast local filter)
+        let gamesSearchIndexLoading = null;
 
         const GAME_META = {
             spottle: { title: 'Spottle', tag: 'Guess the movie', icon: 'search',
@@ -133,6 +135,8 @@
             if (!hub || !play) return;
             hub.hidden = true;
             play.hidden = false;
+            // Warm the guess autocomplete index so the first keystroke is instant.
+            if (game === 'spottle' || game === 'poster') { try { loadGameSearchIndex(); } catch (_) {} }
             if (game === 'spottle') renderSpottle();
             else if (game === 'rank') renderRank();
             else if (game === 'poster') renderPoster();
@@ -197,19 +201,40 @@
                 </div>`;
         }
 
+        function spottlePersonHtml(name, profilePath, status, label) {
+            const url = profilePath ? gamesPosterUrl(profilePath, 'w185') : '';
+            const initials = String(name || '?').trim().split(/\s+/).map((w) => w[0] || '').slice(0, 2).join('').toUpperCase() || '?';
+            const face = url
+                ? `<img class="spottle-person-img" src="${url}" alt="">`
+                : `<div class="spottle-person-img spottle-person-noimg">${escapeHtml(initials)}</div>`;
+            return `
+                <div class="spottle-person is-${status || 'gray'}">
+                    ${face}
+                    <span class="spottle-person-name">${escapeHtml(name || '—')}</span>
+                    ${label ? `<span class="spottle-person-label">${escapeHtml(label)}</span>` : ''}
+                </div>`;
+        }
+
         function spottleRowHtml(g) {
             const fb = g.feedback || {};
+            const dir = fb.director || {};
+            const dirHtml = spottlePersonHtml(dir.value || 'Unknown', dir.profile_path, dir.status || 'gray', 'Director');
+            const shared = (fb.cast && Array.isArray(fb.cast.shared)) ? fb.cast.shared : [];
+            const castHtml = shared.length
+                ? shared.map((c) => spottlePersonHtml(c.name, c.profile_path, 'green', 'Shared cast')).join('')
+                : '';
             const tiles = [
                 spottleTileHtml('Year', fb.year),
                 spottleTileHtml('Genre', fb.genre),
-                spottleTileHtml('Director', fb.director),
                 spottleTileHtml('IMDb', fb.imdb),
                 spottleTileHtml('Runtime', fb.runtime),
                 spottleTileHtml('MPA', fb.mpa),
+                spottleTileHtml('Studio', fb.studio),
             ].join('');
             return `
                 <div class="spottle-row ${g.correct ? 'is-correct' : ''}">
                     <div class="spottle-guess-title">${escapeHtml(g.title || '')}${g.release_year ? ` <span class="games-dim">(${g.release_year})</span>` : ''}</div>
+                    <div class="spottle-people">${dirHtml}${castHtml}</div>
                     <div class="spottle-tiles">${tiles}</div>
                 </div>`;
         }
@@ -225,7 +250,7 @@
             const footer = d.done ? gameResultBanner('spottle', d) : gameGuessInputHtml('spottle', left);
             play.innerHTML = `
                 ${gamePlayHeadHtml('spottle')}
-                <div class="spottle-legend">🟩 exact · 🟨 close · ⬛ off · ▲ answer is higher / ▼ lower</div>
+                <div class="spottle-legend">🟩 exact · 🟨 close · ⬛ off · ▲ answer is higher / ▼ lower. The director + any <strong>shared cast</strong> (green) also appear per guess.</div>
                 <div class="spottle-board">${rows}</div>
                 ${footer}`;
         }
@@ -262,8 +287,9 @@
                 if (!m) return '';
                 return `
                     <div class="rank-row" data-rank-id="${id}">
+                        <span class="rank-grip" aria-hidden="true">⠿</span>
                         <span class="rank-num">${idx + 1}</span>
-                        <img class="rank-poster" src="${gamesPosterUrl(m.poster_path, 'w185')}" alt="">
+                        <img class="rank-poster" src="${gamesPosterUrl(m.poster_path, 'w185')}" alt="" draggable="false">
                         <span class="rank-title">${escapeHtml(m.title || '')}${m.release_year ? ` <span class="games-dim">(${m.release_year})</span>` : ''}</span>
                         <span class="rank-moves">
                             <button class="rank-move" type="button" data-rank-move="up" data-rank-id="${id}" ${idx === 0 ? 'disabled' : ''} aria-label="Move up">▲</button>
@@ -271,6 +297,17 @@
                         </span>
                     </div>`;
             }).join('');
+        }
+
+        // Repaint the rank list from rankOrderIds + (re)bind drag handlers.
+        function paintRankList() {
+            const d = gamesTodayData?.games?.rank;
+            const list = document.getElementById('rank-list');
+            if (!list || !d) return;
+            list.innerHTML = rankRowsHtml(d.movies || []);
+            list.querySelectorAll('.rank-row').forEach((row) => {
+                row.addEventListener('pointerdown', onRankPointerDown);
+            });
         }
 
         function renderRank() {
@@ -282,9 +319,10 @@
             rankOrderIds = (d.movies || []).map((m) => Number(m.tmdb_id));
             play.innerHTML = `
                 ${gamePlayHeadHtml('rank')}
-                <div class="rank-hint">Order these from <strong>highest</strong> to <strong>lowest</strong> IMDb rating.</div>
-                <div id="rank-list" class="rank-list">${rankRowsHtml(d.movies)}</div>
+                <div class="rank-hint">Drag the cards (or use ▲▼) to order them from <strong>highest</strong> to <strong>lowest</strong> IMDb rating.</div>
+                <div id="rank-list" class="rank-list"></div>
                 <button class="btn-glass rank-submit" type="button" data-rank-submit>Submit ranking</button>`;
+            paintRankList();
         }
 
         function rankMove(id, dir) {
@@ -295,9 +333,56 @@
             const tmp = rankOrderIds[i];
             rankOrderIds[i] = rankOrderIds[j];
             rankOrderIds[j] = tmp;
-            const d = gamesTodayData?.games?.rank;
+            paintRankList();
+        }
+
+        // Pointer-based drag reorder (works for touch + mouse). The dragged row
+        // follows the finger via transform; as the pointer crosses a sibling's
+        // midpoint the row is physically re-inserted in the DOM, then rankOrderIds
+        // is rebuilt from DOM order on release.
+        function onRankPointerDown(e) {
+            if (e.target && e.target.closest && e.target.closest('.rank-move')) return; // let ▲▼ work
+            const row = e.currentTarget;
             const list = document.getElementById('rank-list');
-            if (list && d) list.innerHTML = rankRowsHtml(d.movies);
+            if (!list) return;
+            e.preventDefault();
+            const startY = e.clientY;
+            const startTop = row.getBoundingClientRect().top;
+            const offsetY = startY - startTop;
+            row.classList.add('rank-dragging');
+            try { row.setPointerCapture(e.pointerId); } catch (_) {}
+
+            const renumber = () => {
+                Array.from(list.querySelectorAll('.rank-row')).forEach((r, i) => {
+                    const n = r.querySelector('.rank-num');
+                    if (n) n.textContent = String(i + 1);
+                });
+            };
+
+            const onMove = (ev) => {
+                const siblings = Array.from(list.querySelectorAll('.rank-row:not(.rank-dragging)'));
+                let placed = false;
+                for (const sib of siblings) {
+                    const r = sib.getBoundingClientRect();
+                    if (ev.clientY < r.top + r.height / 2) { list.insertBefore(row, sib); placed = true; break; }
+                }
+                if (!placed) list.appendChild(row);
+                const nat = row.getBoundingClientRect().top;
+                row.style.transform = `translateY(${ev.clientY - offsetY - nat}px)`;
+                renumber();
+            };
+            const onUp = () => {
+                row.classList.remove('rank-dragging');
+                row.style.transform = '';
+                row.removeEventListener('pointermove', onMove);
+                row.removeEventListener('pointerup', onUp);
+                row.removeEventListener('pointercancel', onUp);
+                rankOrderIds = Array.from(list.querySelectorAll('.rank-row')).map((r) => Number(r.getAttribute('data-rank-id')));
+                paintRankList(); // clean re-render (resets transforms + ▲▼ disabled states)
+            };
+            row.addEventListener('pointermove', onMove);
+            row.addEventListener('pointerup', onUp);
+            row.addEventListener('pointercancel', onUp);
         }
 
         function renderRankResult(d) {
@@ -341,6 +426,29 @@
         }
 
         // ---- Guessing (spottle + poster) -----------------------------------------
+        // The pool's movie NAMES aren't secret (only the answers/ratings are), so we
+        // fetch the whole title index ONCE and filter locally — instant typing, no
+        // per-keystroke round trip. Prefetched when a guessing game opens.
+        function loadGameSearchIndex() {
+            if (gamesSearchIndex) return Promise.resolve(gamesSearchIndex);
+            if (gamesSearchIndexLoading) return gamesSearchIndexLoading;
+            gamesSearchIndexLoading = (async () => {
+                try {
+                    const res = await gamesApi({ action: 'game_search', all: true });
+                    gamesSearchIndex = Array.isArray(res?.results) ? res.results : [];
+                } catch (_) { gamesSearchIndex = []; }
+                gamesSearchIndexLoading = null;
+                return gamesSearchIndex;
+            })();
+            return gamesSearchIndexLoading;
+        }
+
+        function gamesNormalize(s) {
+            return String(s || '').toLowerCase().normalize('NFKD')
+                .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ')
+                .replace(/\s+/g, ' ').trim();
+        }
+
         function gamesDelegatedInput(e) {
             const inp = e.target && e.target.closest ? e.target.closest('#game-guess-input') : null;
             if (!inp) return;
@@ -348,22 +456,31 @@
             if (gameSearchTimer) clearTimeout(gameSearchTimer);
             const box = document.getElementById('game-guess-results');
             if (q.length < 1) { if (box) box.innerHTML = ''; return; }
-            gameSearchTimer = setTimeout(() => gameSearchRun(q), 220);
+            // Local filter is cheap, so a tiny debounce is plenty.
+            gameSearchTimer = setTimeout(() => gameSearchRun(q), 80);
         }
 
         async function gameSearchRun(q) {
-            try {
-                const res = await gamesApi({ action: 'game_search', query: q });
-                const box = document.getElementById('game-guess-results');
-                if (!box) return;
-                const results = res?.results || [];
-                if (!results.length) { box.innerHTML = '<div class="games-guess-empty">No matches</div>'; return; }
-                box.innerHTML = results.map((m) => `
-                    <button class="games-guess-item" type="button" data-game-guess-pick data-tmdb-id="${m.tmdb_id}">
-                        <img src="${gamesPosterUrl(m.poster_path, 'w92')}" alt="">
-                        <span>${escapeHtml(m.title || '')}${m.release_year ? ` <span class="games-dim">(${m.release_year})</span>` : ''}</span>
-                    </button>`).join('');
-            } catch (_) { /* transient — ignore */ }
+            const box = document.getElementById('game-guess-results');
+            if (!box) return;
+            const idx = await loadGameSearchIndex();
+            const words = gamesNormalize(q).split(' ').filter(Boolean);
+            if (!words.length) { box.innerHTML = ''; return; }
+            const matches = [];
+            for (const m of idx) {
+                const t = gamesNormalize(m.title);
+                if (words.every((w) => t.includes(w))) matches.push(m);
+                if (matches.length >= 8) break;
+            }
+            if (!matches.length) { box.innerHTML = '<div class="games-guess-empty">No matches</div>'; return; }
+            // The POSTER game must NOT show poster thumbnails in the guess list — that
+            // would give the answer away — so we hide them for that game only.
+            const showPoster = gamesActiveGame !== 'poster';
+            box.innerHTML = matches.map((m) => `
+                <button class="games-guess-item ${showPoster ? '' : 'no-poster'}" type="button" data-game-guess-pick data-tmdb-id="${m.tmdb_id}">
+                    ${showPoster ? `<img src="${gamesPosterUrl(m.poster_path, 'w92')}" alt="">` : ''}
+                    <span>${escapeHtml(m.title || '')}${m.release_year ? ` <span class="games-dim">(${m.release_year})</span>` : ''}</span>
+                </button>`).join('');
         }
 
         async function submitGuess(tmdbId) {

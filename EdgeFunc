@@ -886,7 +886,7 @@ function applyMovieSetSourceToRule(rule, source, films) {
 const GAME_LIST = ["spottle", "rank", "poster"];
 const GAME_MAX_GUESSES = { spottle: 6, poster: 6 };
 const GAME_POSTER_MAX_BLUR = 26; // px at zero correct guesses
-const GAME_RANK_COUNT = 4;
+const GAME_RANK_COUNT = 6;
 
 function gamePuzzleDateNY(d = new Date()) {
   try {
@@ -907,9 +907,13 @@ function tmdbToPoolRow(det, bucket) {
   const genres = Array.isArray(det.genres)
     ? det.genres.map((g) => String(g?.name || "").trim()).filter(Boolean) : [];
   const crew = Array.isArray(det?.credits?.crew) ? det.credits.crew : [];
-  const director = (crew.find((c) => String(c?.job || "") === "Director")?.name || "").trim() || null;
+  const dirObj = crew.find((c) => String(c?.job || "") === "Director") || null;
+  const director = (dirObj?.name || "").trim() || null;
+  const directorProfile = dirObj?.profile_path || null;
   const cast = Array.isArray(det?.credits?.cast) ? det.credits.cast : [];
-  const topCast = cast.slice(0, 5).map((c) => String(c?.name || "").trim()).filter(Boolean);
+  const topCast = cast.slice(0, 8)
+    .map((c) => ({ id: Number(c?.id) || null, name: String(c?.name || "").trim(), profile_path: c?.profile_path || null }))
+    .filter((c) => c.name);
   let mpa = null;
   const rd = Array.isArray(det?.release_dates?.results) ? det.release_dates.results : [];
   const us = rd.find((r) => String(r?.iso_3166_1 || "") === "US");
@@ -917,6 +921,8 @@ function tmdbToPoolRow(det, bucket) {
     const cert = us.release_dates.map((x) => String(x?.certification || "").trim()).find((c) => c);
     if (cert) mpa = cert;
   }
+  const companies = Array.isArray(det?.production_companies) ? det.production_companies : [];
+  const studio = (companies.find((c) => String(c?.name || "").trim())?.name || "").trim() || null;
   const yr = String(det?.release_date || "").slice(0, 4);
   return {
     tmdb_id: Number(det.id),
@@ -928,6 +934,8 @@ function tmdbToPoolRow(det, bucket) {
     poster_path: det?.poster_path || null,
     genres,
     director,
+    director_profile_path: directorProfile,
+    studio,
     top_cast: topCast,
     popularity: Number(det?.popularity) || null,
     bucket,
@@ -958,9 +966,21 @@ function spottleGuessFeedback(g, a) {
     gStatus = sameSet ? "green" : "yellow";
   }
   fb.genre = { value: (g.genres || []).join(", ") || "—", status: gStatus, dir: null };
-  // Director (exact)
+  // Director (exact) — carries the guess's director HEADSHOT so the UI can show it.
   const dirMatch = g.director && a.director && String(g.director).toLowerCase() === String(a.director).toLowerCase();
-  fb.director = { value: g.director || "—", status: dirMatch ? "green" : "gray", dir: null };
+  fb.director = {
+    value: g.director || "—", status: dirMatch ? "green" : "gray", dir: null,
+    profile_path: g.director_profile_path || null,
+  };
+  // Cast overlap — top-billed people shared between the guess and the answer,
+  // matched by TMDB person id, returned with photo so the UI can show them green.
+  const aCast = Array.isArray(a.top_cast) ? a.top_cast : [];
+  const gCast = Array.isArray(g.top_cast) ? g.top_cast : [];
+  const aCastIds = new Set(aCast.map((c) => Number(c?.id)).filter(Boolean));
+  const shared = gCast
+    .filter((c) => c && Number(c.id) && aCastIds.has(Number(c.id)))
+    .map((c) => ({ name: c.name, profile_path: c.profile_path || null }));
+  fb.cast = { status: shared.length ? "green" : "gray", shared };
   // IMDb rating (stored 0-100; shown as 0-10; 🟨 within 5 pts = 0.5)
   const ic = cmpNum(g.imdb_rating, a.imdb_rating, 5);
   fb.imdb = {
@@ -973,6 +993,9 @@ function spottleGuessFeedback(g, a) {
   // MPA (exact)
   const mpaMatch = g.mpa_rating && a.mpa_rating && String(g.mpa_rating) === String(a.mpa_rating);
   fb.mpa = { value: g.mpa_rating || "—", status: mpaMatch ? "green" : "gray", dir: null };
+  // Studio / production company (exact)
+  const studioMatch = g.studio && a.studio && String(g.studio).toLowerCase() === String(a.studio).toLowerCase();
+  fb.studio = { value: g.studio || "—", status: studioMatch ? "green" : "gray", dir: null };
   return fb;
 }
 
@@ -1691,7 +1714,7 @@ Deno.serve(async (req) => {
       // Load a working set of recognizable films (has a real IMDb rating + poster).
       const { data: pool } = await supabaseAdmin
         .from("Game Pool")
-        .select("tmdb_id,title,release_year,runtime_minutes,mpa_rating,poster_path,genres,director,top_cast,imdb_rating,imdb_votes,last_used_date")
+        .select("tmdb_id,title,release_year,runtime_minutes,mpa_rating,poster_path,genres,director,director_profile_path,studio,top_cast,imdb_rating,imdb_votes,last_used_date")
         .not("imdb_rating", "is", null)
         .not("poster_path", "is", null)
         .order("imdb_votes", { ascending: false, nullsFirst: false })
@@ -1718,7 +1741,8 @@ Deno.serve(async (req) => {
       const mkAnswer = (m) => ({
         tmdb_id: Number(m.tmdb_id), title: m.title, release_year: m.release_year,
         runtime_minutes: m.runtime_minutes, mpa_rating: m.mpa_rating, poster_path: m.poster_path,
-        genres: m.genres || [], director: m.director, imdb_rating: m.imdb_rating,
+        genres: m.genres || [], director: m.director, director_profile_path: m.director_profile_path,
+        studio: m.studio, top_cast: Array.isArray(m.top_cast) ? m.top_cast : [], imdb_rating: m.imdb_rating,
       });
 
       // spottle + poster: one recognizable film each (distinct).
@@ -1879,16 +1903,30 @@ Deno.serve(async (req) => {
       const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
       if (userErr || !userData?.user?.id) return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
 
-      const q = String(body?.query || "").trim();
-      if (q.length < 1) return jsonResponse({ ok: true, results: [] }, 200);
-      const { data } = await supabaseAdmin
-        .from("Game Pool").select("tmdb_id,title,release_year,poster_path")
-        .ilike("title", `%${q}%`)
-        .order("imdb_votes", { ascending: false, nullsFirst: false })
-        .limit(8);
+      // `all:true` returns the WHOLE pool's title index (id/title/year/poster,
+      // NO ratings) so the client can cache it once and filter instantly on every
+      // keystroke — the movie NAMES aren't secret, only the answers/ratings are.
+      const wantAll = body?.all === true;
+      let rows;
+      if (wantAll) {
+        const { data } = await supabaseAdmin
+          .from("Game Pool").select("tmdb_id,title,release_year,poster_path")
+          .order("imdb_votes", { ascending: false, nullsFirst: false })
+          .limit(2000);
+        rows = data;
+      } else {
+        const q = String(body?.query || "").trim();
+        if (q.length < 1) return jsonResponse({ ok: true, results: [] }, 200);
+        const { data } = await supabaseAdmin
+          .from("Game Pool").select("tmdb_id,title,release_year,poster_path")
+          .ilike("title", `%${q}%`)
+          .order("imdb_votes", { ascending: false, nullsFirst: false })
+          .limit(8);
+        rows = data;
+      }
       return jsonResponse({
         ok: true,
-        results: (data || []).map((m) => ({
+        results: (rows || []).map((m) => ({
           tmdb_id: Number(m.tmdb_id), title: m.title, release_year: m.release_year, poster_path: m.poster_path,
         })),
       }, 200);
@@ -2001,18 +2039,11 @@ Deno.serve(async (req) => {
         && new Set(order).size === movies.length && order.every((id) => ids.has(id));
       if (!validPermutation) return jsonResponse({ ok: false, message: "Invalid ordering." }, 200);
 
-      const rankOf = new Map(trueOrder.map((m, i) => [Number(m.tmdb_id), i]));
-      let inversions = 0;
-      for (let i = 0; i < order.length; i++) {
-        for (let j = i + 1; j < order.length; j++) {
-          if (rankOf.get(order[i]) > rankOf.get(order[j])) inversions++;
-        }
-      }
+      // Score = 1 point per movie placed in its correct position.
       let correctPositions = 0;
       trueOrder.forEach((m, i) => { if (Number(order[i]) === Number(m.tmdb_id)) correctPositions++; });
-      const maxInv = (order.length * (order.length - 1)) / 2;
-      const solved = inversions === 0;
-      const score = Math.round((1 - inversions / maxInv) * 400);
+      const solved = correctPositions === order.length;
+      const score = correctPositions;
 
       const { error: upErr } = await supabaseAdmin.from("Game Results").upsert({
         user_id: me.id, puzzle_date: date, game, solved, attempts: 1, score,
@@ -2021,7 +2052,7 @@ Deno.serve(async (req) => {
       if (upErr) return jsonResponse({ ok: false, message: `Save failed: ${upErr.message}` }, 200);
 
       return jsonResponse({
-        ok: true, done: true, solved, inversions, correct_positions: correctPositions,
+        ok: true, done: true, solved, correct_positions: correctPositions,
         score, submitted_order: order, true_order: trueResult,
       }, 200);
     }
