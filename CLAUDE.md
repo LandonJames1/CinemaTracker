@@ -139,9 +139,13 @@ _original_backup/              Byte-identical pre-refactor originals (safety net
                                text). Reuses the existing cron secrets.
 .github/workflows/build-game-pool.yml  Manual (workflow_dispatch) GitHub Actions job →
                                loops the swift-api `build_game_pool` action across the 3 buckets
-                               (most_voted / rating / trending) until the cached `Game Pool`
-                               reaches ~1000 movies (one-time setup; re-run to top up). Reuses the
-                               existing cron secrets.
+                               (most_voted / rating / trending) to fill the cached `Game Pool`.
+                               **OMDb-budgeted per run** (`max_omdb_per_run`, default 500) because
+                               OMDb caps at ~1000 req/DAY (shared with the refresh-imdb cron) and
+                               each new movie = 1 OMDb call — so you run it ~2 days (500 today, 500
+                               tomorrow) to reach ~1000; the action skips movies already in the pool
+                               so re-runs continue where the last left off. Reuses the existing cron
+                               secrets.
 .github/workflows/seed-daily-games.yml  Daily GitHub Actions cron (05:05 UTC ≈ midnight ET) →
                                calls the swift-api `seed_daily_games` action (seeds today's 3 game
                                puzzles into `Game Daily`; idempotent). Also workflow_dispatch for

@@ -1,11 +1,17 @@
 name: Build games movie pool
 
-# One-time (manual) job to fill the cached "Game Pool" (~1000 movies) used by the
-# daily games. Loops the swift-api `build_game_pool` action across three buckets
-# (most_voted / rating / trending), paging deeper each pass and enriching new
-# candidates with real IMDb rating/votes via OMDb, until the pool reaches TARGET.
-# Run it from the Actions tab; re-run any time to top the pool up. After the pool
-# is full you never need this again — the daily games read the cached rows.
+# Manual job to fill the cached "Game Pool" (~1000 movies) used by the daily
+# games. Loops the swift-api `build_game_pool` action across three buckets
+# (most_voted / rating / trending), paging deeper each pass and enriching NEW
+# candidates with real IMDb rating/votes via OMDb.
+#
+# OMDb caps at ~1000 requests/DAY (shared with the daily refresh-imdb cron), and
+# every new movie costs exactly one OMDb call, so a single run is BUDGETED — it
+# stops after MAX_OMDB_PER_RUN new movies (default 500). Run it again the NEXT day
+# to do the next batch (the action skips movies already in the pool, so re-runs
+# just continue where the last one left off). TMDB has no meaningful daily cap, so
+# it isn't the bottleneck. After the pool reaches TARGET across a couple of days
+# you never need this again.
 
 on:
   workflow_dispatch:
@@ -14,12 +20,16 @@ on:
         description: 'Target pool size (stop once reached)'
         required: false
         default: '1000'
+      max_omdb_per_run:
+        description: 'Max NEW movies to enrich this run (OMDb calls; ~500/day is safe)'
+        required: false
+        default: '500'
       pages_per_call:
         description: 'TMDB pages per call (each page ~20 movies)'
         required: false
         default: '3'
       limit_per_call:
-        description: 'Max movies enriched per call (OMDb-bounded)'
+        description: 'Max movies enriched per call'
         required: false
         default: '60'
 
@@ -27,21 +37,29 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Build the game pool until target reached
+      - name: Build the game pool (budgeted per run)
         env:
           URL: ${{ secrets.SUPABASE_FUNCTION_URL }}
           APIKEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           TARGET: ${{ github.event.inputs.target || '1000' }}
+          MAX_OMDB: ${{ github.event.inputs.max_omdb_per_run || '500' }}
           PAGES: ${{ github.event.inputs.pages_per_call || '3' }}
           LIMIT: ${{ github.event.inputs.limit_per_call || '60' }}
         run: |
           set -euo pipefail
+          spent=0   # cumulative NEW movies enriched this run == OMDb calls made
           done=0
           for bucket in most_voted rating trending; do
             page=1
-            for i in $(seq 1 30); do
-              echo "--- bucket=$bucket page_start=$page ---"
+            for i in $(seq 1 40); do
+              # Don't start another call if we'd blow the per-run OMDb budget.
+              if [ "$spent" -ge "$MAX_OMDB" ]; then
+                echo "Reached OMDb budget for this run ($spent / $MAX_OMDB). Stopping."
+                done=1
+                break
+              fi
+              echo "--- bucket=$bucket page_start=$page (omdb spent=$spent/$MAX_OMDB) ---"
               resp=$(curl -sS -X POST "$URL" \
                 -H "Content-Type: application/json" \
                 -H "apikey: $APIKEY" \
@@ -59,6 +77,8 @@ jobs:
               pool_total=$(echo "$resp" | jq -r '.pool_total // 0')
               next_page=$(echo "$resp" | jq -r '.next_page // 0')
               considered=$(echo "$resp" | jq -r '.considered // 0')
+              enriched=$(echo "$resp" | jq -r '.enriched // 0')
+              spent=$((spent + enriched))
               page=$next_page
 
               if [ "$pool_total" -ge "$TARGET" ]; then
@@ -75,4 +95,7 @@ jobs:
             done
             if [ "$done" = "1" ]; then break; fi
           done
-          echo "Pool build pass complete."
+          echo "Pass complete. Enriched $spent new movies this run (pool now ~$pool_total)."
+          if [ "$pool_total" -lt "$TARGET" ]; then
+            echo "::notice::Pool is $pool_total / $TARGET — run this workflow again tomorrow to continue."
+          fi
