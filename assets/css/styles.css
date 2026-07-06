@@ -8753,7 +8753,7 @@
             .rank-num { flex: 0 0 26px; width: 26px; height: 26px; font-size: 0.85rem; }
             .rank-grip {
                 flex: 0 0 auto; align-self: stretch; display: inline-flex; align-items: center;
-                margin: -8px 0 -8px -4px; padding: 0 8px 0 4px; font-size: 1.4rem;
+                margin: -8px -4px -8px 0; padding: 0 4px 0 8px; font-size: 1.4rem;
                 color: rgba(255,255,255,0.4); cursor: grab;
             }
             .rank-moves { gap: 4px; }

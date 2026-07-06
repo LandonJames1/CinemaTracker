@@ -594,14 +594,14 @@
                 if (!m) return '';
                 return `
                     <div class="rank-row" data-rank-id="${id}">
-                        <span class="rank-grip" aria-hidden="true">⠿</span>
-                        <span class="rank-num">${idx + 1}</span>
-                        <img class="rank-poster" src="${gamesPosterUrl(m.poster_path, 'w185')}" alt="" draggable="false">
-                        <span class="rank-title">${escapeHtml(m.title || '')}${m.release_year ? ` <span class="games-dim">(${m.release_year})</span>` : ''}</span>
                         <span class="rank-moves">
                             <button class="rank-move" type="button" data-rank-move="up" data-rank-id="${id}" ${idx === 0 ? 'disabled' : ''} aria-label="Move up">▲</button>
                             <button class="rank-move" type="button" data-rank-move="down" data-rank-id="${id}" ${idx === rankOrderIds.length - 1 ? 'disabled' : ''} aria-label="Move down">▼</button>
                         </span>
+                        <span class="rank-num">${idx + 1}</span>
+                        <img class="rank-poster" src="${gamesPosterUrl(m.poster_path, 'w185')}" alt="" draggable="false">
+                        <span class="rank-title">${escapeHtml(m.title || '')}${m.release_year ? ` <span class="games-dim">(${m.release_year})</span>` : ''}</span>
+                        <span class="rank-grip" aria-hidden="true">⠿</span>
                     </div>`;
             }).join('');
         }
