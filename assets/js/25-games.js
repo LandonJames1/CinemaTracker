@@ -73,6 +73,17 @@
             // (their target elements don't exist elsewhere).
             document.addEventListener('click', gamesDelegatedClick);
             document.addEventListener('input', gamesDelegatedInput);
+            // Hide the bottom tab bar while the guess box is focused. On iOS the fixed
+            // bottom bar floats UP over the keyboard, on top of the guess dropdown — and a
+            // z-index bump can't fix it because the dropdown is trapped in the .fade-in
+            // wrapper's transform stacking context (which paints under the tab bar). A
+            // fixed bar over the keyboard is useless anyway, so just hide it while typing.
+            document.addEventListener('focusin', (e) => {
+                if (e.target && e.target.id === 'game-guess-input') document.body.classList.add('games-guessing');
+            });
+            document.addEventListener('focusout', (e) => {
+                if (e.target && e.target.id === 'game-guess-input') document.body.classList.remove('games-guessing');
+            });
         }
 
         async function loadGamesHub() {

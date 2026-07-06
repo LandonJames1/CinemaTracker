@@ -8743,6 +8743,12 @@
             .spottle-topbar, .spottle-topbtn { font-size: 0.8rem; }
             .spottle-topbtn { padding: 7px 11px; }
 
+            /* Hide the bottom tab bar while the guess box is focused. iOS floats the fixed
+               bottom bar up over the keyboard, on top of the guess dropdown; a z-index bump
+               can't help because the dropdown is trapped in the .fade-in transform stacking
+               context (which paints under the bar). Hiding it while typing is the fix. */
+            body.games-guessing #mobile-tabbar { display: none !important; }
+
             /* Rank game — compact the 6 cards so they fit without needing to scroll, and
                turn the grip into a clear, larger drag handle (touch-drag is grip-only so
                the rest of the card scrolls the page — see .rank-row touch-action). */
