@@ -714,6 +714,10 @@
         function onRankPointerDown(e) {
             if (e.target && e.target.closest && e.target.closest('.rank-move')) return; // let ▲▼ work
             if (e.button != null && e.button !== 0) return; // primary button / touch only
+            // On TOUCH, only the grip handle starts a drag — a touch anywhere else on the
+            // row must be allowed to scroll the page (6 cards can overflow the viewport).
+            // Desktop mouse can still grab anywhere (no page-scroll conflict).
+            if (e.pointerType === 'touch' && !(e.target && e.target.closest && e.target.closest('.rank-grip'))) return;
             const list = document.getElementById('rank-list');
             if (!list) return;
             const row = e.currentTarget;
