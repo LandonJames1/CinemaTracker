@@ -8,7 +8,9 @@
 --
 -- Scope = YOU  +  everyone you FOLLOW  +  everyone who FOLLOWS you (your full
 -- two-way network), mirroring how the rest of the app frames "your people". Only
--- users who actually PLAYED that puzzle (have a "Game Results" row) appear.
+-- users who FINISHED that puzzle appear (solved / ran out of guesses / gave up —
+-- i.e. completed_at is set); someone still partway through is hidden until they
+-- finish, so the board never leaks that a friend is mid-game.
 --
 -- Security: SECURITY DEFINER so it can read other users' "Game Results" (which RLS
 -- hides), but it returns ONLY that day's solved/attempts/score + safe public
@@ -67,6 +69,10 @@ as $$
     on gr.user_id = s.id
    and gr.game = p_game
    and gr.puzzle_date = p_date
+   -- Only show people who FINISHED the game (solved, ran out of guesses, or gave up
+   -- — every finish path stamps completed_at). Someone still partway through their
+   -- guesses is excluded until they finish.
+   and gr.completed_at is not null
   left join public."Users" u      on u.id = gr.user_id
   left join public."User Tiers" t on t.id = u.tier_id
   -- Best result first: solvers above non-solvers, then higher score (fewer

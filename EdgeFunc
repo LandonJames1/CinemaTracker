@@ -893,12 +893,19 @@ const GAME_RANK_COUNT = 6;
 // pick if any aren't present. tmdb: Shawshank / Godfather / Dark Knight / Inception /
 // The Matrix / Gladiator.
 const RANK_FIXED_TMDB_IDS = [278, 238, 155, 27205, 603, 98];
-// Spottle + Poster: a helper hint (decade + primary genre of the answer) unlocks
-// after this many guesses. The button shows "Hint in N" until then.
+// Spottle + Poster: the FIRST (vague) hint unlocks after this many guesses. The
+// button shows "Hint in N" until then. Later, progressively-more-revealing hint
+// tiers unlock at the thresholds in GAME_HINT_THRESHOLDS below.
 const GAME_SPOTTLE_HINT_AFTER = 3;
 const GAME_POSTER_HINT_AFTER = 3;
-// The guesses-after threshold for each guess-based game, keyed by game name.
+// The guesses-after threshold for the FIRST hint of each guess-based game.
 const GAME_HINT_AFTER = { spottle: GAME_SPOTTLE_HINT_AFTER, poster: GAME_POSTER_HINT_AFTER };
+// Per-game unlock thresholds for the ORDERED, increasingly-revealing hint tiers
+// (see spottleHints). Tier i unlocks after GAME_HINT_THRESHOLDS[game][i] guesses;
+// tiers beyond the list unlock one guess later each. spottle (10 guesses): era/genre
+// @3, studio/box office @6, lead actor @8, director @9. poster (6 guesses) surfaces
+// the first three.
+const GAME_HINT_THRESHOLDS = { spottle: [3, 6, 8, 9], poster: [3, 4, 5] };
 // Rank: the hint reveals the single highest-rated film (locks its #1 slot). Using
 // it costs this many points on submit (offsets the free correct placement).
 const GAME_RANK_HINT_PENALTY = 2;
@@ -1018,17 +1025,50 @@ function formatBoxOffice(n) {
   return `$${Math.round(v)}`;
 }
 
-// A gentle movie hint (used by BOTH spottle + poster, unlocked after that game's
-// GAME_HINT_AFTER guesses): the answer's decade + primary genre. Enough to narrow
-// the field without giving it away. Returned only once unlocked so it can't be
-// read early.
-function spottleHint(a) {
-  if (!a || typeof a !== "object") return null;
+// Progressive, increasingly-revealing movie hints (used by BOTH spottle + poster).
+// Returns an ORDERED list of hint tiers, each with the guess count it unlocks after
+// (`after`). The FIRST tier is intentionally vague (decade + primary genre); later
+// tiers reveal more (studio + box office → lead actor → director, the most
+// revealing). Only non-empty tiers are included, then given unlock thresholds from
+// GAME_HINT_THRESHOLDS. The server sends a tier's `text` only once unlocked (see
+// gameHintsForResponse) so content can't be read early.
+function spottleHints(a, game) {
+  if (!a || typeof a !== "object") return [];
   const yr = Number(a.release_year);
   const decade = Number.isFinite(yr) && yr > 0 ? `${Math.floor(yr / 10) * 10}s` : null;
-  const genre = Array.isArray(a.genres) && a.genres.length ? String(a.genres[0]) : null;
-  const parts = [decade, genre].filter(Boolean);
-  return parts.length ? parts.join(" · ") : null;
+  const genres = Array.isArray(a.genres) ? a.genres.filter(Boolean).map(String) : [];
+  const studio = a.studio ? String(a.studio) : null;
+  const box = Number(a.box_office) > 0 ? formatBoxOffice(a.box_office) : null;
+  const director = a.director ? String(a.director) : null;
+  const lead = Array.isArray(a.top_cast) && a.top_cast.length
+    ? String(a.top_cast[0]?.name || "").trim() : null;
+
+  const raw = [];
+  const t1 = [decade && `Released in the ${decade}`, genres[0]].filter(Boolean).join(" · ");
+  if (t1) raw.push({ label: "Era & genre", text: t1 });
+  const t2 = [studio && `Studio: ${studio}`, box && `Box office ${box}`].filter(Boolean).join(" · ");
+  if (t2) raw.push({ label: "Studio & box office", text: t2 });
+  if (lead) raw.push({ label: "Lead actor", text: `Stars ${lead}` });
+  if (director) raw.push({ label: "Director", text: `Directed by ${director}` });
+
+  const thr = GAME_HINT_THRESHOLDS[game] || GAME_HINT_THRESHOLDS.spottle;
+  const last = thr.length - 1;
+  return raw.map((h, i) => ({
+    ...h,
+    after: (i <= last) ? thr[i] : thr[last] + (i - last),
+  }));
+}
+
+// Shape the hint tiers for a client response: reveal a tier's TEXT only once the
+// player has enough guesses (attempts >= after); locked tiers carry no text so the
+// content can't be read early, only the countdown ("Hint in N").
+function gameHintsForResponse(a, game, attempts) {
+  return spottleHints(a, game).map((t) => ({
+    after: t.after,
+    label: t.label,
+    locked: attempts < t.after,
+    text: attempts >= t.after ? t.text : null,
+  }));
 }
 
 // Spottle attribute-closeness feedback comparing a GUESS pool row to the ANSWER.
@@ -1975,7 +2015,7 @@ Deno.serve(async (req) => {
             score: res?.score || 0,
             answer: done ? gameAnswerLite(p.answer) : null,
             hint_after: GAME_SPOTTLE_HINT_AFTER,
-            hint: (!done && attempts >= GAME_SPOTTLE_HINT_AFTER) ? spottleHint(p.answer) : null,
+            hints: p.answer ? gameHintsForResponse(p.answer, "spottle", attempts) : [],
             streak: streakFor("spottle"),
           };
         } else if (game === "poster") {
@@ -1989,7 +2029,7 @@ Deno.serve(async (req) => {
             score: res?.score || 0,
             answer: done ? gameAnswerLite(p.answer) : null,
             hint_after: GAME_POSTER_HINT_AFTER,
-            hint: (!done && attempts >= GAME_POSTER_HINT_AFTER) ? spottleHint(p.answer) : null,
+            hints: p.answer ? gameHintsForResponse(p.answer, "poster", attempts) : [],
             streak: streakFor("poster"),
           };
         } else if (game === "rank") {
@@ -2117,6 +2157,16 @@ Deno.serve(async (req) => {
       });
       if (correct) solved = true;
       const done = solved || attempts >= max;
+      // Out of guesses (not solved): reveal the answer as a full-green guess card so
+      // the board ends the same way a correct guess / give-up does — not just a text
+      // banner. (game_giveup pushes the identical revealed card.)
+      if (game === "spottle" && done && !solved) {
+        guesses.push({
+          tmdb_id: answer.tmdb_id, title: answer.title, release_year: answer.release_year,
+          poster_path: answer.poster_path, correct: true, revealed: true,
+          feedback: spottleGuessFeedback(answer, answer),
+        });
+      }
       const usedHint = (game === "spottle" || game === "poster") && !!body?.hint_used;
       const score = gameGuessScore(game, solved, attempts, usedHint);
 
@@ -2135,7 +2185,7 @@ Deno.serve(async (req) => {
         blur: game === "poster" ? gamePosterBlur(attempts, max, done) : undefined,
         answer: done ? gameAnswerLite(answer) : undefined,
         hint_after: GAME_HINT_AFTER[game],
-        hint: (!done && attempts >= (GAME_HINT_AFTER[game] || Infinity)) ? spottleHint(answer) : undefined,
+        hints: gameHintsForResponse(answer, game, attempts),
       }, 200);
     }
 

@@ -160,7 +160,7 @@
             play.hidden = false;
             setGamesMobileHeader((GAME_META[game] || {}).title || 'Games');
             // Reset the shared hint/give-up state for a fresh play surface.
-            gameHintRevealed.spottle = false; gameHintRevealed.poster = false;
+            gameHintShown.spottle = 0; gameHintShown.poster = 0;
             gameGiveUpArmed.spottle = false; gameGiveUpArmed.poster = false; gameGiveUpArmed.rank = false;
             if (gameGiveUpTimer) { clearTimeout(gameGiveUpTimer); gameGiveUpTimer = null; }
             if (game === 'spottle') renderSpottle();
@@ -338,7 +338,9 @@
         // Per-play hint/give-up state, keyed by game. spottle + poster share the
         // guess-game hint (decade + genre, unlocks after N guesses); rank's hint
         // reveals the #1 film. Give Up is a two-tap confirm on all three.
-        const gameHintRevealed = { spottle: false, poster: false };   // Hint text shown?
+        // How many progressive hint tiers the player has chosen to reveal, per game.
+        // (Hints unlock by guess count server-side; this counts the ones they've opened.)
+        const gameHintShown = { spottle: 0, poster: 0 };
         const gameGiveUpArmed = { spottle: false, poster: false, rank: false };  // two-tap arm
         let gameGiveUpTimer = null;
         let rankHintUsed = false;            // rank: was the #1 hint revealed this play?
@@ -426,9 +428,11 @@
             const poster = g.poster_path
                 ? `<img class="spottle-guess-poster" src="${gamesPosterUrl(g.poster_path, 'w185')}" alt="">`
                 : '<div class="spottle-guess-poster spottle-guess-poster-empty"></div>';
+            const answerTag = g.revealed
+                ? '<span class="spottle-answer-tag">Answer</span>' : '';
             return `
-                <div class="spottle-guess-card ${g.correct ? 'is-correct' : ''}">
-                    <div class="spottle-guess-title">${escapeHtml(g.title || '')}</div>
+                <div class="spottle-guess-card ${g.correct ? 'is-correct' : ''} ${g.revealed ? 'is-revealed' : ''}">
+                    <div class="spottle-guess-title">${escapeHtml(g.title || '')}${answerTag}</div>
                     ${genrePills ? `<div class="spottle-genres">${genrePills}</div>` : ''}
                     <div class="spottle-guess-top">
                         ${poster}
@@ -438,22 +442,49 @@
                 </div>`;
         }
 
+        // The Hint button for a guess game, reflecting the PROGRESSIVE hint state:
+        //  - more unlocked tiers left to open  → active "Hint" / "Next hint"
+        //  - next tier still locked            → disabled "Hint in N"
+        //  - every tier already revealed       → disabled "No more hints"
+        function gameHintButtonHtml(game, d) {
+            const hints = Array.isArray(d.hints) ? d.hints : [];
+            const attempts = d.attempts || 0;
+            const unlocked = hints.filter((h) => h && !h.locked && h.text);
+            const shown = Math.min(gameHintShown[game] || 0, unlocked.length);
+            if (shown < unlocked.length) {
+                const label = shown === 0 ? 'Hint' : 'Next hint';
+                return `<button class="spottle-topbtn spottle-hint-btn" type="button" data-game-hint="${game}">${SPOTTLE_LOCK_ICON} ${label}</button>`;
+            }
+            const nextLocked = hints.find((h) => h && h.locked);
+            if (nextLocked) {
+                const remaining = Math.max(1, Number(nextLocked.after) - attempts);
+                return `<button class="spottle-topbtn spottle-hint-btn is-locked" type="button" disabled>${SPOTTLE_LOCK_ICON} Hint in ${remaining}</button>`;
+            }
+            return `<button class="spottle-topbtn spottle-hint-btn is-locked" type="button" disabled>${SPOTTLE_LOCK_ICON} No more hints</button>`;
+        }
+
+        // The stack of hints the player has revealed so far (progressive tiers, each
+        // more revealing than the last). Empty until they open the first one.
+        function gameHintsHtml(game, d) {
+            const hints = Array.isArray(d.hints) ? d.hints : [];
+            const unlocked = hints.filter((h) => h && !h.locked && h.text);
+            const shown = Math.min(gameHintShown[game] || 0, unlocked.length);
+            if (!shown) return '';
+            const items = unlocked.slice(0, shown).map((h, i) =>
+                `<div class="spottle-hint-reveal">💡 <span class="spottle-hint-tier">Hint ${i + 1}${h.label ? ` · ${escapeHtml(h.label)}` : ''}</span> <strong>${escapeHtml(h.text)}</strong></div>`).join('');
+            return `<div class="spottle-hints">${items}</div>`;
+        }
+
         // Top control bar for a guess game (spottle + poster):
         // Hint (lock) · Guess N of M · Give Up (flag). Shared markup + CSS.
         function guessTopbarHtml(game, d) {
             const max = d.max_guesses || (game === 'spottle' ? 10 : 6);
             const attempts = d.attempts || 0;
             const cur = Math.min(max, attempts + 1);
-            const hintAfter = (d.hint_after != null) ? d.hint_after : 3;
-            const unlocked = attempts >= hintAfter;
-            const remaining = Math.max(0, hintAfter - attempts);
             const armed = !!gameGiveUpArmed[game];
-            const hintBtn = unlocked
-                ? `<button class="spottle-topbtn spottle-hint-btn" type="button" data-game-hint="${game}">${SPOTTLE_LOCK_ICON} Hint</button>`
-                : `<button class="spottle-topbtn spottle-hint-btn is-locked" type="button" disabled>${SPOTTLE_LOCK_ICON} Hint in ${remaining}</button>`;
             return `
                 <div class="spottle-topbar">
-                    ${hintBtn}
+                    ${gameHintButtonHtml(game, d)}
                     <div class="spottle-counter">Guess <span class="spottle-counter-num">${cur}</span> of ${max}</div>
                     <button class="spottle-topbtn spottle-giveup-btn ${armed ? 'is-armed' : ''}" type="button" data-game-giveup="${game}">${SPOTTLE_FLAG_ICON} ${armed ? 'Confirm' : 'Give Up'}</button>
                 </div>`;
@@ -473,12 +504,10 @@
             const realGuesses = (d.guesses || []).filter((g) => g && !g.gave_up);
             // Newest guess on top, right under the search bar.
             const rows = realGuesses.slice().reverse().map(spottleRowHtml).join('');
-            const hintText = d.hint && gameHintRevealed.spottle
-                ? `<div class="spottle-hint-reveal">💡 Hint: <strong>${escapeHtml(d.hint)}</strong></div>` : '';
             const board = rows || '<div class="games-empty">Make your first guess to see how close you are.</div>';
             const footer = d.done
                 ? gameResultBanner('spottle', d)
-                : `${guessTopbarHtml('spottle', d)}${hintText}${gameGuessInputHtml('spottle')}`;
+                : `${guessTopbarHtml('spottle', d)}${gameHintsHtml('spottle', d)}${gameGuessInputHtml('spottle')}`;
             play.innerHTML = `
                 ${gamePlayHeadHtml('spottle')}
                 ${footer}
@@ -487,11 +516,16 @@
             if (d.done) loadGameDayLeaderboard('spottle');
         }
 
-        // Reveal the (already-delivered) hint text for a guess game (spottle/poster).
+        // Reveal the NEXT progressive hint tier for a guess game (spottle/poster).
+        // Each tap opens one more (already-unlocked) hint; no-op once all are shown.
         function gameToggleHint(game) {
             const d = gamesTodayData?.games?.[game];
-            if (!d || !d.hint) return;
-            gameHintRevealed[game] = true;
+            if (!d) return;
+            const hints = Array.isArray(d.hints) ? d.hints : [];
+            const unlocked = hints.filter((h) => h && !h.locked && h.text);
+            const cur = gameHintShown[game] || 0;
+            if (cur >= unlocked.length) return;   // nothing new to reveal
+            gameHintShown[game] = cur + 1;
             rerenderGuessGame(game);
         }
 
@@ -563,9 +597,7 @@
                     </div>`;
             }).join('');
 
-            const hintText = d.hint && gameHintRevealed.poster
-                ? `<div class="spottle-hint-reveal">💡 Hint: <strong>${escapeHtml(d.hint)}</strong></div>` : '';
-            const topbar = d.done ? '' : `${guessTopbarHtml('poster', d)}${hintText}`;
+            const topbar = d.done ? '' : `${guessTopbarHtml('poster', d)}${gameHintsHtml('poster', d)}`;
             const footer = d.done ? gameResultBanner('poster', d) : gameGuessInputHtml('poster', left);
             play.innerHTML = `
                 ${gamePlayHeadHtml('poster')}
@@ -949,7 +981,7 @@
             try {
                 const res = await gamesApi({
                     action: 'game_guess', game, tmdb_id: Number(tmdbId),
-                    hint_used: !!gameHintRevealed[game],
+                    hint_used: (gameHintShown[game] || 0) > 0,
                 });
                 if (!res?.ok) { showToast(res?.message || 'Could not submit guess.', { level: 'warn' }); return; }
                 const d = gamesTodayData.games[game];
@@ -963,7 +995,7 @@
                 if (res.answer) d.answer = res.answer;
                 if (game === 'poster' && res.blur != null) d.blur = res.blur;
                 if (res.hint_after != null) d.hint_after = res.hint_after;
-                d.hint = res.hint || null;
+                if (Array.isArray(res.hints)) d.hints = res.hints;
                 gameGiveUpArmed[game] = false;   // a new guess disarms Give Up
                 if (gameGiveUpTimer) { clearTimeout(gameGiveUpTimer); gameGiveUpTimer = null; }
                 rerenderGuessGame(game);

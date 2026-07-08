@@ -8467,6 +8467,19 @@
             color: #fde68a; font-size: 0.9rem;
         }
         .spottle-hint-reveal strong { color: #fff; }
+        /* Progressive hint stack — each revealed tier is one .spottle-hint-reveal. */
+        .spottle-hints { display: flex; flex-direction: column; gap: 8px; margin: -6px 0 12px; }
+        .spottle-hints .spottle-hint-reveal { margin: 0; }
+        .spottle-hint-tier {
+            display: inline-block; margin-right: 6px; font-weight: 800; font-size: 0.72rem;
+            letter-spacing: 0.02em; text-transform: uppercase; color: #f5a623;
+        }
+        /* "Answer" badge on the auto-revealed answer card (out of guesses / gave up). */
+        .spottle-answer-tag {
+            display: inline-block; vertical-align: middle; margin-left: 10px; padding: 3px 10px;
+            border-radius: 999px; background: #22c55e; color: #04140a;
+            font-size: 0.7rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+        }
 
         /* Spottle guess card (poster + details on top, people underneath) */
         .spottle-board { display: flex; flex-direction: column; gap: 14px; align-items: center; margin-top: 16px; }
@@ -8536,6 +8549,9 @@
            Poster Blur — cinematic reveal + animated wrong-guess feed
            ============================================================ */
         .poster-play { display: flex; flex-direction: column; align-items: center; max-width: 680px; margin: 0 auto; }
+        /* The guess box is a centered flex child here — force it full-width (it otherwise
+           shrinks to its placeholder text). On mobile it also floats to the top (below). */
+        .poster-play > .games-guess { width: 100%; }
         /* Guesses-remaining pips */
         .poster-progress { display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 6px 0 14px; }
         .poster-pips { display: flex; gap: 8px; }
@@ -8748,6 +8764,16 @@
                can't help because the dropdown is trapped in the .fade-in transform stacking
                context (which paints under the bar). Hiding it while typing is the fix. */
             body.games-guessing #mobile-tabbar { display: none !important; }
+
+            /* Poster game — keyboard-friendly guess box. It otherwise sits LOW on a tall
+               page (below the blurred poster), so the on-screen keyboard covers both it
+               and its downward dropdown, and focusing it thrashes the page scroll. Float
+               it to the TOP of the play column (right under the control bar, like Filmle's
+               working layout) so the dropdown always has clear room above the keyboard. */
+            .poster-play > .games-guess { order: -1; margin: 0 0 14px; scroll-margin-top: 76px; }
+            /* Bound the results list so a long list can't run down under the keyboard — it
+               scrolls inside itself instead (applies to both guess games). */
+            .games-guess-results { max-height: 44vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 
             /* Rank game — compact the 6 cards so they fit without needing to scroll, and
                turn the grip into a clear, larger drag handle (touch-drag is grip-only so
