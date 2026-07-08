@@ -202,6 +202,8 @@
                 case 'rec_reviewed': return '🎬';
                 case 'review_reaction': return '💬';
                 case 'list_add': return '🎬';
+                case 'game_nudge':
+                case 'game_reminder': return '🎮';
                 default: return '🔔';
             }
         }

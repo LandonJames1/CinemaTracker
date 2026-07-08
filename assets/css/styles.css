@@ -8368,35 +8368,65 @@
         .games-error { color: #fca5a5; font-size: 0.9rem; padding: 12px 2px; }
         .games-empty, .games-guess-empty { color: rgba(255,255,255,0.55); font-size: 0.9rem; padding: 12px 2px; }
 
-        /* Hub cards */
-        .games-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+        /* Hub cards — big, colorful, one signature gradient per game */
+        .games-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+        .games-card--spottle { --g: #f59e0b; --g2: #f97316; }   /* cinematic amber→orange */
+        .games-card--rank    { --g: #8b5cf6; --g2: #6366f1; }   /* violet→indigo */
+        .games-card--poster  { --g: #ec4899; --g2: #f43f5e; }   /* pink→rose */
         .games-card {
-            display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
-            text-align: left; padding: 18px; border-radius: 18px; cursor: pointer;
-            background: #1d1d22; border: 1px solid rgba(255,255,255,0.08);
-            transition: transform 0.12s ease, border-color 0.12s ease; min-height: 190px;
+            position: relative; overflow: hidden;
+            display: flex; flex-direction: column; align-items: flex-start; gap: 14px;
+            text-align: left; padding: 26px 24px; border-radius: 22px; cursor: pointer;
+            background: #1b1b20;
+            border: 1px solid color-mix(in srgb, var(--g, #14b8a6) 28%, rgba(255,255,255,0.06));
+            transition: transform 0.16s ease, box-shadow 0.22s ease, border-color 0.16s ease;
+            min-height: 250px;
         }
-        .games-card:hover { transform: translateY(-2px); border-color: var(--brand, #14b8a6); }
-        .games-card:disabled { opacity: 0.55; cursor: default; transform: none; }
+        /* Soft colored glow bleeding in from the top-right corner. */
+        .games-card::before {
+            content: ""; position: absolute; top: -45%; right: -35%; width: 80%; height: 80%;
+            background: radial-gradient(circle, color-mix(in srgb, var(--g) 45%, transparent), transparent 68%);
+            opacity: 0.55; pointer-events: none; transition: opacity 0.22s ease;
+        }
+        .games-card:hover {
+            transform: translateY(-4px); border-color: var(--g, #14b8a6);
+            box-shadow: 0 18px 42px color-mix(in srgb, var(--g) 24%, transparent);
+        }
+        .games-card:hover::before { opacity: 0.95; }
+        .games-card:disabled { opacity: 0.5; cursor: default; transform: none; box-shadow: none; }
+        .games-card:disabled::before { opacity: 0.25; }
         .games-card-ico {
-            width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center;
-            border-radius: 12px; background: color-mix(in srgb, var(--brand, #14b8a6) 22%, #202024);
-            color: var(--brand, #14b8a6);
+            position: relative; width: 62px; height: 62px; display: inline-flex;
+            align-items: center; justify-content: center; border-radius: 18px; color: #fff;
+            background: linear-gradient(135deg, var(--g, #14b8a6), var(--g2, var(--g, #14b8a6)));
+            box-shadow: 0 10px 24px color-mix(in srgb, var(--g) 42%, transparent);
         }
-        .games-card-ico svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2;
-            stroke-linecap: round; stroke-linejoin: round; }
-        .games-card-body { display: flex; flex-direction: column; gap: 3px; flex: 1; }
-        .games-card-title { font-size: 1.1rem; font-weight: 700; color: #fff; }
-        .games-card-tag { font-size: 0.78rem; color: var(--brand, #14b8a6); text-transform: uppercase; letter-spacing: 0.04em; }
-        .games-card-desc { font-size: 0.86rem; color: rgba(255,255,255,0.62); margin-top: 4px; }
-        .games-card-foot { display: flex; align-items: center; gap: 10px; width: 100%; }
+        .games-card-ico svg { width: 32px; height: 32px; fill: none; stroke: currentColor;
+            stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+        .games-card-body { position: relative; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+        .games-card-tag { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.09em;
+            color: color-mix(in srgb, var(--g, #14b8a6) 65%, #fff); }
+        .games-card-title { font-size: 1.42rem; font-weight: 800; color: #fff; letter-spacing: -0.01em; line-height: 1.1; }
+        .games-card-desc { font-size: 0.9rem; color: rgba(255,255,255,0.62); margin-top: 4px; line-height: 1.45; }
+        .games-card-foot { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; }
         .games-status-pill {
-            font-size: 0.74rem; font-weight: 700; padding: 4px 10px; border-radius: 999px;
-            background: rgba(255,255,255,0.10); color: #e7e7ea;
+            font-size: 0.82rem; font-weight: 800; padding: 8px 18px; border-radius: 999px;
+            letter-spacing: 0.01em; line-height: 1;
+            background: color-mix(in srgb, var(--g, #14b8a6) 18%, #202024);
+            color: color-mix(in srgb, var(--g, #14b8a6) 55%, #fff);
+            border: 1px solid color-mix(in srgb, var(--g, #14b8a6) 30%, transparent);
         }
-        .games-card.status-solved .games-status-pill { background: color-mix(in srgb, #22c55e 30%, #202024); color: #bbf7d0; }
-        .games-card.status-progress .games-status-pill { background: color-mix(in srgb, var(--brand, #14b8a6) 30%, #202024); color: #fff; }
-        .games-card.status-done .games-status-pill { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.7); }
+        /* Playable → vibrant filled gradient pill; finished → green check. */
+        .games-card.status-play .games-status-pill,
+        .games-card.status-progress .games-status-pill {
+            background: linear-gradient(135deg, var(--g), var(--g2, var(--g))); color: #fff; border-color: transparent;
+            box-shadow: 0 6px 16px color-mix(in srgb, var(--g) 38%, transparent);
+        }
+        .games-card.status-solved .games-status-pill,
+        .games-card.status-done .games-status-pill {
+            background: color-mix(in srgb, #22c55e 20%, #202024); color: #bbf7d0;
+            border-color: color-mix(in srgb, #22c55e 40%, transparent); box-shadow: none;
+        }
 
         /* Play surface shell — centered column on all widths */
         .games-play { margin: 4px auto 0; max-width: 680px; }
@@ -8667,17 +8697,6 @@
             border: 1px solid rgba(255,255,255,0.10); color: #e7e7ea; font-size: 0.95rem;
         }
         .games-result-banner.is-win { border-color: #22c55e; background: color-mix(in srgb, #22c55e 12%, #1d1d22); }
-        /* Cumulative total shown atop the games hub */
-        .games-points-total {
-            display: flex; align-items: center; gap: 8px; margin: 0 0 16px; padding: 12px 16px;
-            border-radius: 14px; background: #1d1d22; border: 1px solid rgba(255,255,255,0.09);
-        }
-        .games-points-total-ico { font-size: 1.15rem; }
-        .games-points-total-num { font-size: 1.3rem; font-weight: 900;
-            background: linear-gradient(135deg, var(--brand, #14b8a6), var(--brand-2, #6366f1));
-            -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
-        .games-points-total-lbl { font-size: 0.86rem; font-weight: 700; color: rgba(255,255,255,0.6);
-            text-transform: uppercase; letter-spacing: 0.03em; }
 
         /* Post-game network comparison — how you + your circle did on today's puzzle */
         .games-compare {
@@ -8722,13 +8741,130 @@
         .games-compare-pts { font-size: 0.78rem; font-weight: 800; color: rgba(255,255,255,0.5);
             min-width: 26px; text-align: right; }
 
+        /* ---- LinkedIn-style results page (shown after a game finishes) ---- */
+        .games-results { display: flex; flex-direction: column; gap: 18px;
+            animation: gamesResultsIn 0.45s cubic-bezier(0.22,1,0.36,1); }
+        .games-results--spottle { --g: #f59e0b; --g2: #f97316; }
+        .games-results--rank    { --g: #8b5cf6; --g2: #6366f1; }
+        .games-results--poster  { --g: #ec4899; --g2: #f43f5e; }
+        @keyframes gamesResultsIn { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
+        .games-results-hero {
+            display: flex; flex-direction: column; align-items: center; gap: 6px;
+            text-align: center; padding: 28px 20px 26px; border-radius: 20px;
+            background: radial-gradient(120% 130% at 50% 0%, color-mix(in srgb, var(--g, var(--brand, #14b8a6)) 26%, #1d1d22), #1d1d22);
+            border: 1px solid color-mix(in srgb, var(--g, var(--brand, #14b8a6)) 30%, rgba(255,255,255,0.08));
+        }
+        .games-results-hero.is-win {
+            background: radial-gradient(120% 130% at 50% 0%, color-mix(in srgb, #22c55e 26%, #1d1d22), #1d1d22);
+            border-color: color-mix(in srgb, #22c55e 45%, transparent);
+        }
+        .games-results-ico { display: inline-flex; align-items: center; justify-content: center;
+            width: 58px; height: 58px; margin-bottom: 6px; border-radius: 17px; color: #fff;
+            background: linear-gradient(135deg, var(--g, var(--brand, #14b8a6)), var(--g2, var(--brand-2, #6366f1)));
+            box-shadow: 0 10px 24px color-mix(in srgb, var(--g, var(--brand)) 40%, transparent); }
+        .games-results-hero.is-win .games-results-ico {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            box-shadow: 0 10px 24px color-mix(in srgb, #22c55e 40%, transparent); }
+        .games-results-ico svg { width: 30px; height: 30px; fill: none; stroke: currentColor;
+            stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+        .games-results-num { font-size: 1.5rem; font-weight: 900; color: #fff; letter-spacing: 0.01em; }
+        .games-results-headline { font-size: 0.98rem; font-weight: 600; color: rgba(255,255,255,0.82); }
+        .games-results-score { display: inline-flex; align-items: baseline; gap: 7px; margin-top: 10px;
+            padding: 8px 18px; border-radius: 999px; background: rgba(0,0,0,0.28);
+            border: 1px solid rgba(255,255,255,0.12); }
+        .games-results-score-num { font-size: 1.6rem; font-weight: 900;
+            background: linear-gradient(135deg, var(--g, var(--brand, #14b8a6)), var(--g2, var(--brand-2, #6366f1)));
+            -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+        .games-results-hero.is-win .games-results-score-num { background: none; -webkit-text-fill-color: initial; color: #86efac; }
+        .games-results-score-lbl { font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.04em; color: rgba(255,255,255,0.6); }
+        /* results-page tweaks to the reused compare card */
+        .games-results .games-compare { margin-top: 0; }
+
+        .games-stats-card { padding: 16px; border-radius: 16px; background: #1d1d22;
+            border: 1px solid rgba(255,255,255,0.09); }
+        .games-stats-head { font-size: 0.95rem; font-weight: 800; color: #f2f2f4; margin-bottom: 12px; }
+        .games-stats-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+        .games-stat { display: flex; flex-direction: column; align-items: center; gap: 3px;
+            padding: 12px 6px; border-radius: 12px; background: #202024;
+            border: 1px solid rgba(255,255,255,0.06); text-align: center; min-width: 0; }
+        .games-stat-num { font-size: 1.25rem; font-weight: 900; color: #fff; line-height: 1.1; white-space: nowrap; }
+        .games-stat-lbl { font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.02em; color: rgba(255,255,255,0.5); line-height: 1.2; }
+        .games-stat.is-loading { opacity: 0.5; }
+
+        /* "Review your guesses" sits in the top head row, opposite "All games". */
+        .games-review-top { margin-left: auto; }
+
+        /* "See full leaderboard" button under the top-3 preview */
+        .games-seefull-btn {
+            display: block; width: 100%; margin-top: 12px; padding: 11px 16px; border-radius: 12px;
+            background: #202024; border: 1px solid rgba(255,255,255,0.14); color: #ececee;
+            font-size: 0.9rem; font-weight: 800; cursor: pointer; transition: border-color 0.15s, background 0.15s;
+        }
+        .games-seefull-btn:hover { border-color: var(--brand, #14b8a6); background: #26262c; }
+
+        /* Full-leaderboard + nudge modal */
+        .games-lb-modal { max-width: 520px; }
+        #games-lb-body .games-compare-list { display: flex; flex-direction: column; gap: 6px; }
+        .games-lb-full { max-height: 46vh; overflow-y: auto; margin: 4px 0 6px;
+            -webkit-overflow-scrolling: touch; }
+        .games-nudge { margin-top: 8px; }
+        .games-nudge-divider { display: flex; align-items: center; gap: 12px;
+            margin: 14px 0 12px; color: rgba(255,255,255,0.6); font-size: 0.86rem; font-weight: 600; }
+        .games-nudge-divider::before, .games-nudge-divider::after {
+            content: ""; flex: 1; height: 1px; background: rgba(255,255,255,0.10); }
+        .games-nudge-divider span { flex: 0 0 auto; text-align: center; }
+        .games-nudge-search { position: relative; margin-bottom: 10px; }
+        .games-nudge-search-ico { position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+            width: 18px; height: 18px; color: rgba(255,255,255,0.45); pointer-events: none; }
+        .games-nudge-search-ico svg { width: 100%; height: 100%; }
+        .games-nudge-search-input {
+            width: 100%; box-sizing: border-box; padding: 11px 14px 11px 38px; border-radius: 999px;
+            background: #202024; border: 1px solid rgba(255,255,255,0.12); color: #fff; font-size: 0.92rem;
+        }
+        .games-nudge-search-input:focus { outline: none; border-color: var(--brand, #14b8a6); }
+        .games-nudge-list { display: flex; flex-direction: column; }
+        .games-nudge-row { display: flex; align-items: center; gap: 12px; padding: 10px 2px;
+            border-bottom: 1px solid rgba(255,255,255,0.06); }
+        .games-nudge-row:last-child { border-bottom: none; }
+        .games-nudge-avatar { flex: 0 0 auto; display: inline-flex; }
+        .games-nudge-avatar img, .games-nudge-avatar > span {
+            width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+        .games-nudge-name { flex: 1 1 auto; min-width: 0; font-size: 0.98rem; font-weight: 700; color: #ececee;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .games-nudge-btn {
+            flex: 0 0 auto; padding: 8px 16px; border-radius: 999px; background: transparent;
+            border: 1.5px solid rgba(255,255,255,0.22); color: #ececee; font-size: 0.9rem; font-weight: 800;
+            cursor: pointer; transition: border-color 0.15s, background 0.15s, color 0.15s;
+        }
+        .games-nudge-btn:hover { border-color: var(--brand, #14b8a6); }
+        .games-nudge-btn.is-loading { opacity: 0.7; cursor: default; }
+        .games-nudge-btn.is-done {
+            border-color: color-mix(in srgb, #22c55e 55%, transparent); color: #86efac;
+            background: color-mix(in srgb, #22c55e 12%, transparent); cursor: default;
+        }
+        .games-seeresults-btn {
+            display: block; width: 100%; margin-top: 14px; padding: 12px 18px; border-radius: 12px;
+            background: linear-gradient(135deg, var(--brand, #14b8a6), var(--brand-2, #6366f1));
+            border: none; color: #fff; font-size: 0.95rem; font-weight: 800; cursor: pointer;
+            transition: filter 0.15s;
+        }
+        .games-seeresults-btn:hover { filter: brightness(1.08); }
+
         @media (max-width: 768px) {
+            .games-stats-grid { grid-template-columns: repeat(3, 1fr); }
+            .games-stat-num { font-size: 1.1rem; }
+            .games-results-num { font-size: 1.3rem; }
             /* Task 3 — a small side buffer so NO game surface sits flush against the
                window edge (the full-bleed #app-root .container rule strips it). Higher
                specificity + later source order than that rule, so this wins. */
             #app-root .games-container { padding-left: 12px !important; padding-right: 12px !important; }
-            .games-grid { grid-template-columns: 1fr; gap: 12px; }
-            .games-card { min-height: 0; flex-direction: row; align-items: center; }
+            .games-grid { grid-template-columns: 1fr; gap: 14px; }
+            .games-card { min-height: 0; flex-direction: row; align-items: center; gap: 16px; padding: 18px; }
+            .games-card-ico { width: 54px; height: 54px; border-radius: 15px; }
+            .games-card-ico svg { width: 28px; height: 28px; }
+            .games-card-title { font-size: 1.2rem; }
             .games-card-foot { width: auto; margin-left: auto; flex-direction: column; align-items: flex-end; }
             .games-card-desc { display: none; }
             .spottle-guess-card { gap: 10px; padding: 12px; }

@@ -215,6 +215,8 @@
                 const hash = s.includes('#') ? s.slice(s.indexOf('#')) : s;
                 if (/^#?feed$/i.test(hash)) { router.navigate('feed'); return true; }
                 if (/^#?recs$/i.test(hash)) { listsPendingSelectName = 'Recs'; router.navigate('lists'); return true; }
+                // The game-nudge push → open the Games hub.
+                if (/^#?games$/i.test(hash)) { router.navigate('games'); return true; }
                 // The daily "you have movies to rate" reminder → Account → To Rate tab.
                 if (/^#?pending$/i.test(hash)) {
                     try { accountHomePendingTab = 'torate'; } catch (_) {}

@@ -35,13 +35,63 @@
 
         const GAME_META = {
             spottle: { title: 'Filmle', tag: 'Guess the movie', icon: 'search',
-                       desc: 'Guess the daily film — each guess shows how close you are.' },
+                       desc: 'Guess the daily film — each clue reveals how close you are.' },
             rank:    { title: 'Rank It', tag: 'Sort by IMDb', icon: 'sort',
-                       desc: 'Put 4 movies in order by their IMDb rating.' },
+                       desc: 'Put 6 movies in order by their IMDb rating.' },
             poster:  { title: 'Poster Blur', tag: 'Name the poster', icon: 'film',
                        desc: 'A blurred poster sharpens with every wrong guess.' },
         };
         const GAME_ORDER = ['spottle', 'rank', 'poster'];
+
+        // Crisp per-game icons for the hub tiles + results hero (nicer than the
+        // generic shared `icons` map). White strokes on each game's gradient badge.
+        const GAME_ICON_SVG = {
+            // Clapperboard (guess the movie).
+            spottle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="8" width="19" height="12.5" rx="1.6"/><path d="M2.9 8 5 3.9l3.4 1.7L11.7 3.9l3.4 1.7L18.4 3.9 21.4 8"/><path d="M2.6 8h19"/></svg>',
+            // Ranked bars (sort high→low).
+            rank: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 21V9"/><path d="M12 21V4"/><path d="M18 21v-8"/></svg>',
+            // Framed image (name the poster).
+            poster: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><circle cx="9" cy="9" r="1.6"/><path d="m20.5 15-4.5-4.5L4.5 21"/></svg>',
+        };
+        function gameIconHtml(game) {
+            return GAME_ICON_SVG[game]
+                || ((typeof icons === 'object' && icons[(GAME_META[game] || {}).icon]) || (icons && icons.gamepad) || '');
+        }
+
+        // The daily puzzle NUMBER (LinkedIn-style "Filmle #6"). Computed purely from
+        // the calendar puzzle date so it's deterministic + identical for every user
+        // and increments by one each day — no backend/table needed. Epoch = the first
+        // daily seed (2026-07-03 = puzzle #1).
+        const GAME_EPOCH_UTC = Date.UTC(2026, 6, 3);   // 2026-07-03 (month is 0-based)
+        function gamePuzzleNumber() {
+            const date = gamesTodayData?.date;
+            if (!date) return null;
+            const t = new Date(String(date) + 'T00:00:00Z').getTime();
+            if (!Number.isFinite(t)) return null;
+            const n = Math.round((t - GAME_EPOCH_UTC) / 86400000) + 1;
+            return n > 0 ? n : null;
+        }
+
+        // "YYYY-MM-DD" one day earlier (UTC), for streak scanning.
+        function gamePrevDate(dateStr) {
+            const t = new Date(String(dateStr) + 'T00:00:00Z').getTime();
+            if (!Number.isFinite(t)) return null;
+            return new Date(t - 86400000).toISOString().slice(0, 10);
+        }
+        // Whole-day gap between two "YYYY-MM-DD" strings.
+        function gameDayGap(a, b) {
+            const ta = new Date(String(a) + 'T00:00:00Z').getTime();
+            const tb = new Date(String(b) + 'T00:00:00Z').getTime();
+            if (!Number.isFinite(ta) || !Number.isFinite(tb)) return NaN;
+            return Math.round((tb - ta) / 86400000);
+        }
+
+        // Which view a FINISHED game shows: the LinkedIn-style results page
+        // ('results') or the playable board so the user can review their guesses
+        // ('board'). Reset per open; a fresh finish flashes 'board' (answer reveal)
+        // then auto-flips to 'results'.
+        const gamesFinishedView = { spottle: 'results', rank: 'results', poster: 'results' };
+        let gamesResultTimer = null;
 
         // ---- API helpers ---------------------------------------------------------
         async function gamesAuthToken() {
@@ -119,34 +169,28 @@
             const hub = document.getElementById('games-hub');
             if (!hub) return;
             const games = gamesTodayData?.games || {};
+            const pillLabel = { play: '▶ Play', progress: '▶ Resume', solved: '✓ Completed',
+                                done: '✓ Completed', unavailable: 'Not ready' };
             const cards = GAME_ORDER.map((g) => {
                 const d = games[g];
                 const meta = GAME_META[g] || {};
                 const status = gameStatusFor(g, d);
                 const disabled = status === 'unavailable';
-                const ico = (typeof icons === 'object' && icons[meta.icon]) ? icons[meta.icon] : (icons?.gamepad || '');
                 return `
-                    <button class="games-card status-${status}" type="button"
+                    <button class="games-card games-card--${g} status-${status}" type="button"
                             ${disabled ? 'disabled' : `data-game-open="${g}"`}>
-                        <span class="games-card-ico">${ico}</span>
+                        <span class="games-card-ico">${gameIconHtml(g)}</span>
                         <span class="games-card-body">
-                            <span class="games-card-title">${escapeHtml(meta.title || '')}</span>
                             <span class="games-card-tag">${escapeHtml(meta.tag || '')}</span>
+                            <span class="games-card-title">${escapeHtml(meta.title || '')}</span>
                             <span class="games-card-desc">${escapeHtml(meta.desc || '')}</span>
                         </span>
                         <span class="games-card-foot">
-                            <span class="games-status-pill">${gameStatusLabel(status)}</span>
+                            <span class="games-status-pill">${pillLabel[status] || 'Play'}</span>
                         </span>
                     </button>`;
             }).join('');
-            const total = Number(gamesTodayData?.game_points) || 0;
-            hub.innerHTML = `
-                <div class="games-points-total">
-                    <span class="games-points-total-ico">🏆</span>
-                    <span class="games-points-total-num">${total.toLocaleString()}</span>
-                    <span class="games-points-total-lbl">total points</span>
-                </div>
-                <div class="games-grid">${cards}</div>`;
+            hub.innerHTML = `<div class="games-grid">${cards}</div>`;
         }
 
         // ---- Play surface shell --------------------------------------------------
@@ -163,6 +207,10 @@
             gameHintShown.spottle = 0; gameHintShown.poster = 0;
             gameGiveUpArmed.spottle = false; gameGiveUpArmed.poster = false; gameGiveUpArmed.rank = false;
             if (gameGiveUpTimer) { clearTimeout(gameGiveUpTimer); gameGiveUpTimer = null; }
+            // Opening a game (incl. an already-finished one from the hub) lands on the
+            // results page; a fresh finish overrides this to flash the board first.
+            gamesFinishedView[game] = 'results';
+            if (gamesResultTimer) { clearTimeout(gamesResultTimer); gamesResultTimer = null; }
             if (game === 'spottle') renderSpottle();
             else if (game === 'rank') { rankHintUsed = false; rankHintId = null; rankOrderIds = []; renderRank(); }
             else if (game === 'poster') { posterPrevBlur = null; renderPoster(); }
@@ -171,6 +219,7 @@
 
         function closeGame() {
             gamesActiveGame = null;
+            if (gamesResultTimer) { clearTimeout(gamesResultTimer); gamesResultTimer = null; }
             const hub = document.getElementById('games-hub');
             const play = document.getElementById('games-play');
             if (play) { play.hidden = true; play.innerHTML = ''; }
@@ -224,6 +273,13 @@
         // get_game_day_leaderboard RPC (safe, follow-graph-scoped; see
         // games_day_leaderboard.sql). Ranked by the RPC (best result first).
         let _gamesCompareToken = 0;
+        // Full day-leaderboard rows per game, cached so the "See full leaderboard"
+        // modal can reuse them without a refetch.
+        const gamesDayRows = { spottle: [], rank: [], poster: [] };
+
+        function gamesSeeFullBtnHtml(game) {
+            return `<button class="games-seefull-btn" type="button" data-game-fulllb="${game}">See full leaderboard ›</button>`;
+        }
 
         function gamesCompareSlotHtml(game) {
             return `
@@ -302,15 +358,133 @@
                 if (token !== _gamesCompareToken) return;  // a newer open superseded this
                 if (error) throw error;
                 const rows = Array.isArray(data) ? data : [];
-                if (!rows.length) { fill(headHtml + '<div class="games-compare-empty">No results yet.</div>'); return; }
-                const list = rows.map((r, i) => gamesCompareRowHtml(r, i + 1, game)).join('');
+                gamesDayRows[game] = rows;
+                if (!rows.length) { fill(headHtml + '<div class="games-compare-empty">No results yet.</div>' + gamesSeeFullBtnHtml(game)); return; }
+                // Preview: just the top 3 — the full board opens in the modal.
+                const list = rows.slice(0, 3).map((r, i) => gamesCompareRowHtml(r, i + 1, game)).join('');
                 const soloNote = rows.length === 1
-                    ? '<div class="games-compare-solo">You\'re the first in your circle to play — follow more friends to compare!</div>'
+                    ? '<div class="games-compare-solo">You\'re the first in your circle to play — nudge friends to compare!</div>'
                     : '';
-                fill(`${headHtml}<div class="games-compare-list">${list}</div>${soloNote}`);
+                fill(`${headHtml}<div class="games-compare-list">${list}</div>${soloNote}${gamesSeeFullBtnHtml(game)}`);
             } catch (e) {
                 if (token !== _gamesCompareToken) return;
                 fill(headHtml + '<div class="games-compare-empty">Couldn\'t load your circle\'s results.</div>');
+            }
+        }
+
+        // ---- Full leaderboard modal + nudge --------------------------------------
+        // The "See full leaderboard" button opens a pop-up with the WHOLE day board
+        // plus a section to "nudge" people you follow who haven't played today's
+        // puzzle (sends them a push + Activity-inbox reminder to play).
+        let gamesNudgeCandidates = [];   // cached candidate rows for the open modal
+        let gamesNudgeGame = null;       // which game the modal is showing
+        let _gamesNudgeToken = 0;
+
+        function openGameFullLeaderboard(game) {
+            const ov = document.getElementById('games-lb-overlay');
+            const body = document.getElementById('games-lb-body');
+            const titleEl = document.getElementById('games-lb-title');
+            if (!ov || !body) return;
+            gamesNudgeGame = game;
+            const meta = GAME_META[game] || {};
+            const num = gamePuzzleNumber();
+            if (titleEl) titleEl.textContent = num ? `${meta.title || 'Game'} #${num}` : `${meta.title || 'Game'} leaderboard`;
+            body.innerHTML = renderGameFullLeaderboardBody(game);
+            ov.style.display = 'flex';
+            loadGameNudgeCandidates(game);
+        }
+
+        function closeGameFullLeaderboard() {
+            const ov = document.getElementById('games-lb-overlay');
+            if (ov) ov.style.display = 'none';
+            gamesNudgeGame = null;
+            gamesNudgeCandidates = [];
+        }
+
+        function renderGameFullLeaderboardBody(game) {
+            const rows = gamesDayRows[game] || [];
+            const list = rows.length
+                ? rows.map((r, i) => gamesCompareRowHtml(r, i + 1, game)).join('')
+                : '<div class="games-compare-empty">No results yet today.</div>';
+            const searchIco = (typeof icons === 'object' && icons.search) ? icons.search : '';
+            return `
+                <div class="games-lb-full">
+                    <div class="games-compare-list">${list}</div>
+                </div>
+                <div class="games-nudge">
+                    <div class="games-nudge-divider"><span>Nudge people who haven't played yet 👉</span></div>
+                    <div class="games-nudge-search">
+                        <span class="games-nudge-search-ico" aria-hidden="true">${searchIco}</span>
+                        <input id="games-nudge-search" class="games-nudge-search-input" type="text"
+                               placeholder="Find connections to nudge" autocomplete="off" spellcheck="false">
+                    </div>
+                    <div id="games-nudge-list" class="games-nudge-list">
+                        <div class="games-compare-loading">Loading connections…</div>
+                    </div>
+                </div>`;
+        }
+
+        // People the caller FOLLOWS who have NOT finished today's puzzle (server RPC
+        // — safe, follow-scoped). Degrades gracefully if the RPC isn't deployed yet.
+        async function loadGameNudgeCandidates(game) {
+            const token = ++_gamesNudgeToken;
+            const date = gamesTodayData?.date;
+            const setList = (html) => { const el = document.getElementById('games-nudge-list'); if (el) el.innerHTML = html; };
+            if (!supabaseClient || !date) { setList('<div class="games-compare-empty">Unavailable.</div>'); return; }
+            let rows = [];
+            try {
+                const { data, error } = await supabaseClient.rpc('get_game_nudge_candidates', { p_game: game, p_date: date });
+                if (error) throw error;
+                rows = Array.isArray(data) ? data : [];
+            } catch (_) {
+                if (token !== _gamesNudgeToken) return;
+                setList('<div class="games-compare-empty">Couldn\'t load connections.</div>');
+                return;
+            }
+            if (token !== _gamesNudgeToken) return;
+            gamesNudgeCandidates = rows;
+            paintGameNudgeList('');
+        }
+
+        function paintGameNudgeList(query) {
+            const el = document.getElementById('games-nudge-list');
+            if (!el) return;
+            const q = (typeof normalizeSearchText === 'function') ? normalizeSearchText(query || '') : String(query || '').toLowerCase();
+            const rows = (gamesNudgeCandidates || []).filter((r) => {
+                if (!q) return true;
+                const n = (typeof normalizeSearchText === 'function') ? normalizeSearchText(r.username || '') : String(r.username || '').toLowerCase();
+                return n.includes(q);
+            });
+            if (!rows.length) {
+                el.innerHTML = `<div class="games-compare-empty">${(gamesNudgeCandidates || []).length ? 'No matches.' : 'Everyone you follow has played today! 🎉'}</div>`;
+                return;
+            }
+            el.innerHTML = rows.map(gameNudgeRowHtml).join('');
+        }
+
+        function gameNudgeRowHtml(r) {
+            const avatar = renderUserIconHtml(r.icon, 40);
+            const name = escapeHtml(r.username || 'User');
+            return `
+                <div class="games-nudge-row">
+                    <span class="games-nudge-avatar">${avatar}</span>
+                    <span class="games-nudge-name">${name}</span>
+                    <button class="games-nudge-btn" type="button" data-nudge-user="${r.user_id}">👉 Nudge</button>
+                </div>`;
+        }
+
+        async function nudgeGamePlayer(userId, btn) {
+            if (!userId || !gamesNudgeGame) return;
+            if (btn && (btn.disabled || btn.classList.contains('is-done'))) return;
+            if (btn) { btn.disabled = true; btn.classList.add('is-loading'); btn.textContent = 'Nudging…'; }
+            try {
+                const res = await gamesApi({ action: 'nudge_game', game: gamesNudgeGame, to_user_id: userId });
+                if (!res?.ok) throw new Error(res?.message || 'Could not send nudge.');
+                if (btn) { btn.classList.remove('is-loading'); btn.classList.add('is-done'); btn.textContent = '✓ Nudged'; }
+                try { showToast('Nudge sent 👉', { durationMs: 1400 }); } catch (_) {}
+            } catch (e) {
+                if (btn) { btn.disabled = false; btn.classList.remove('is-loading'); btn.textContent = '👉 Nudge'; }
+                showToast(String(e?.message || e), { level: 'warn' });
             }
         }
 
@@ -329,6 +503,169 @@
                 <div class="games-result-banner ${win ? 'is-win' : ''}">
                     <div>${msg}</div>
                 </div>`;
+        }
+
+        // ---- Results page (LinkedIn-style) ---------------------------------------
+        // After a finished game briefly shows the answer on the board, it auto-flips
+        // to this dedicated results screen: the day's puzzle number + score, the
+        // circle leaderboard, and the player's lifetime stats for that game. A
+        // "Review your guesses" button flips back to the board.
+
+        // Re-render whichever game is active (respects its finished-view state).
+        function rerenderGame(game) {
+            if (game === 'spottle') renderSpottle();
+            else if (game === 'poster') renderPoster();
+            else if (game === 'rank') renderRank();
+        }
+
+        // Fresh-finish flow: the caller has already rendered the board (view='board')
+        // so the user sees the revealed answer; after a beat, flip to the results page.
+        function scheduleResultsTransition(game, delay) {
+            if (gamesResultTimer) clearTimeout(gamesResultTimer);
+            gamesResultTimer = setTimeout(() => {
+                gamesResultTimer = null;
+                if (gamesActiveGame !== game) return;             // navigated away
+                const d = gamesTodayData?.games?.[game];
+                if (!d || !d.done) return;
+                gamesFinishedView[game] = 'results';
+                rerenderGame(game);
+                try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
+            }, delay || 1700);
+        }
+
+        function gameSeeResultsBtnHtml(game) {
+            return `<button class="games-seeresults-btn" type="button" data-game-results="${game}">See results ›</button>`;
+        }
+
+        // # correct movies in the rank result (computed directly from the submitted
+        // order vs the true order, so the hint penalty doesn't skew it like score/2).
+        function rankCorrectCount(d) {
+            const truth = Array.isArray(d?.result) ? d.result : [];
+            const sub = Array.isArray(d?.submitted_order) ? d.submitted_order.map(Number) : [];
+            let c = 0;
+            truth.forEach((m, i) => { if (sub[i] != null && Number(sub[i]) === Number(m.tmdb_id)) c++; });
+            return c;
+        }
+
+        // The headline describing how the player did, per game.
+        function gameResultHeadline(game, d) {
+            if (game === 'rank') {
+                const total = (d.result || []).length || 6;
+                if (d.gave_up) return `You gave up — ${rankCorrectCount(d)}/${total} in place.`;
+                return d.solved
+                    ? `Perfect order — ${total}/${total} correct!`
+                    : `${rankCorrectCount(d)} of ${total} in the right spot.`;
+            }
+            const n = d.attempts || 0;
+            if (d.solved) return `Solved in ${n} ${n === 1 ? 'guess' : 'guesses'}!`;
+            if (d.gave_up) return 'You gave up on today\'s puzzle.';
+            return 'Out of guesses today.';
+        }
+
+        function gameStatTileHtml(value, label) {
+            return `
+                <div class="games-stat">
+                    <span class="games-stat-num">${value}</span>
+                    <span class="games-stat-lbl">${escapeHtml(label)}</span>
+                </div>`;
+        }
+
+        function gamesStatsLoadingHtml() {
+            return Array.from({ length: 5 }, () =>
+                '<div class="games-stat is-loading"><span class="games-stat-num">—</span><span class="games-stat-lbl">&nbsp;</span></div>').join('');
+        }
+
+        // Compute + fill the lifetime stats for a game from the caller's OWN
+        // Game Results rows (RLS restricts the read to own rows). Streaks count
+        // consecutive days PLAYED (finished), not just solved.
+        let _gamesStatsToken = 0;
+        async function loadGameLifetimeStats(game) {
+            const token = ++_gamesStatsToken;
+            const fill = (html) => {
+                const box = document.getElementById('games-stats');
+                if (box && box.getAttribute('data-stats-game') === game) box.innerHTML = html;
+            };
+            if (!supabaseClient) { fill(gameStatTileHtml('—', 'Played')); return; }
+            let rows = [];
+            try {
+                const { data, error } = await supabaseClient
+                    .from('Game Results')
+                    .select('puzzle_date,solved,score,completed_at')
+                    .eq('game', game);
+                if (error) throw error;
+                rows = (Array.isArray(data) ? data : []).filter((r) => r && r.completed_at);
+            } catch (_) {
+                if (token !== _gamesStatsToken) return;
+                fill(`<div class="games-compare-empty">Couldn't load your stats.</div>`);
+                return;
+            }
+            if (token !== _gamesStatsToken) return;
+
+            const played = rows.length;
+            const wins = rows.filter((r) => r.solved).length;
+            const winPct = played ? Math.round((wins / played) * 100) : 0;
+            const best = rows.reduce((m, r) => Math.max(m, Number(r.score) || 0), 0);
+
+            // Distinct played days, ascending.
+            const days = [...new Set(rows.map((r) => r.puzzle_date).filter(Boolean))].sort();
+            const daySet = new Set(days);
+            // Longest run of consecutive days.
+            let longest = 0, run = 0, prev = null;
+            for (const dstr of days) {
+                if (prev && gameDayGap(prev, dstr) === 1) run++; else run = 1;
+                if (run > longest) longest = run;
+                prev = dstr;
+            }
+            // Current streak: consecutive days back from today's puzzle date.
+            let current = 0, cursor = gamesTodayData?.date;
+            while (cursor && daySet.has(cursor)) { current++; cursor = gamePrevDate(cursor); }
+
+            fill([
+                gameStatTileHtml(played.toLocaleString(), 'Played'),
+                gameStatTileHtml(`${winPct}%`, 'Win rate'),
+                gameStatTileHtml(best.toLocaleString(), 'Best score'),
+                gameStatTileHtml(`${current}${current ? ' 🔥' : ''}`, 'Current streak'),
+                gameStatTileHtml(longest.toLocaleString(), 'Longest streak'),
+            ].join(''));
+        }
+
+        function renderGameResults(game) {
+            const play = document.getElementById('games-play');
+            const d = gamesTodayData?.games?.[game];
+            if (!play) return;
+            if (!d || !d.done) { rerenderGame(game); return; }   // shouldn't happen
+            const meta = GAME_META[game] || {};
+            const num = gamePuzzleNumber();
+            const numLabel = num ? `${escapeHtml(meta.title || 'Game')} #${num}` : escapeHtml(meta.title || 'Game');
+            const win = !!d.solved;
+            const score = Math.max(0, Number(d.score) || 0);
+            play.innerHTML = `
+                <div class="games-play-head">
+                    <button class="games-back" type="button" data-game-back>
+                        <span class="games-back-caret">‹</span> All games
+                    </button>
+                    <button class="games-back games-review-top" type="button" data-game-review="${game}">
+                        Review your guesses <span class="games-back-caret">›</span>
+                    </button>
+                </div>
+                <div class="games-results games-results--${game}">
+                    <div class="games-results-hero ${win ? 'is-win' : ''}">
+                        <span class="games-results-ico">${gameIconHtml(game)}</span>
+                        <span class="games-results-num">${numLabel}</span>
+                        <span class="games-results-headline">${escapeHtml(gameResultHeadline(game, d))}</span>
+                        <span class="games-results-score">
+                            <span class="games-results-score-num">+${score}</span>
+                            <span class="games-results-score-lbl">points today</span>
+                        </span>
+                    </div>
+                    ${gamesCompareSlotHtml(game)}
+                    <div class="games-stats-card">
+                        <div class="games-stats-head">Your ${escapeHtml(meta.title || 'game')} stats</div>
+                        <div id="games-stats" class="games-stats-grid" data-stats-game="${game}">${gamesStatsLoadingHtml()}</div>
+                    </div>
+                </div>`;
+            loadGameDayLeaderboard(game);
+            loadGameLifetimeStats(game);
         }
 
         // ---- Spottle -------------------------------------------------------------
@@ -501,19 +838,18 @@
             const d = gamesTodayData?.games?.spottle;
             if (!play) return;
             if (!d) { play.innerHTML = gamePlayHeadHtml('spottle') + '<div class="games-error">No puzzle available today.</div>'; return; }
+            if (d.done && gamesFinishedView.spottle === 'results') { renderGameResults('spottle'); return; }
             const realGuesses = (d.guesses || []).filter((g) => g && !g.gave_up);
             // Newest guess on top, right under the search bar.
             const rows = realGuesses.slice().reverse().map(spottleRowHtml).join('');
             const board = rows || '<div class="games-empty">Make your first guess to see how close you are.</div>';
             const footer = d.done
-                ? gameResultBanner('spottle', d)
+                ? `${gameResultBanner('spottle', d)}${gameSeeResultsBtnHtml('spottle')}`
                 : `${guessTopbarHtml('spottle', d)}${gameHintsHtml('spottle', d)}${gameGuessInputHtml('spottle')}`;
             play.innerHTML = `
                 ${gamePlayHeadHtml('spottle')}
                 ${footer}
-                ${d.done ? gamesCompareSlotHtml('spottle') : ''}
                 <div class="spottle-board">${board}</div>`;
-            if (d.done) loadGameDayLeaderboard('spottle');
         }
 
         // Reveal the NEXT progressive hint tier for a guess game (spottle/poster).
@@ -554,7 +890,9 @@
                 if (Array.isArray(res.guesses)) d.guesses = res.guesses;
                 if (res.answer) d.answer = res.answer;
                 if (game === 'poster' && res.blur != null) d.blur = res.blur;
+                gamesFinishedView[game] = 'board';   // flash the revealed answer first
                 rerenderGuessGame(game);
+                scheduleResultsTransition(game, 1700);
             } catch (e) {
                 showToast(String(e?.message || e), { level: 'error' });
             }
@@ -566,6 +904,7 @@
             const d = gamesTodayData?.games?.poster;
             if (!play) return;
             if (!d) { play.innerHTML = gamePlayHeadHtml('poster') + '<div class="games-error">No puzzle available today.</div>'; return; }
+            if (d.done && gamesFinishedView.poster === 'results') { renderGameResults('poster'); return; }
             const url = gamesPosterUrl(d.poster_path, 'w500');
             const max = d.max_guesses || 6;
             const attempts = d.attempts || 0;
@@ -598,7 +937,9 @@
             }).join('');
 
             const topbar = d.done ? '' : `${guessTopbarHtml('poster', d)}${gameHintsHtml('poster', d)}`;
-            const footer = d.done ? gameResultBanner('poster', d) : gameGuessInputHtml('poster', left);
+            const footer = d.done
+                ? `${gameResultBanner('poster', d)}${gameSeeResultsBtnHtml('poster')}`
+                : gameGuessInputHtml('poster', left);
             play.innerHTML = `
                 ${gamePlayHeadHtml('poster')}
                 ${topbar}
@@ -616,11 +957,9 @@
                         </div>
                     </div>
                     ${footer}
-                    ${d.done ? gamesCompareSlotHtml('poster') : ''}
                     ${rows ? `<div class="poster-guesses">${rows}</div>` : ''}
                 </div>`;
 
-            if (d.done) loadGameDayLeaderboard('poster');
             if (url && startBlur !== targetBlur) {
                 requestAnimationFrame(() => {
                     const img = play.querySelector('.poster-img');
@@ -742,7 +1081,9 @@
                 d.done = true; d.solved = false; d.gave_up = true; d.score = 0;
                 d.result = res.true_order || d.result || [];
                 d.submitted_order = null;
+                gamesFinishedView.rank = 'board';   // flash the revealed order first
                 renderRankResult(d);
+                scheduleResultsTransition('rank', 1600);
             } catch (e) {
                 showToast(String(e?.message || e), { level: 'error' });
             }
@@ -833,6 +1174,7 @@
         function renderRankResult(d) {
             const play = document.getElementById('games-play');
             if (!play) return;
+            if (gamesFinishedView.rank === 'results') { renderGameResults('rank'); return; }
             const truth = d.result || [];
             const submitted = Array.isArray(d.submitted_order) ? d.submitted_order.map(Number) : [];
             const rows = truth.map((m, i) => {
@@ -853,9 +1195,8 @@
                 <div class="games-result-banner ${d.solved ? 'is-win' : ''}">
                     <div>${banner}</div>
                 </div>
-                ${gamesCompareSlotHtml('rank')}
+                ${gameSeeResultsBtnHtml('rank')}
                 <div class="rank-result-list">${rows}</div>`;
-            loadGameDayLeaderboard('rank');
         }
 
         async function submitRank() {
@@ -873,8 +1214,10 @@
                 // Animate the user's cards sliding from THEIR order into the correct
                 // order (so they can compare their guess to the answer) before the
                 // final result view snaps in.
+                gamesFinishedView.rank = 'board';   // show the scored board first
                 await animateRankToTrueOrder(d);
                 renderRankResult(d);
+                scheduleResultsTransition('rank', 1400);
             } catch (e) {
                 showToast(String(e?.message || e), { level: 'error' });
                 if (btn) { btn.disabled = false; btn.innerHTML = btnHtml; }
@@ -934,6 +1277,9 @@
         let _gameSearchToken = 0;
 
         function gamesDelegatedInput(e) {
+            // Nudge-search box inside the full-leaderboard modal (filters locally).
+            const nudgeInp = e.target && e.target.closest ? e.target.closest('#games-nudge-search') : null;
+            if (nudgeInp) { paintGameNudgeList(nudgeInp.value || ''); return; }
             const inp = e.target && e.target.closest ? e.target.closest('#game-guess-input') : null;
             if (!inp) return;
             const q = inp.value.trim();
@@ -998,8 +1344,14 @@
                 if (Array.isArray(res.hints)) d.hints = res.hints;
                 gameGiveUpArmed[game] = false;   // a new guess disarms Give Up
                 if (gameGiveUpTimer) { clearTimeout(gameGiveUpTimer); gameGiveUpTimer = null; }
+                // On a fresh finish, flash the revealed-answer board then auto-flip to
+                // the results page (LinkedIn-style).
+                if (d.done && !wasDone) gamesFinishedView[game] = 'board';
                 rerenderGuessGame(game);
-                if (d.done && d.solved) { try { showToast('Solved! 🎉', { durationMs: 1400 }); } catch (_) {} }
+                if (d.done && !wasDone) {
+                    if (d.solved) { try { showToast('Solved! 🎉', { durationMs: 1400 }); } catch (_) {} }
+                    scheduleResultsTransition(game, 1700);
+                }
             } catch (e) {
                 showToast(String(e?.message || e), { level: 'error' });
             }
@@ -1012,6 +1364,30 @@
             const openBtn = t.closest('[data-game-open]');
             if (openBtn) { e.preventDefault(); openGame(openBtn.getAttribute('data-game-open')); return; }
             if (t.closest('[data-game-back]')) { e.preventDefault(); closeGame(); return; }
+            const reviewBtn = t.closest('[data-game-review]');
+            if (reviewBtn) {
+                e.preventDefault();
+                const g = reviewBtn.getAttribute('data-game-review');
+                if (gamesResultTimer) { clearTimeout(gamesResultTimer); gamesResultTimer = null; }
+                gamesFinishedView[g] = 'board';
+                rerenderGame(g);
+                try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
+                return;
+            }
+            const resultsBtn = t.closest('[data-game-results]');
+            if (resultsBtn) {
+                e.preventDefault();
+                const g = resultsBtn.getAttribute('data-game-results');
+                if (gamesResultTimer) { clearTimeout(gamesResultTimer); gamesResultTimer = null; }
+                gamesFinishedView[g] = 'results';
+                rerenderGame(g);
+                try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
+                return;
+            }
+            const fullLbBtn = t.closest('[data-game-fulllb]');
+            if (fullLbBtn) { e.preventDefault(); openGameFullLeaderboard(fullLbBtn.getAttribute('data-game-fulllb')); return; }
+            const nudgeBtn = t.closest('[data-nudge-user]');
+            if (nudgeBtn) { e.preventDefault(); nudgeGamePlayer(nudgeBtn.getAttribute('data-nudge-user'), nudgeBtn); return; }
             const pick = t.closest('[data-game-guess-pick]');
             if (pick) { e.preventDefault(); submitGuess(pick.getAttribute('data-tmdb-id')); return; }
             const hintBtn = t.closest('[data-game-hint]');

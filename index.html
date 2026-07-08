@@ -653,6 +653,18 @@
         </div>
     </div>
 
+    <!-- Full daily-game leaderboard + "nudge people who haven't played" (opened
+         from the "See Full Leaderboard" button on a finished game's results page). -->
+    <div id="games-lb-overlay" class="auth-overlay" onclick="if(event.target === this) closeGameFullLeaderboard();" style="display:none;">
+        <div class="auth-modal games-lb-modal" role="dialog" aria-modal="true" aria-labelledby="games-lb-title">
+            <div class="auth-modal-header">
+                <div class="auth-modal-title" id="games-lb-title">Leaderboard</div>
+                <button class="auth-modal-close" type="button" onclick="closeGameFullLeaderboard()">Close</button>
+            </div>
+            <div id="games-lb-body"></div>
+        </div>
+    </div>
+
     <!-- Shared-list movie reviews: pick a member who has reviewed this movie to
          read their full review. Opened by tapping a poster on a SHARED list. -->
     <div id="shared-movie-overlay" class="auth-overlay" onclick="if(event.target === this) closeSharedListMovieModal();" style="display:none;">

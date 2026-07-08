@@ -1,0 +1,30 @@
+name: Daily "play today's games" reminders
+
+# Once a day, LATER IN THE DAY (evening Pacific), pushes a reminder to users who
+# have an ACTIVE streak but haven't played today's daily games yet — nudging them
+# to keep the streak alive. Eligibility (both): finished a game YESTERDAY (streak
+# ≥1) AND finished NONE today. GitHub Actions is only the timer + HTTP trigger; the
+# swift-api `notify_game_reminders` Edge action does the eligibility scan + Web Push
+# (and records a `game_reminder` Notifications row that both shows in the Activity
+# inbox and throttles re-sends). Reuses the existing cron secrets.
+#
+# 02:00 UTC = 6:00 PM PST / 7:00 PM PDT — evening either side of DST, never the
+# morning. A single UTC time drifts an hour with DST, which is fine for an evening
+# reminder; the action's per-user throttle makes an accidental double-fire harmless.
+on:
+  schedule:
+    - cron: '0 2 * * *'   # daily at 02:00 UTC (~6–7 PM Pacific); tune as desired
+  workflow_dispatch: {}     # also runnable on demand from the Actions tab
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger notify_game_reminders
+        run: |
+          curl -sS -X POST "${{ secrets.SUPABASE_FUNCTION_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -d '{"action":"notify_game_reminders"}' \
+            --fail-with-body
