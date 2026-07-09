@@ -413,8 +413,9 @@
             if (listsSearchAbortController) listsSearchAbortController.abort();
             listsSearchAbortController = new AbortController();
 
-            // Keep it lightweight; wait until the user types at least 3 characters.
-            if (q.length < 3) {
+            // Keep it lightweight; wait until the user types at least 2 characters
+            // (2-char titles like "Up"/"Us" must be searchable).
+            if (q.length < 2) {
                 results.classList.add('hidden');
                 listsSearchItems = [];
                 return;

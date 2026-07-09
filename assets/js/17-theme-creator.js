@@ -584,7 +584,7 @@
             if (themeCreatorBackdropSearchAbortController) themeCreatorBackdropSearchAbortController.abort();
             themeCreatorBackdropSearchAbortController = new AbortController();
 
-            if (q.length < 3) {
+            if (q.length < 2) {
                 results.classList.add('hidden');
                 themeCreatorBackdropSearchItems = [];
                 return;
@@ -632,7 +632,7 @@
             if (themeCreatorAiSearchAbortController) themeCreatorAiSearchAbortController.abort();
             themeCreatorAiSearchAbortController = new AbortController();
 
-            if (q.length < 3) {
+            if (q.length < 2) {
                 results.classList.add('hidden');
                 themeCreatorAiSearchItems = [];
                 return;

@@ -118,8 +118,8 @@
 
             const input = document.getElementById('movie-search-input');
             const q = String(input?.value || '').trim();
-            if (q.length < 3) {
-                showToast('Type at least 3 characters, then apply filters.', { level: 'warn' });
+            if (q.length < 2) {
+                showToast('Type at least 2 characters, then apply filters.', { level: 'warn' });
                 return;
             }
             handleSearch(q, { force: true });
@@ -223,8 +223,9 @@
             homeSearchAbortController = new AbortController();
 
             // Keep dropdown behavior similar: show results panel quickly, but avoid hammering the server.
-            // Do not search until the user types at least 3 characters.
-            if (q.length < 3) {
+            // Do not search until the user types at least 2 characters (2-char titles
+            // like "Up"/"Us" must be searchable).
+            if (q.length < 2) {
                 results.classList.add('hidden');
                 homeSearchItems = [];
                 return;

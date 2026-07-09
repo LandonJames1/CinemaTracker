@@ -3944,8 +3944,10 @@ Deno.serve(async (req) => {
       const limitRaw = body?.limit === null || body?.limit === undefined ? 8 : Number(body.limit);
       const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(12, Math.floor(limitRaw))) : 8;
 
-      // Do not search until the user types at least 3 characters.
-      if (!query || query.length < 3) {
+      // Do not search until the user types at least 2 characters (2-char titles like
+      // "Up"/"Us" must be searchable; this is the universal backstop every client
+      // movie-search box calls, so the floor lives here as well as client-side).
+      if (!query || query.length < 2) {
         return jsonResponse({ results: [], page, total_pages: 0 }, 200);
       }
 

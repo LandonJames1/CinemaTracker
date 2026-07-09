@@ -3677,7 +3677,7 @@
             listsAddAppliedMpa = mEl ? String(mEl.value || '').trim() : '';
             const input = document.getElementById('lists-movie-search-input');
             const q = String(input?.value || '').trim();
-            if (q.length >= 3) handleListsAddMovieSearch(q, { force: true });
+            if (q.length >= 2) handleListsAddMovieSearch(q, { force: true });
         }
 
         // Mobile header bar: "Lists" on the overview, "Lists - <name>" inside a list.

@@ -512,7 +512,7 @@
             if (aiSimilarAbortController) aiSimilarAbortController.abort();
             aiSimilarAbortController = new AbortController();
 
-            if (q.length < 3) {
+            if (q.length < 2) {
                 results.classList.add('hidden');
                 aiSimilarSearchItems = [];
                 return;
