@@ -896,20 +896,29 @@ const GAME_RANK_COUNT = 6;
 // pick if any aren't present. tmdb: Shawshank / Godfather / Dark Knight / Inception /
 // The Matrix / Gladiator.
 const RANK_FIXED_TMDB_IDS = [278, 238, 155, 27205, 603, 98];
-// Spottle + Poster: the FIRST (vague) hint unlocks after this many guesses. The
-// button shows "Hint in N" until then. Later, progressively-more-revealing hint
-// tiers unlock at the thresholds in GAME_HINT_THRESHOLDS below.
-const GAME_SPOTTLE_HINT_AFTER = 3;
-const GAME_POSTER_HINT_AFTER = 3;
-const GAME_CAST_HINT_AFTER = 3;
-// The guesses-after threshold for the FIRST hint of each guess-based game.
-const GAME_HINT_AFTER = { spottle: GAME_SPOTTLE_HINT_AFTER, poster: GAME_POSTER_HINT_AFTER, cast: GAME_CAST_HINT_AFTER };
-// Per-game unlock thresholds for the ORDERED, increasingly-revealing hint tiers
-// (see spottleHints). Tier i unlocks after GAME_HINT_THRESHOLDS[game][i] guesses;
-// tiers beyond the list unlock one guess later each. spottle (10 guesses): era/genre
-// @3, studio/box office @6, lead actor @8, director @9. poster (6 guesses) surfaces
-// the first three.
-const GAME_HINT_THRESHOLDS = { spottle: [3, 6, 8, 9], poster: [3, 4, 5], cast: [3, 5] };
+// Every guess-based game (spottle/poster/cast) surfaces the SAME ordered set of
+// increasingly-revealing hint tiers (era/genre → studio/box office → lead actor →
+// director; see spottleHints). Rather than hand-picking unlock points per game, the
+// tiers are spread PROPORTIONALLY across each game's own guess budget
+// (GAME_MAX_GUESSES) so the hint-to-guess ratio stays consistent no matter how many
+// guesses a game allows — a game with fewer guesses just unlocks its hints closer
+// together. e.g. with the usual 4 tiers: spottle (10 guesses) → @2/4/6/8 (~a hint
+// every 2 guesses); poster + cast (6 guesses) → @2/3/4/5 (~a hint every guess).
+// Returns the guesses-after thresholds for `n` tiers, strictly increasing, leaving
+// guess 1 hint-free and the last tier usable before the final guess.
+function gameHintThresholds(game, n) {
+  const max = GAME_MAX_GUESSES[game] || 6;
+  const out = [];
+  let prev = 0;
+  for (let i = 1; i <= n; i++) {
+    let after = Math.round((i * max) / (n + 1)); // tier i ~ i/(n+1) of the way through
+    after = Math.min(after, max - 1);            // still usable before the final guess
+    after = Math.max(after, prev + 1, 2);        // strictly increasing; guess 1 stays free
+    out.push(after);
+    prev = after;
+  }
+  return out;
+}
 // Rank: the hint reveals the single highest-rated film (locks its #1 slot). Using
 // it costs this many points on submit (offsets the free correct placement).
 const GAME_RANK_HINT_PENALTY = 2;
@@ -1029,13 +1038,13 @@ function formatBoxOffice(n) {
   return `$${Math.round(v)}`;
 }
 
-// Progressive, increasingly-revealing movie hints (used by BOTH spottle + poster).
+// Progressive, increasingly-revealing movie hints (used by spottle + poster + cast).
 // Returns an ORDERED list of hint tiers, each with the guess count it unlocks after
 // (`after`). The FIRST tier is intentionally vague (decade + primary genre); later
 // tiers reveal more (studio + box office → lead actor → director, the most
-// revealing). Only non-empty tiers are included, then given unlock thresholds from
-// GAME_HINT_THRESHOLDS. The server sends a tier's `text` only once unlocked (see
-// gameHintsForResponse) so content can't be read early.
+// revealing). Only non-empty tiers are included, then spread evenly across the game's
+// guess budget by gameHintThresholds. The server sends a tier's `text` only once
+// unlocked (see gameHintsForResponse) so content can't be read early.
 function spottleHints(a, game) {
   if (!a || typeof a !== "object") return [];
   const yr = Number(a.release_year);
@@ -1055,12 +1064,9 @@ function spottleHints(a, game) {
   if (lead) raw.push({ label: "Lead actor", text: `Stars ${lead}` });
   if (director) raw.push({ label: "Director", text: `Directed by ${director}` });
 
-  const thr = GAME_HINT_THRESHOLDS[game] || GAME_HINT_THRESHOLDS.spottle;
-  const last = thr.length - 1;
-  return raw.map((h, i) => ({
-    ...h,
-    after: (i <= last) ? thr[i] : thr[last] + (i - last),
-  }));
+  // Spread however many tiers we actually built evenly across THIS game's guesses.
+  const thr = gameHintThresholds(game, raw.length);
+  return raw.map((h, i) => ({ ...h, after: thr[i] }));
 }
 
 // Shape the hint tiers for a client response: reveal a tier's TEXT only once the
@@ -2068,7 +2074,6 @@ Deno.serve(async (req) => {
             guesses: Array.isArray(res?.guesses) ? res.guesses : [],
             score: res?.score || 0,
             answer: done ? gameAnswerLite(p.answer) : null,
-            hint_after: GAME_SPOTTLE_HINT_AFTER,
             hints: p.answer ? gameHintsForResponse(p.answer, "spottle", attempts) : [],
             streak: streakFor("spottle"),
           };
@@ -2082,7 +2087,6 @@ Deno.serve(async (req) => {
             guesses: Array.isArray(res?.guesses) ? res.guesses : [],
             score: res?.score || 0,
             answer: done ? gameAnswerLite(p.answer) : null,
-            hint_after: GAME_POSTER_HINT_AFTER,
             hints: p.answer ? gameHintsForResponse(p.answer, "poster", attempts) : [],
             streak: streakFor("poster"),
           };
@@ -2095,7 +2099,6 @@ Deno.serve(async (req) => {
             guesses: Array.isArray(res?.guesses) ? res.guesses : [],
             score: res?.score || 0,
             answer: done ? gameAnswerLite(p.answer) : null,
-            hint_after: GAME_CAST_HINT_AFTER,
             hints: p.answer ? gameHintsForResponse(p.answer, "cast", attempts) : [],
             streak: streakFor("cast"),
           };
@@ -2252,7 +2255,6 @@ Deno.serve(async (req) => {
         blur: game === "poster" ? gamePosterBlur(attempts, max, done) : undefined,
         cast_revealed: game === "cast" ? gameCastReveal(answer, attempts, done) : undefined,
         answer: done ? gameAnswerLite(answer) : undefined,
-        hint_after: GAME_HINT_AFTER[game],
         hints: gameHintsForResponse(answer, game, attempts),
       }, 200);
     }

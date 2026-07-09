@@ -1913,23 +1913,36 @@
         async function loadMyFollowingIds() {
             feedFollowingIds = new Set();
             if (!supabaseClient) return;
-            let authedUser = null;
+            // Resolve the user id from the LOCAL session FIRST. auth.getUser() does a
+            // server round-trip that comes back EMPTY on a cold boot (session still
+            // restoring), which used to leave feedFollowingIds empty → the feed showed
+            // "Follow someone…" until a manual pull-to-refresh even though you DO follow
+            // people. Mirror the same session-first resolution loadFeedItems() uses.
+            let authedUserId = '';
             if (guestMode) {
-                authedUser = cachedAuthUser;
+                authedUserId = String(cachedAuthUser?.id || (typeof DEMO_USER_ID !== 'undefined' ? DEMO_USER_ID : '') || '').trim();
             } else {
                 try {
-                    const { data } = await supabaseClient.auth.getUser();
-                    authedUser = data?.user || null;
-                } catch (_) {
-                    authedUser = null;
+                    const { data: sdata } = await supabaseClient.auth.getSession();
+                    authedUserId = String(sdata?.session?.user?.id || '').trim();
+                } catch (_) {}
+                if (!authedUserId) {
+                    try {
+                        const { data: udata } = await supabaseClient.auth.getUser();
+                        authedUserId = String(udata?.user?.id || '').trim();
+                    } catch (_) {}
                 }
+                if (!authedUserId && typeof getActiveUserId === 'function') {
+                    authedUserId = String(getActiveUserId() || '').trim();
+                }
+                if (!authedUserId) authedUserId = String(cachedAuthUser?.id || '').trim();
             }
-            if (!authedUser?.id) return;
+            if (!authedUserId) return;
 
             const { data, error } = await supabaseClient
                 .from('Follows')
                 .select('followed_id')
-                .eq('follower_id', authedUser.id);
+                .eq('follower_id', authedUserId);
             if (error) throw error;
             const rows = Array.isArray(data) ? data : [];
             for (const r of rows) {

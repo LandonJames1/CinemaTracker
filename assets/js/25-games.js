@@ -1033,20 +1033,23 @@
             }).join('');
 
             const topbar = d.done ? '' : `${guessTopbarHtml('cast', d)}${gameHintsHtml('cast', d)}`;
-            const footer = d.done
-                ? `${gameResultBanner('cast', d)}${gameSeeResultsBtnHtml('cast')}`
-                : gameGuessInputHtml('cast', left);
+            // When done, the answer reveal (banner + "See results") takes the search bar's
+            // spot at the TOP of the column; when still playing, the guess box lives there
+            // (floated to the top on mobile via .cast-play > .games-guess { order:-1 }).
+            const doneReveal = d.done ? `${gameResultBanner('cast', d)}${gameSeeResultsBtnHtml('cast')}` : '';
+            const guessBox = d.done ? '' : gameGuessInputHtml('cast', left);
             play.innerHTML = `
                 ${gamePlayHeadHtml('cast')}
                 ${topbar}
                 <div class="cast-play">
+                    ${doneReveal}
                     <div class="poster-progress">
                         <div class="poster-pips">${pips}</div>
                         ${d.done ? '' : `<div class="poster-left-label">${left} ${left === 1 ? 'guess' : 'guesses'} left</div>`}
                     </div>
                     <div class="cast-reveal-head">${d.done ? 'The cast' : 'Who stars in this film?'}</div>
                     <div class="cast-grid">${faces}</div>
-                    ${footer}
+                    ${guessBox}
                     ${rows ? `<div class="poster-guesses">${rows}</div>` : ''}
                 </div>`;
         }
@@ -1424,7 +1427,6 @@
                 if (res.answer) d.answer = res.answer;
                 if (game === 'poster' && res.blur != null) d.blur = res.blur;
                 if (game === 'cast' && Array.isArray(res.cast_revealed)) d.cast_revealed = res.cast_revealed;
-                if (res.hint_after != null) d.hint_after = res.hint_after;
                 if (Array.isArray(res.hints)) d.hints = res.hints;
                 gameGiveUpArmed[game] = false;   // a new guess disarms Give Up
                 if (gameGiveUpTimer) { clearTimeout(gameGiveUpTimer); gameGiveUpTimer = null; }
