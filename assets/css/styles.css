@@ -8373,6 +8373,7 @@
         .games-card--spottle { --g: #f59e0b; --g2: #f97316; }   /* cinematic amber→orange */
         .games-card--rank    { --g: #8b5cf6; --g2: #6366f1; }   /* violet→indigo */
         .games-card--poster  { --g: #ec4899; --g2: #f43f5e; }   /* pink→rose */
+        .games-card--cast    { --g: #14b8a6; --g2: #10b981; }   /* teal→emerald */
         .games-card {
             position: relative; overflow: hidden;
             display: flex; flex-direction: column; align-items: flex-start; gap: 14px;
@@ -8630,6 +8631,35 @@
         .poster-guess-tag { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
         .poster-guess-row.is-wrong .poster-guess-tag { color: #fca5a5; }
         .poster-guess-row.is-correct .poster-guess-tag { color: #86efac; }
+
+        /* ============================================================
+           Starring (cast reveal) — headshots reveal one per wrong guess
+           ============================================================ */
+        .cast-play { display: flex; flex-direction: column; align-items: center; max-width: 680px; margin: 0 auto; }
+        .cast-play > .games-guess { width: 100%; }
+        .cast-reveal-head {
+            font-size: 0.82rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
+            color: rgba(255,255,255,0.6); margin: 2px 0 14px;
+        }
+        .cast-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 14px;
+            width: 100%; max-width: 560px; margin: 0 0 18px; justify-content: center;
+        }
+        .cast-face { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+        .cast-face.is-new { animation: castFaceIn 0.5s cubic-bezier(0.22,1,0.36,1); }
+        @keyframes castFaceIn { 0% { opacity: 0; transform: translateY(-10px) scale(0.9); } 100% { opacity: 1; transform: none; } }
+        .cast-face-photo {
+            width: 100%; aspect-ratio: 2/3; border-radius: 14px; overflow: hidden; background: #16161a;
+            border: 1px solid rgba(255,255,255,0.09); box-shadow: 0 14px 30px rgba(0,0,0,0.45);
+        }
+        .cast-face.is-new .cast-face-photo { border-color: #2dd4bf; box-shadow: 0 0 0 2px #2dd4bf, 0 14px 30px rgba(0,0,0,0.45); }
+        .cast-face-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .cast-face-missing { display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.28); }
+        .cast-face-missing svg { width: 46%; height: 46%; }
+        .cast-face-name {
+            font-size: 0.82rem; font-weight: 600; color: #fff; text-align: center; line-height: 1.25;
+            max-width: 100%; word-break: break-word;
+        }
 
         /* ============================================================
            Rank It — polished cards, gradient rank badges, real button

@@ -40,8 +40,10 @@
                        desc: 'Put 6 movies in order by their IMDb rating.' },
             poster:  { title: 'Poster Blur', tag: 'Name the poster', icon: 'film',
                        desc: 'A blurred poster sharpens with every wrong guess.' },
+            cast:    { title: 'Starring', tag: 'Guess by cast', icon: 'users',
+                       desc: 'Name the film from its cast — a new face each guess.' },
         };
-        const GAME_ORDER = ['spottle', 'rank', 'poster'];
+        const GAME_ORDER = ['spottle', 'rank', 'poster', 'cast'];
 
         // Crisp per-game icons for the hub tiles + results hero (nicer than the
         // generic shared `icons` map). White strokes on each game's gradient badge.
@@ -52,6 +54,8 @@
             rank: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 21V9"/><path d="M12 21V4"/><path d="M18 21v-8"/></svg>',
             // Framed image (name the poster).
             poster: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><circle cx="9" cy="9" r="1.6"/><path d="m20.5 15-4.5-4.5L4.5 21"/></svg>',
+            // Ensemble of people (guess by cast).
+            cast: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
         };
         function gameIconHtml(game) {
             return GAME_ICON_SVG[game]
@@ -90,7 +94,7 @@
         // ('results') or the playable board so the user can review their guesses
         // ('board'). Reset per open; a fresh finish flashes 'board' (answer reveal)
         // then auto-flips to 'results'.
-        const gamesFinishedView = { spottle: 'results', rank: 'results', poster: 'results' };
+        const gamesFinishedView = { spottle: 'results', rank: 'results', poster: 'results', cast: 'results' };
         let gamesResultTimer = null;
 
         // ---- API helpers ---------------------------------------------------------
@@ -204,8 +208,8 @@
             play.hidden = false;
             setGamesMobileHeader((GAME_META[game] || {}).title || 'Games');
             // Reset the shared hint/give-up state for a fresh play surface.
-            gameHintShown.spottle = 0; gameHintShown.poster = 0;
-            gameGiveUpArmed.spottle = false; gameGiveUpArmed.poster = false; gameGiveUpArmed.rank = false;
+            gameHintShown.spottle = 0; gameHintShown.poster = 0; gameHintShown.cast = 0;
+            gameGiveUpArmed.spottle = false; gameGiveUpArmed.poster = false; gameGiveUpArmed.rank = false; gameGiveUpArmed.cast = false;
             if (gameGiveUpTimer) { clearTimeout(gameGiveUpTimer); gameGiveUpTimer = null; }
             // Opening a game (incl. an already-finished one from the hub) lands on the
             // results page; a fresh finish overrides this to flash the board first.
@@ -214,6 +218,7 @@
             if (game === 'spottle') renderSpottle();
             else if (game === 'rank') { rankHintUsed = false; rankHintId = null; rankOrderIds = []; renderRank(); }
             else if (game === 'poster') { posterPrevBlur = null; renderPoster(); }
+            else if (game === 'cast') renderCast();
             try { window.scrollTo({ top: 0, behavior: 'auto' }); } catch (_) {}
         }
 
@@ -275,7 +280,7 @@
         let _gamesCompareToken = 0;
         // Full day-leaderboard rows per game, cached so the "See full leaderboard"
         // modal can reuse them without a refetch.
-        const gamesDayRows = { spottle: [], rank: [], poster: [] };
+        const gamesDayRows = { spottle: [], rank: [], poster: [], cast: [] };
 
         function gamesSeeFullBtnHtml(game) {
             return `<button class="games-seefull-btn" type="button" data-game-fulllb="${game}">See full leaderboard ›</button>`;
@@ -515,6 +520,7 @@
         function rerenderGame(game) {
             if (game === 'spottle') renderSpottle();
             else if (game === 'poster') renderPoster();
+            else if (game === 'cast') renderCast();
             else if (game === 'rank') renderRank();
         }
 
@@ -677,8 +683,8 @@
         // reveals the #1 film. Give Up is a two-tap confirm on all three.
         // How many progressive hint tiers the player has chosen to reveal, per game.
         // (Hints unlock by guess count server-side; this counts the ones they've opened.)
-        const gameHintShown = { spottle: 0, poster: 0 };
-        const gameGiveUpArmed = { spottle: false, poster: false, rank: false };  // two-tap arm
+        const gameHintShown = { spottle: 0, poster: 0, cast: 0 };
+        const gameGiveUpArmed = { spottle: false, poster: false, rank: false, cast: false };  // two-tap arm
         let gameGiveUpTimer = null;
         let rankHintUsed = false;            // rank: was the #1 hint revealed this play?
         let rankHintId = null;               // rank: tmdb_id of the hinted #1 film
@@ -815,7 +821,7 @@
         // Top control bar for a guess game (spottle + poster):
         // Hint (lock) · Guess N of M · Give Up (flag). Shared markup + CSS.
         function guessTopbarHtml(game, d) {
-            const max = d.max_guesses || (game === 'spottle' ? 10 : 6);
+            const max = d.max_guesses || (game === 'spottle' ? 10 : 6);   // poster + cast = 6
             const attempts = d.attempts || 0;
             const cur = Math.min(max, attempts + 1);
             const armed = !!gameGiveUpArmed[game];
@@ -831,6 +837,7 @@
         function rerenderGuessGame(game) {
             if (game === 'spottle') renderSpottle();
             else if (game === 'poster') renderPoster();
+            else if (game === 'cast') renderCast();
         }
 
         function renderSpottle() {
@@ -890,6 +897,7 @@
                 if (Array.isArray(res.guesses)) d.guesses = res.guesses;
                 if (res.answer) d.answer = res.answer;
                 if (game === 'poster' && res.blur != null) d.blur = res.blur;
+                if (game === 'cast' && Array.isArray(res.cast_revealed)) d.cast_revealed = res.cast_revealed;
                 gamesFinishedView[game] = 'board';   // flash the revealed answer first
                 rerenderGuessGame(game);
                 scheduleResultsTransition(game, 1700);
@@ -966,6 +974,81 @@
                     if (img) img.style.filter = `blur(${targetBlur}px)`;
                 });
             }
+        }
+
+        // ---- Cast ("Starring") ---------------------------------------------------
+        // Guess the daily film from its cast. The server reveals headshots
+        // progressively (least-billed first, lead actor last), one more per wrong
+        // guess; only the revealed slice is client-readable (full cast once done).
+        const CAST_SILHOUETTE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+
+        function castFaceHtml(c, isNew) {
+            const url = gamesPosterUrl(c && c.profile_path, 'w185');
+            const name = escapeHtml((c && c.name) || '');
+            const img = url
+                ? `<img class="cast-face-img" src="${url}" alt="" draggable="false">`
+                : `<div class="cast-face-img cast-face-missing">${CAST_SILHOUETTE}</div>`;
+            return `
+                <div class="cast-face ${isNew ? 'is-new' : ''}">
+                    <div class="cast-face-photo">${img}</div>
+                    <div class="cast-face-name">${name}</div>
+                </div>`;
+        }
+
+        function renderCast() {
+            const play = document.getElementById('games-play');
+            const d = gamesTodayData?.games?.cast;
+            if (!play) return;
+            if (!d) { play.innerHTML = gamePlayHeadHtml('cast') + '<div class="games-error">No puzzle available today.</div>'; return; }
+            if (d.done && gamesFinishedView.cast === 'results') { renderGameResults('cast'); return; }
+            const max = d.max_guesses || 6;
+            const attempts = d.attempts || 0;
+            const left = Math.max(0, max - attempts);
+            const guesses = Array.isArray(d.guesses) ? d.guesses : [];
+            const revealed = Array.isArray(d.cast_revealed) ? d.cast_revealed : [];
+
+            // One pip per guess slot — filled red as guesses are spent (green if solved).
+            const pips = Array.from({ length: max }, (_, i) => {
+                const g = guesses[i];
+                const cls = g ? (g.correct ? 'is-correct' : 'is-used') : (i < attempts ? 'is-used' : '');
+                return `<span class="poster-pip ${cls}"></span>`;
+            }).join('');
+
+            // The server prepends each newly-revealed face at index 0, so it glows in
+            // on a fresh guess. Once done the whole cast shows (no glow).
+            const faces = revealed.length
+                ? revealed.map((c, i) => castFaceHtml(c, !d.done && attempts > 0 && i === 0)).join('')
+                : '<div class="games-empty">No cast available for this film.</div>';
+
+            // Wrong/right guess feed, newest on top; the newest animates in (+ shakes if wrong).
+            const rows = guesses.slice().reverse().map((g, ri) => {
+                const correct = !!g.correct;
+                const isNew = ri === 0;
+                return `
+                    <div class="poster-guess-row ${correct ? 'is-correct' : 'is-wrong'} ${isNew ? 'is-new' : ''}">
+                        <span class="poster-guess-mark">${correct ? '✓' : '✕'}</span>
+                        <span class="poster-guess-name">${escapeHtml(g.title || '')}</span>
+                        <span class="poster-guess-tag">${correct ? 'Correct' : 'Not it'}</span>
+                    </div>`;
+            }).join('');
+
+            const topbar = d.done ? '' : `${guessTopbarHtml('cast', d)}${gameHintsHtml('cast', d)}`;
+            const footer = d.done
+                ? `${gameResultBanner('cast', d)}${gameSeeResultsBtnHtml('cast')}`
+                : gameGuessInputHtml('cast', left);
+            play.innerHTML = `
+                ${gamePlayHeadHtml('cast')}
+                ${topbar}
+                <div class="cast-play">
+                    <div class="poster-progress">
+                        <div class="poster-pips">${pips}</div>
+                        ${d.done ? '' : `<div class="poster-left-label">${left} ${left === 1 ? 'guess' : 'guesses'} left</div>`}
+                    </div>
+                    <div class="cast-reveal-head">${d.done ? 'The cast' : 'Who stars in this film?'}</div>
+                    <div class="cast-grid">${faces}</div>
+                    ${footer}
+                    ${rows ? `<div class="poster-guesses">${rows}</div>` : ''}
+                </div>`;
         }
 
         // ---- Rank ----------------------------------------------------------------
@@ -1319,7 +1402,7 @@
 
         async function submitGuess(tmdbId) {
             const game = gamesActiveGame;
-            if (game !== 'spottle' && game !== 'poster') return;
+            if (game !== 'spottle' && game !== 'poster' && game !== 'cast') return;
             const box = document.getElementById('game-guess-results');
             const inp = document.getElementById('game-guess-input');
             if (box) box.innerHTML = '';
@@ -1340,6 +1423,7 @@
                 if (d.done && !wasDone) gamesBankLocalPoints(res.score);
                 if (res.answer) d.answer = res.answer;
                 if (game === 'poster' && res.blur != null) d.blur = res.blur;
+                if (game === 'cast' && Array.isArray(res.cast_revealed)) d.cast_revealed = res.cast_revealed;
                 if (res.hint_after != null) d.hint_after = res.hint_after;
                 if (Array.isArray(res.hints)) d.hints = res.hints;
                 gameGiveUpArmed[game] = false;   // a new guess disarms Give Up
