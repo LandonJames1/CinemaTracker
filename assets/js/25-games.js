@@ -1368,6 +1368,10 @@
             if (nudgeInp) { paintGameNudgeList(nudgeInp.value || ''); return; }
             const inp = e.target && e.target.closest ? e.target.closest('#game-guess-input') : null;
             if (!inp) return;
+            initSearchClearButton('game-guess-input', () => {
+                const b = document.getElementById('game-guess-results');
+                if (b) b.innerHTML = '';
+            });
             const q = inp.value.trim();
             if (gameSearchTimer) clearTimeout(gameSearchTimer);
             const box = document.getElementById('game-guess-results');
@@ -1383,7 +1387,7 @@
             box.innerHTML = '<div class="games-guess-empty">Searching…</div>';
             let results = [];
             try {
-                const data = await callSwiftApiPublic({ action: 'search', query: q, page: 1, limit: 8 });
+                const data = await callSwiftApiPublic({ action: 'search', query: q, page: 1, limit: 25 });
                 results = Array.isArray(data?.results) ? data.results : [];
             } catch (_) { results = []; }
             if (token !== _gameSearchToken) return;   // superseded by a newer keystroke
@@ -1393,12 +1397,15 @@
             // The POSTER game must NOT show poster thumbnails in the guess list — that
             // would reveal the poster you're trying to name — so hide them there.
             const showPoster = gamesActiveGame !== 'poster';
-            box.innerHTML = results.slice(0, 8).map((m) => {
+            // Filmle (spottle) hides the release year in the guess list — the year is one
+            // of the clues you're meant to deduce.
+            const showYear = gamesActiveGame !== 'spottle';
+            box.innerHTML = results.slice(0, 25).map((m) => {
                 const year = m.year || m.release_year || '';
                 return `
                 <button class="games-guess-item ${showPoster ? '' : 'no-poster'}" type="button" data-game-guess-pick data-tmdb-id="${m.tmdb_id}">
                     ${showPoster ? `<img src="${gamesPosterUrl(m.poster_path, 'w92')}" alt="">` : ''}
-                    <span>${escapeHtml(m.title || '')}${year ? ` <span class="games-dim">(${year})</span>` : ''}</span>
+                    <span>${escapeHtml(m.title || '')}${(showYear && year) ? ` <span class="games-dim">(${year})</span>` : ''}</span>
                 </button>`;
             }).join('');
         }

@@ -3972,7 +3972,7 @@ Deno.serve(async (req) => {
       const mpaFilter = mpaFilterRaw ? mpaFilterRaw.toUpperCase() : "";
 
       const limitRaw = body?.limit === null || body?.limit === undefined ? 8 : Number(body.limit);
-      const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(12, Math.floor(limitRaw))) : 8;
+      const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(25, Math.floor(limitRaw))) : 8;
 
       // Do not search until the user types at least 2 characters (2-char titles like
       // "Up"/"Us" must be searchable; this is the universal backstop every client
@@ -3981,31 +3981,52 @@ Deno.serve(async (req) => {
         return jsonResponse({ results: [], page, total_pages: 0 }, 200);
       }
 
-      const url = new URL("https://api.themoviedb.org/3/search/movie");
-      url.searchParams.set("query", query);
-      url.searchParams.set("include_adult", "false");
-      url.searchParams.set("language", "en-US");
-      url.searchParams.set("page", String(page));
-      if (year) url.searchParams.set("primary_release_year", String(year));
+      // Each TMDb page returns up to ~20; pull up to 3 pages when a big list is asked
+      // for (limit > 12) so ~25 title matches survive scoring.
+      const maxPages = limit > 12 ? 3 : 1;
+      let tmdbJson = null;
+      const rawResults = [];
+      for (let p = page; p < page + maxPages; p++) {
+        const url = new URL("https://api.themoviedb.org/3/search/movie");
+        url.searchParams.set("query", query);
+        url.searchParams.set("include_adult", "false");
+        url.searchParams.set("language", "en-US");
+        url.searchParams.set("page", String(p));
+        if (year) url.searchParams.set("primary_release_year", String(year));
 
-      const tmdbRes = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` },
-      });
-
-      if (!tmdbRes.ok) {
-        const details = await tmdbRes.text().catch(() => "");
-        return jsonResponse(
-          {
-            code: 502,
-            message: "TMDb search failed.",
-            details: `HTTP ${tmdbRes.status}${details ? `: ${details}` : ""}`,
-          },
-          502,
-        );
+        const tmdbRes = await fetch(url.toString(), {
+          headers: { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` },
+        });
+        if (!tmdbRes.ok) {
+          if (p === page) {
+            const details = await tmdbRes.text().catch(() => "");
+            return jsonResponse(
+              {
+                code: 502,
+                message: "TMDb search failed.",
+                details: `HTTP ${tmdbRes.status}${details ? `: ${details}` : ""}`,
+              },
+              502,
+            );
+          }
+          break; // a later page failed — use what we have
+        }
+        const pageJson = await tmdbRes.json();
+        if (!tmdbJson) tmdbJson = pageJson;
+        rawResults.push(...(Array.isArray(pageJson?.results) ? pageJson.results : []));
+        const totalPages = Number(pageJson?.total_pages ?? 0) || 0;
+        if (totalPages && p >= totalPages) break;
+        if (rawResults.length >= limit * 2) break;
       }
 
-      const tmdbJson = await tmdbRes.json();
-      const results = Array.isArray(tmdbJson?.results) ? tmdbJson.results : [];
+      // De-dupe by id across pages.
+      const seenSearchIds = new Set();
+      const results = rawResults.filter((r) => {
+        const id = Number(r?.id);
+        if (!Number.isFinite(id) || seenSearchIds.has(id)) return false;
+        seenSearchIds.add(id);
+        return true;
+      });
 
       const cleaned = results
         .map((r, idx) => ({ r, idx }))
@@ -4068,9 +4089,46 @@ Deno.serve(async (req) => {
           };
         });
 
+      // Also search TMDb COLLECTIONS for this query. If a collection matches, append the
+      // movies inside it to the results (deduped) — so a franchise search ("Indiana
+      // Jones") includes films whose title doesn't contain the query ("Raiders of the
+      // Lost Ark"). Intentionally added ON TOP of the title results (the list can grow
+      // past `limit`). Best-effort: any failure just leaves the title results as-is.
+      let finalResults = mapped;
+      try {
+        const cj = await tmdbGetJson("search/collection", { query }, TMDB_READ_ACCESS_TOKEN);
+        const nq = normalizeTitleForMatch(query);
+        const col = (Array.isArray(cj?.results) ? cj.results : []).find((c) => {
+          const nn = normalizeTitleForMatch(c?.name);
+          return c?.id && nn && (nn.includes(nq) || nq.includes(nn));
+        });
+        if (col?.id) {
+          const detail = await tmdbGetJson(`collection/${col.id}`, {}, TMDB_READ_ACCESS_TOKEN);
+          const seen = new Set(mapped.map((m) => Number(m.tmdb_id)));
+          const extra = (Array.isArray(detail?.parts) ? detail.parts : [])
+            .filter((r) => Number.isFinite(Number(r?.id)) && String(r?.title ?? "").trim() && !seen.has(Number(r.id)))
+            .map((r) => {
+              const y = r?.release_date ? Number(String(r.release_date).slice(0, 4)) : null;
+              const ids = Array.isArray(r?.genre_ids) ? r.genre_ids : [];
+              const genres = uniqStrings(ids.map((id) => TMDB_MOVIE_GENRES[Number(id)]).filter(Boolean));
+              return {
+                id: Number(r.id),
+                tmdb_id: Number(r.id),
+                title: String(r.title).trim(),
+                year: Number.isFinite(y) ? y : null,
+                genres,
+                genre: genres.length ? genres.join(", ") : "Movie",
+                poster_path: r?.poster_path ? String(r.poster_path) : null,
+              };
+            })
+            .sort((a, b) => (Number(a.year) || 0) - (Number(b.year) || 0)); // franchise in release order
+          finalResults = [...mapped, ...extra];
+        }
+      } catch (_) { /* best-effort: keep the title results */ }
+
       return jsonResponse(
         {
-          results: mapped,
+          results: finalResults,
           page: Number(tmdbJson?.page ?? page) || page,
           total_pages: Number(tmdbJson?.total_pages ?? 0) || 0,
         },

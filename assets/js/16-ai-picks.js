@@ -404,7 +404,7 @@
             const results = document.getElementById('ai-similar-results');
             if (!results) return;
 
-            aiSimilarSearchItems = Array.isArray(items) ? items.slice(0, 6) : [];
+            aiSimilarSearchItems = Array.isArray(items) ? items.slice(0, 50) : [];
             if (aiSimilarSearchItems.length === 0) {
                 results.innerHTML = `<div class="search-item text-gray justify-center">No movies found</div>`;
                 results.classList.remove('hidden');
@@ -521,7 +521,7 @@
             const debounceMs = opts?.force ? 0 : 320;
             aiSimilarDebounceTimer = setTimeout(async () => {
                 try {
-                    const data = await callSwiftApiPublic({ action: 'search', query: q, page: 1, limit: 6 }, { signal: aiSimilarAbortController.signal });
+                    const data = await callSwiftApiPublic({ action: 'search', query: q, page: 1, limit: 25 }, { signal: aiSimilarAbortController.signal });
                     const items = Array.isArray(data?.results) ? data.results : [];
                     renderAiSimilarResults(items);
                 } catch (err) {

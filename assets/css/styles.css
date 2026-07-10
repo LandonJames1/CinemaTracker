@@ -1594,6 +1594,36 @@
         .search-item:hover { background-color: var(--brand-light); }
         .search-item:last-child { border-bottom: none; }
 
+        /* Shared inline "×" clear button for the movie-search bars (08 initSearchClearButton). */
+        .search-clear-btn {
+            position: absolute;
+            top: 50%;
+            right: 0.7rem;
+            transform: translateY(-50%);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            padding: 0;
+            border: none;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.1);
+            color: var(--text-muted, #b2c4dc);
+            font-size: 17px;
+            line-height: 1;
+            cursor: pointer;
+            z-index: 3;
+            transition: background 0.15s, color 0.15s;
+        }
+        .search-clear-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
+        /* Keep typed text clear of the button (Home/Lists left-icon inputs). */
+        .has-search-clear > .input-field { padding-right: 2.6rem; }
+        /* Games guess box keeps its search icon on the RIGHT — hide it while typing so
+           the × can take that spot instead of colliding. */
+        .games-guess .search-clear-btn { right: 12px; }
+        .games-guess.has-search-clear .games-guess-input:not(:placeholder-shown) ~ .games-guess-ico { display: none; }
+
         /* Range Sliders */
         .slider-container {
             display: flex;
@@ -8459,8 +8489,8 @@
                the fixed bottom bar up over the page — matching the Home search dropdowns
                (z-index 1200) keeps it rendering on top of that bar instead of under it. */
             position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 1200;
-            background: #202024; border-radius: 12px; overflow: hidden;
-            box-shadow: 0 18px 40px rgba(0,0,0,0.5);
+            background: #202024; border-radius: 12px; overflow-y: auto; overflow-x: hidden;
+            max-height: 360px; box-shadow: 0 18px 40px rgba(0,0,0,0.5);
         }
         .games-guess-results:empty { display: none; }
         .games-guess-item {

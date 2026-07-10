@@ -2,7 +2,7 @@
             try {
                 const year = homeSearchAppliedYear;
                 const mpa = homeSearchAppliedMpa;
-                return await callSwiftApiPublic({ action: 'search', query, page, year, mpa, limit: 8 }, { signal });
+                return await callSwiftApiPublic({ action: 'search', query, page, year, mpa, limit: 25 }, { signal });
             } catch (err) {
                 throw new Error(`Search failed: ${String(err?.message || err)}`);
             }
@@ -13,10 +13,38 @@
                 // Uses the add-movie modal's own Year/MPA filter state (mirrors Home search).
                 const year = (typeof listsAddAppliedYear !== 'undefined') ? listsAddAppliedYear : '';
                 const mpa = (typeof listsAddAppliedMpa !== 'undefined') ? listsAddAppliedMpa : '';
-                return await callSwiftApiPublic({ action: 'search', query, page, year, mpa, limit: 8 }, { signal });
+                return await callSwiftApiPublic({ action: 'search', query, page, year, mpa, limit: 25 }, { signal });
             } catch (err) {
                 throw new Error(`Search failed: ${String(err?.message || err)}`);
             }
+        }
+
+        // Shared inline "×" clear button for the movie-search bars (Home, Lists, Games).
+        // Shows only while the input has text; clicking empties it, runs the bar's own
+        // clear/hide callback, and refocuses. Idempotent per input.
+        function initSearchClearButton(inputId, onClear) {
+            const input = document.getElementById(inputId);
+            if (!input || input.dataset.clearBtnBound === '1') return;
+            const parent = input.parentElement;
+            if (!parent) return;
+            input.dataset.clearBtnBound = '1';
+            try { if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative'; } catch (_) {}
+            parent.classList.add('has-search-clear');
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'search-clear-btn';
+            btn.setAttribute('aria-label', 'Clear search');
+            btn.innerHTML = '&times;';
+            btn.style.display = input.value ? '' : 'none';
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                input.value = '';
+                btn.style.display = 'none';
+                try { if (typeof onClear === 'function') onClear(); } catch (_) {}
+                try { input.focus(); } catch (_) {}
+            });
+            input.addEventListener('input', () => { btn.style.display = input.value ? '' : 'none'; });
+            parent.appendChild(btn);
         }
 
         async function callSwiftApiGetMovieDetails({ tmdb_id, signal }) {
@@ -120,8 +148,10 @@
             const results = document.getElementById('search-results');
             if (!results) return;
 
-            // Keep the dropdown lightweight.
-            homeSearchItems = Array.isArray(items) ? items.slice(0, 4) : [];
+            // Show all results, including any franchise-collection movies the server
+            // appended (the dropdown scrolls). Capped generously so a huge collection
+            // can't blow it up.
+            homeSearchItems = Array.isArray(items) ? items.slice(0, 50) : [];
 
             if (homeSearchItems.length === 0) {
                 results.innerHTML = `<div class="search-item text-gray justify-center">No movies found</div>`;
@@ -337,7 +367,7 @@
             const results = document.getElementById('lists-movie-search-results');
             if (!results) return;
 
-            listsSearchItems = Array.isArray(items) ? items.slice(0, 6) : [];
+            listsSearchItems = Array.isArray(items) ? items.slice(0, 50) : [];
             if (listsSearchItems.length === 0) {
                 results.innerHTML = `<div class="search-item text-gray justify-center">No movies found</div>`;
                 results.classList.remove('hidden');
@@ -397,6 +427,8 @@
             const results = document.getElementById('lists-movie-search-results');
             // If the Lists page isn't mounted, do nothing.
             if (!inputEl || !results) return;
+
+            initSearchClearButton('lists-movie-search-input', clearListsSearchUI);
 
             if (inputEl.disabled) return;
 

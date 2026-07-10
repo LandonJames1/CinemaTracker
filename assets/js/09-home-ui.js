@@ -203,6 +203,7 @@
 
         function handleSearch(query, opts = {}) {
             const results = document.getElementById('search-results');
+            initSearchClearButton('movie-search-input', clearHomeSearchUI);
 
             const q = String(query || '').trim();
             if (!results || !q || q.length < 1) {
