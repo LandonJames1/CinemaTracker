@@ -1,6 +1,6 @@
 name: Seed daily games
 
-# Daily cron that seeds today's three game puzzles (spottle / rank / poster) into
+# Daily cron that seeds today's game puzzles (spottle / rank / poster / cast) into
 # "Game Daily" so every user gets the same puzzle. Idempotent — re-running won't
 # reseed a game already seeded for the day. The puzzle "day" boundary is decided
 # server-side in America/Los_Angeles (Pacific), so the day rolls over at 12:00 AM PT.
@@ -11,24 +11,49 @@ name: Seed daily games
 # no-ops (idempotent). The server computes the date at run time, so it always seeds
 # the correct Pacific day regardless of which entry fires.
 #
-# Also has workflow_dispatch so you can seed today's puzzles on demand for testing.
-# Reuses the same repo secrets as the IMDb refresh cron.
+# Also has workflow_dispatch so you can (re)seed today's puzzles ON DEMAND from the
+# GitHub UI (Actions → Seed daily games → Run workflow) — pick which game(s) and
+# whether to overwrite one already seeded today. Reuses the same repo secrets as the
+# IMDb refresh cron (no terminal / secret-hunting needed).
 
 on:
   schedule:
     - cron: '10 7 * * *'   # 07:10 UTC = 00:10 PT during PDT (summer)
     - cron: '10 8 * * *'   # 08:10 UTC = 00:10 PT during PST (winter)
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      games:
+        description: 'Which game(s) to seed — comma-separated, blank = all. e.g. "rank"'
+        required: false
+        default: 'rank'
+      force:
+        description: 'Overwrite the game(s) even if already seeded today?'
+        type: boolean
+        required: false
+        default: true
 
 jobs:
   seed:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger seed_daily_games
+        env:
+          # Empty for scheduled runs → seeds ALL games, no force (the normal daily job).
+          # Set from the Run-workflow form for manual runs.
+          GAMES: ${{ github.event.inputs.games }}
+          FORCE: ${{ github.event.inputs.force }}
         run: |
+          BODY=$(jq -cn --arg games "$GAMES" --arg force "$FORCE" '
+            {action:"seed_daily_games"}
+            + (if ($games|length) > 0
+               then {games: ($games | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length>0)))}
+               else {} end)
+            + (if $force == "true" then {force:true} else {} end)
+          ')
+          echo "Request body: $BODY"
           curl -sS -X POST "${{ secrets.SUPABASE_FUNCTION_URL }}" \
             -H "Content-Type: application/json" \
             -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-            -d '{"action":"seed_daily_games"}' \
+            -d "$BODY" \
             --fail-with-body

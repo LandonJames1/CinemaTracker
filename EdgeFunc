@@ -890,12 +890,9 @@ const GAME_MAX_GUESSES = { spottle: 10, poster: 6, cast: 6 };
 const GAME_CAST_MIN = 4;
 const GAME_POSTER_MAX_BLUR = 36; // px at zero guesses; steps to 0 exactly on the 6th guess
 const GAME_RANK_COUNT = 6;
-// RANK uses this FIXED set of 6 well-known films EVERY day (never rotates) so the
-// game doesn't burn through the pool. Curated for distinct IMDb ratings; must exist
-// in "Game Pool" (built by build_game_pool). Falls back to a deterministic pool
-// pick if any aren't present. tmdb: Shawshank / Godfather / Dark Knight / Inception /
-// The Matrix / Gladiator.
-const RANK_FIXED_TMDB_IDS = [278, 238, 155, 27205, 603, 98];
+// Rank reuses films over time (6/day burns the pool fast), but NO two daily rank
+// sets may share more than this many of their 6 films.
+const GAME_RANK_MAX_SHARED = 4;
 // Every guess-based game (spottle/poster/cast) surfaces the SAME ordered set of
 // increasingly-revealing hint tiers (era/genre → studio/box office → lead actor →
 // director; see spottleHints). Rather than hand-picking unlock points per game, the
@@ -1967,33 +1964,64 @@ Deno.serve(async (req) => {
         }
       }
 
-      // rank: the SAME fixed set of 6 films every day (never rotates) so we don't
-      // burn through the pool. Prefer the curated RANK_FIXED_TMDB_IDS; if any aren't
-      // in the pool, fall back to a DETERMINISTIC pool pick (top-by-votes, spread ≥3,
-      // no shuffle / no recency) so it's still identical day to day. Rank films are
-      // NOT added to usedIds — they're reused forever and never marked as used.
+      // rank: a FRESH set of 6 recognizable films seeded each day (like the other
+      // games). Because 6 films/day burns the pool ~2× faster, rank does NOT honor the
+      // 60-day recency filter — it's allowed to REUSE films eventually. Instead the ONLY
+      // repeat rule is: NO two daily rank sets may share more than 4 of their 6 films
+      // (i.e. every set differs from every prior set by ≥2). Films are drawn from the
+      // full recognizable `Game Pool` (minus today's other puzzles), a ≥2 pt pairwise
+      // IMDb-rating SPREAD is enforced so the correct order is unambiguous, and rank
+      // films are NOT stamped last_used_date (so they don't drain the other games' pool
+      // and stay eligible for future rank days).
       if (!wantsGame("rank")) {
         // not requested — leave today's rank puzzle untouched
       } else if (alreadySeeded.has("rank") && !force) {
         seeded.rank = "exists";
       } else {
-        const byId = new Map(all.map((m) => [Number(m.tmdb_id), m]));
-        let picks = RANK_FIXED_TMDB_IDS
-          .map((id) => byId.get(Number(id)))
-          .filter((m) => m && Number(m.imdb_rating) > 0 && m.poster_path);
-        if (picks.length < GAME_RANK_COUNT) {
-          // Deterministic fallback — `all` is already ordered by imdb_votes desc.
-          picks = [];
-          for (const m of all) {
+        const rankEligible = all.filter((m) =>
+          !usedIds.includes(Number(m.tmdb_id)) &&
+          Number(m.imdb_rating) > 0 && m.poster_path && m.title);
+        // History of every PRIOR rank set (exclude today's own row when re-seeding).
+        const { data: priorRankRows } = await supabaseAdmin
+          .from("Game Daily").select("payload").eq("game", "rank").neq("puzzle_date", date);
+        const priorSets = (priorRankRows || [])
+          .map((r) => new Set((Array.isArray(r?.payload?.movies) ? r.payload.movies : [])
+            .map((m) => Number(m.tmdb_id))))
+          .filter((s) => s.size > 0);
+        // ≤4 shared with EVERY prior set (5+ in common = too similar).
+        const overlapOk = (ids) => {
+          const s = new Set(ids);
+          return priorSets.every((p) => {
+            let common = 0;
+            for (const id of s) if (p.has(id)) common++;
+            return common <= GAME_RANK_MAX_SHARED;
+          });
+        };
+        // Build one candidate 6-set from a fresh shuffle: spread-first, then fill.
+        const buildRankCandidate = () => {
+          const shuffled = shuffle(rankEligible);
+          const picks = [];
+          for (const m of shuffled) {   // Pass 1: enforce a ≥2 pt pairwise spread.
             if (picks.length >= GAME_RANK_COUNT) break;
-            if (!(Array.isArray(m.genres) && m.genres.length && m.director)) continue;
-            if (!(Number(m.imdb_rating) > 0 && m.poster_path)) continue;
-            if (picks.some((p) => Number(p.tmdb_id) === Number(m.tmdb_id))) continue;
-            if (picks.every((p) => Math.abs(Number(p.imdb_rating) - Number(m.imdb_rating)) >= 3)) {
-              picks.push(m);
-            }
+            if (picks.every((p) => Math.abs(Number(p.imdb_rating) - Number(m.imdb_rating)) >= 2)) picks.push(m);
           }
+          for (const m of shuffled) {   // Pass 2: relax spread to fill any gap.
+            if (picks.length >= GAME_RANK_COUNT) break;
+            if (picks.some((p) => Number(p.tmdb_id) === Number(m.tmdb_id))) continue;
+            picks.push(m);
+          }
+          return picks;
+        };
+        // Resample fresh sets until one satisfies the ≤4-shared rule (best-effort fallback).
+        let picks = [];
+        let fallback = null;
+        for (let attempt = 0; attempt < 50; attempt++) {
+          const cand = buildRankCandidate();
+          if (cand.length < GAME_RANK_COUNT) break;   // pool too small — no point retrying
+          if (!fallback) fallback = cand;
+          if (overlapOk(cand.map((m) => Number(m.tmdb_id)))) { picks = cand; break; }
         }
+        if (picks.length < GAME_RANK_COUNT && fallback) picks = fallback;
         if (picks.length < GAME_RANK_COUNT) {
           seeded.rank = "insufficient_pool";
         } else {
