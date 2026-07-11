@@ -1517,6 +1517,9 @@
            MOBILE: the animation is disabled + the 2nd track hidden, and the strip becomes
            a manual horizontal scroller. */
         .foryou-strip { width: 100%; overflow: hidden; }
+        /* Desktop auto-scroll, tuned down from the trending marquee's 60s (slower = larger
+           duration; 126s then 5% faster → 120s). */
+        .foryou-marquee { animation-duration: 100s; }
         .foryou-card {
             flex: 0 0 150px;
             height: 225px;

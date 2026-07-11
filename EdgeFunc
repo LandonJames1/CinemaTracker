@@ -1657,7 +1657,7 @@ function uuidLike(s) {
 // supabaseUserClient=null (cron / no session) to skip the follows source (its rpc call
 // is already wrapped in try/catch, so a null client just yields no social boost).
 // Returns the deck array (already sliced to `limit`).
-async function computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, { limit, batch, tmdbToken }) {
+async function computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, { limit, batch, tmdbToken, includeTrending = true }) {
   const tmdbHeaders = { Authorization: `Bearer ${tmdbToken}` };
   const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -1817,17 +1817,20 @@ async function computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, { limit,
         }
       }
       // Source 2 — trending this week (only paginate the first couple batches; TMDB's
-      // trending list is short and deeper pages just repeat).
-      try {
-        const trendPage = batch < 2 ? batch + 1 : null;
-        if (trendPage) {
-          const res = await fetch(`https://api.themoviedb.org/3/trending/movie/week?page=${trendPage}`, { headers: tmdbHeaders });
-          if (res.ok) {
-            const j = await res.json().catch(() => null);
-            (Array.isArray(j?.results) ? j.results : []).forEach((x) => addCand(x, "trending"));
+      // trending list is short and deeper pages just repeat). Skipped when includeTrending
+      // is false (the "You Might Like" home strip opts out — taste + popular only).
+      if (includeTrending) {
+        try {
+          const trendPage = batch < 2 ? batch + 1 : null;
+          if (trendPage) {
+            const res = await fetch(`https://api.themoviedb.org/3/trending/movie/week?page=${trendPage}`, { headers: tmdbHeaders });
+            if (res.ok) {
+              const j = await res.json().catch(() => null);
+              (Array.isArray(j?.results) ? j.results : []).forEach((x) => addCand(x, "trending"));
+            }
           }
-        }
-      } catch (_) { /* best-effort */ }
+        } catch (_) { /* best-effort */ }
+      }
       // Source 3 — all-time popular (highly-voted classics, not just current hits).
       for (const p of deckPages) {
         const r = await tmdbDiscover({ sort_by: "vote_count.desc", "vote_count.gte": 5000, page: p });
@@ -2073,7 +2076,8 @@ Deno.serve(async (req) => {
       }
       const limit = Math.max(1, Math.min(1000, Number(body?.limit) || 150));
       const concurrency = Math.max(1, Math.min(8, Number(body?.concurrency) || 4));
-      const deckSize = Math.max(10, Math.min(40, Number(body?.deck_size) || 40));
+      const deckSize = Math.max(10, Math.min(40, Number(body?.deck_size) || 30));
+      const HOME_RECS_MAX_BATCHES = 6;   // page this many swipe_deck batches deep to reach deckSize
 
       const { data: allUsers } = await supabaseAdmin.from("Users").select("id");
       const { data: recRows } = await supabaseAdmin.from("Home Recommendations").select("user_id, computed_at");
@@ -2096,7 +2100,22 @@ Deno.serve(async (req) => {
         const chunk = targets.slice(i, i + concurrency);
         await Promise.all(chunk.map(async (userId) => {
           try {
-            const deck = await computeSwipeDeck(supabaseAdmin, null, userId, { limit: deckSize, batch: 0, tmdbToken: TMDB_READ_ACCESS_TOKEN });
+            // DEEP-PAGE like the live path: a single batch is mostly filtered out by the
+            // watched/swiped/listed exclusions for heavy users, leaving only a handful.
+            // Walk deeper batches (dedup) until we've gathered `deckSize` unseen cards or
+            // the pool is exhausted, so every stored deck is generous.
+            const seen = new Set();
+            const deck = [];
+            for (let b = 0; b < HOME_RECS_MAX_BATCHES && deck.length < deckSize; b += 1) {
+              const part = await computeSwipeDeck(supabaseAdmin, null, userId, { limit: 40, batch: b, tmdbToken: TMDB_READ_ACCESS_TOKEN, includeTrending: false });
+              let added = 0;
+              for (const c of (Array.isArray(part) ? part : [])) {
+                const id = Number(c?.tmdb_id);
+                if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue;
+                seen.add(id); deck.push(c); added += 1;
+              }
+              if (added === 0) break; // pool exhausted — deeper batches won't add anything
+            }
             const { error } = await supabaseAdmin.from("Home Recommendations").upsert(
               { user_id: userId, cards: deck, computed_at: new Date().toISOString() },
               { onConflict: "user_id" }
@@ -5473,7 +5492,10 @@ Deno.serve(async (req) => {
       const limit = Math.max(5, Math.min(40, Number(body?.limit) || 25));
       const uid = userData.user.id;
       const batch = Math.max(0, Math.min(50, Math.floor(Number(body?.batch) || 0)));
-      const deck = await computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, { limit, batch, tmdbToken: TMDB_READ_ACCESS_TOKEN });
+      // Callers can opt out of the trending source (the "You Might Like" home strip does);
+      // Discover sends nothing, so it keeps the default (trending included).
+      const includeTrending = body?.include_trending !== false;
+      const deck = await computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, { limit, batch, tmdbToken: TMDB_READ_ACCESS_TOKEN, includeTrending });
       return jsonResponse({ ok: true, cards: deck }, 200);
     }
 

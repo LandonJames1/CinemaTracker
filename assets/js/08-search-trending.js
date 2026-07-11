@@ -279,7 +279,7 @@
             for (let b = 0; b < HOME_FORYOU_MAX_BATCHES && items.length < HOME_FORYOU_MIN; b += 1) {
                 // First (b=0) call asks for a big pool so ONE round trip usually suffices.
                 const limit = b === 0 ? HOME_FORYOU_LIMIT : 25;
-                const data = await callSwiftApiPublic({ action: 'swipe_deck', limit, batch: b });
+                const data = await callSwiftApiPublic({ action: 'swipe_deck', limit, batch: b, include_trending: false });
                 const cards = Array.isArray(data?.cards) ? data.cards : [];
                 let added = 0;
                 for (const c of cards) {
