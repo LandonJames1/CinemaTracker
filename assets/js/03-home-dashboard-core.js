@@ -5,6 +5,13 @@
         let homeTrendingItems = [];
         let homeTrendingAbortController = null;
 
+        // "You Might Like" home strip — taste-based picks from the swift-api
+        // `swipe_deck` action (scored off the user's Taste Profile). NOTE: this is
+        // NOT the "Recs" list — swipe_deck explicitly EXCLUDES Recs/Bucket-List movies.
+        let homeForYouItems = [];
+        let homeForYouCache = null;      // { userId, items, ts } — in-memory cache (mirrors sessionStorage)
+        let homeForYouInflight = null;   // shared in-flight fetch promise (dedupes boot-prefetch vs Home render)
+
         async function callSwiftApiPublic(body, { signal } = {}) {
             const url = `${SUPABASE_URL}/functions/v1/swift-api`;
 

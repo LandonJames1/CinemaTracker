@@ -358,6 +358,10 @@
             // Populate unread-notification badges (Feed / Lists) on load.
             try { refreshNavBadges(); } catch (_) {}
 
+            // Warm the "You Might Like" home strip cache in the background so the first
+            // Home visit paints instantly (dedupes with the Home render's own fetch).
+            try { prefetchHomeForYou(); } catch (_) {}
+
             // Re-check badges whenever a left-open tab/app regains focus, so a feed/recs
             // view on another device clears the icons here without a full reload.
             try {

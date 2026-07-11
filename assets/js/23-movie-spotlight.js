@@ -25,6 +25,7 @@
             token: 0,
             reviews: null,        // null = not loaded yet; [] = loaded, none found
             reviewsLoading: false,
+            tasteScore: null,     // set ONLY when opened from the "You Might Like" home strip → drives the "% match" tile
         };
 
         function spotlightTmdbImg(path, size) {
@@ -126,6 +127,16 @@
                         <div class="ms-stat-label">IMDb${votes ? ` · ${escapeHtml(votes)}` : ''}</div>
                    </div>`
                 : '';
+            // "% match" tile — shown only when this spotlight was opened from the home
+            // "You Might Like" strip (movieSpotlightState.tasteScore is set). Reuses
+            // the AI Picks / Discover tier-colored match styling so it looks native.
+            const matchScore = movieSpotlightState.tasteScore;
+            const matchHtml = (typeof matchScore === 'number' && Number.isFinite(matchScore))
+                ? `<div class="ms-match-row" data-tier="${(typeof aiMatchTier === 'function') ? aiMatchTier(matchScore) : 'mid'}">
+                        <span class="ms-match-num">${matchScore}%</span>
+                        <span class="ms-match-label">match for your taste</span>
+                   </div>`
+                : '';
             const topRow = (directorHtml || imdbHtml)
                 ? `<div class="ms-top-row">${directorHtml}${imdbHtml}</div>` : '';
 
@@ -145,7 +156,7 @@
             ].filter(Boolean).join('');
             const cardsHtml = cards ? `<div class="ms-stats-mini">${cards}</div>` : '';
 
-            const html = `${topRow}${genreHtml}${cardsHtml}`;
+            const html = `${matchHtml}${topRow}${genreHtml}${cardsHtml}`;
             return html.trim() ? html : `<p class="ms-empty">No additional details available.</p>`;
         }
 
@@ -356,6 +367,11 @@
             movieSpotlightState.rated = false;
             movieSpotlightState.reviews = null;
             movieSpotlightState.reviewsLoading = false;
+            // Only present when opened from the "You Might Like" home strip. Every
+            // other opener (Search / Trending / Lists / Feed) passes no taste_score, so
+            // the "% match" tile stays hidden there.
+            movieSpotlightState.tasteScore = (typeof movie?.taste_score === 'number' && Number.isFinite(movie.taste_score))
+                ? Math.round(movie.taste_score) : null;
 
             // Reuse the home page's selection state so the action buttons (Log /
             // Update / Add to List / Recommend) work exactly as they do on Home.
@@ -418,6 +434,7 @@
             const overlay = document.getElementById('movie-spotlight-overlay');
             if (overlay) { overlay.style.display = 'none'; overlay.classList.remove('open'); }
             movieSpotlightState.token++; // cancel any in-flight render/fetch callbacks
+            movieSpotlightState.tasteScore = null; // don't leak the match tile into the next opener
         }
 
         async function refreshSpotlightRatedState(token) {

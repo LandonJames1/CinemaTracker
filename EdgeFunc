@@ -1652,6 +1652,293 @@ function uuidLike(s) {
   );
 }
 
+// Shared "Discover deck" compute — the taste-ranked, exclusion-filtered candidate deck
+// used by BOTH the live `swipe_deck` action and the `build_home_recs` cron. Pass
+// supabaseUserClient=null (cron / no session) to skip the follows source (its rpc call
+// is already wrapped in try/catch, so a null client just yields no social boost).
+// Returns the deck array (already sliced to `limit`).
+async function computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, { limit, batch, tmdbToken }) {
+  const tmdbHeaders = { Authorization: `Bearer ${tmdbToken}` };
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+
+      // 1. Taste model + top genres to seed discover.
+      let tasteModel = { hasData: false };
+      let topGenres = [];
+      try {
+        const { data: rows } = await supabaseAdmin
+          .from("Taste Profiles")
+          .select("mean_overall, decade_bins_json, imdb_delta, genre_affinity_json, keyword_affinity_json, swipe_genre_affinity_json")
+          .eq("user_id", uid)
+          .limit(1);
+        if (Array.isArray(rows) && rows.length) {
+          tasteModel = buildTasteModel(rows[0]);
+          const ga = rows[0]?.genre_affinity_json && typeof rows[0].genre_affinity_json === "object" ? rows[0].genre_affinity_json : {};
+          topGenres = Object.entries(ga)
+            .map(([name, info]) => ({ name, aff: Number(info?.aff ?? 0), count: Number(info?.count ?? 0) }))
+            .filter((x) => x.aff > 0 && x.count >= 2)
+            .sort((a, b) => b.aff - a.aff)
+            .slice(0, 3)
+            .map((x) => x.name);
+        }
+      } catch (_) { /* new user: no profile yet */ }
+
+      // Cold start: a user with no taste profile (or one too sparse to surface genre
+      // affinities) gets no taste-seeded source — the deck collapses to trending +
+      // popular. Fall back to the genres they've actually rated HIGHEST so Discover is
+      // personalized from day one. Count the genres of their top-rated movies and take
+      // the 3 most common.
+      if (!topGenres.length) {
+        try {
+          const { data: rated } = await supabaseAdmin
+            .from("Movie Ratings")
+            .select("movie_id, overall_rating")
+            .eq("user_id", uid)
+            .gte("overall_rating", 70)
+            .order("overall_rating", { ascending: false })
+            .limit(60);
+          const movieIds = uniqStrings((Array.isArray(rated) ? rated : []).map((r) => r?.movie_id).filter(Boolean));
+          if (movieIds.length) {
+            const { data: genreRows } = await supabaseAdmin
+              .from("Movie Genres")
+              .select("Genres(name)")
+              .in("movie_id", movieIds);
+            const counts = new Map();
+            (Array.isArray(genreRows) ? genreRows : []).forEach((r) => {
+              const rel = r?.Genres;
+              const name = String((Array.isArray(rel) ? rel[0]?.name : rel?.name) ?? "").trim();
+              if (name) counts.set(name, (counts.get(name) || 0) + 1);
+            });
+            topGenres = Array.from(counts.entries())
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 3)
+              .map((x) => x[0]);
+          }
+        } catch (_) { /* no ratings yet → trending + popular only */ }
+      }
+
+      // 2. Exclusions: watched + already-swiped (right ever, left within 30 days).
+      let watched = new Set();
+      try { watched = await fetchWatchedTmdbIds(supabaseAdmin, uid); } catch (_) { watched = new Set(); }
+      const swipedExclude = new Set();
+      try {
+        const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const { data: sw } = await supabaseAdmin
+          .from("swipes")
+          .select("tmdb_id, direction, created_at")
+          .eq("user_id", uid);
+        (Array.isArray(sw) ? sw : []).forEach((s) => {
+          const id = Number(s?.tmdb_id);
+          if (!Number.isFinite(id)) return;
+          if (s.direction === "right") swipedExclude.add(id);
+          else if (s.direction === "left" && String(s.created_at || "") >= cutoff) swipedExclude.add(id);
+        });
+      } catch (_) { /* swipes table may not exist yet */ }
+
+      // Also exclude movies already on the user's Bucket List OR Recs list (don't
+      // suggest a movie they've already saved or been recommended). Movie Lists keys
+      // on Movies.id, so resolve to tmdb_id.
+      try {
+        const { data: alists } = await supabaseAdmin
+          .from("Lists")
+          .select("id")
+          .eq("user_id", uid)
+          .in("list_name", ["Bucket List", "Recs"]);
+        const listIds = (Array.isArray(alists) ? alists : []).map((l) => l.id).filter(Boolean);
+        if (listIds.length) {
+          const { data: items } = await supabaseAdmin
+            .from("Movie Lists")
+            .select("Movies(tmdb_id)")
+            .in("list_id", listIds);
+          (Array.isArray(items) ? items : []).forEach((row) => {
+            const id = Number(row?.Movies?.tmdb_id);
+            if (Number.isFinite(id) && id > 0) swipedExclude.add(id);
+          });
+        }
+      } catch (_) { /* best-effort: bucket list / recs exclusion */ }
+
+      // 3. Build the candidate pool.
+      const pool = new Map();
+      const addCand = (r, source) => {
+        const id = Number(r?.id);
+        const title = String(r?.title ?? "").trim();
+        if (!Number.isFinite(id) || id <= 0 || !title) return;
+        if (watched.has(id) || swipedExclude.has(id)) return;
+        // Drop Indian-subcontinent commercial films that flood the popularity/trending
+        // sources (see DISCOVER_EXCLUDED_LANGS). The friends source bypasses addCand,
+        // so a followed user's pick in one of these languages still gets through.
+        const lang = String(r?.original_language ?? "").trim().toLowerCase();
+        if (lang && DISCOVER_EXCLUDED_LANGS.has(lang)) return;
+        // Drop unreleased movies — new/upcoming films often ride the trending list
+        // before they've come out. Require a real release_date that's today or earlier.
+        const rd = String(r?.release_date ?? "").trim();
+        if (!rd || rd > todayStr) return;
+        if (pool.has(id)) { pool.get(id).sources.push(source); return; }
+        const year = r?.release_date ? Number(String(r.release_date).slice(0, 4)) : null;
+        const ids = Array.isArray(r?.genre_ids) ? r.genre_ids : [];
+        const genres = uniqStrings(ids.map((g) => TMDB_MOVIE_GENRES[Number(g)]).filter(Boolean));
+        pool.set(id, {
+          tmdb_id: id,
+          title,
+          year: Number.isFinite(year) ? year : null,
+          poster_path: normalizePosterPath(r?.poster_path) || null,
+          genres,
+          vote_average: Number(r?.vote_average ?? 0) || 0,
+          overview: String(r?.overview ?? "").trim(),
+          original_language: lang || null,
+          sources: [source],
+        });
+      };
+
+      const tmdbDiscover = async (params) => {
+        const url = new URL("https://api.themoviedb.org/3/discover/movie");
+        url.searchParams.set("include_adult", "false");
+        url.searchParams.set("language", "en-US");
+        // Never surface unreleased movies in the deck.
+        url.searchParams.set("primary_release_date.lte", todayStr);
+        for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
+        const res = await fetch(url.toString(), { headers: tmdbHeaders });
+        if (!res.ok) return [];
+        const j = await res.json().catch(() => null);
+        return Array.isArray(j?.results) ? j.results : [];
+      };
+
+      // Each batch walks three fresh pages deeper so successive decks don't repeat AND
+      // each batch has a big enough raw pool to still yield ~25 cards after exclusions
+      // (watched / swiped / bucketed). Stride matches the page count so batches never overlap.
+      const deckPages = [batch * 3 + 1, batch * 3 + 2, batch * 3 + 3];
+
+      // Source 1 — your taste (top-affinity genres, popular within them).
+      const genreIds = mapGenreNamesToIds(topGenres);
+      if (genreIds.length) {
+        for (const p of deckPages) {
+          const r = await tmdbDiscover({ sort_by: "popularity.desc", with_genres: genreIds.join("|"), "vote_count.gte": 100, page: p });
+          r.forEach((x) => addCand(x, "taste"));
+        }
+      }
+      // Source 2 — trending this week (only paginate the first couple batches; TMDB's
+      // trending list is short and deeper pages just repeat).
+      try {
+        const trendPage = batch < 2 ? batch + 1 : null;
+        if (trendPage) {
+          const res = await fetch(`https://api.themoviedb.org/3/trending/movie/week?page=${trendPage}`, { headers: tmdbHeaders });
+          if (res.ok) {
+            const j = await res.json().catch(() => null);
+            (Array.isArray(j?.results) ? j.results : []).forEach((x) => addCand(x, "trending"));
+          }
+        }
+      } catch (_) { /* best-effort */ }
+      // Source 3 — all-time popular (highly-voted classics, not just current hits).
+      for (const p of deckPages) {
+        const r = await tmdbDiscover({ sort_by: "vote_count.desc", "vote_count.gte": 5000, page: p });
+        r.forEach((x) => addCand(x, "popular"));
+      }
+
+      // Source 4 — movies your follows rated highly + the social-proof data, via the
+      // SECURITY DEFINER RPC (runs as the caller, so only people they follow are
+      // visible and only safe public columns + the score come back).
+      const socialByTmdb = new Map(); // tmdb_id -> [{ name, icon, overall }] for raters >= 90
+      try {
+        const { data: frows } = await supabaseUserClient.rpc("get_follow_rated_movies", { p_min_overall: 70 });
+        const bestFriend = new Map(); // tmdb_id -> { row, best }
+        (Array.isArray(frows) ? frows : []).forEach((row) => {
+          const id = Number(row?.tmdb_id);
+          if (!Number.isFinite(id)) return;
+          const overall = Number(row?.overall_rating);
+          if (Number.isFinite(overall) && overall >= 85) {
+            if (!socialByTmdb.has(id)) socialByTmdb.set(id, []);
+            socialByTmdb.get(id).push({ name: String(row?.rater_username || ""), icon: String(row?.rater_icon || ""), overall });
+          }
+          if (!bestFriend.has(id) || overall > bestFriend.get(id).best) bestFriend.set(id, { row, best: overall });
+        });
+        // Add the highly-rated ones (>=85) as candidates, built from the RPC's fields.
+        bestFriend.forEach(({ row, best }, id) => {
+          const title = String(row?.title ?? "").trim();
+          if (best < 85 || !title || watched.has(id) || swipedExclude.has(id)) return;
+          if (pool.has(id)) { pool.get(id).sources.push("friends"); return; }
+          pool.set(id, {
+            tmdb_id: id,
+            title,
+            year: Number.isFinite(Number(row?.release_year)) ? Number(row.release_year) : null,
+            poster_path: normalizePosterPath(row?.poster_path) || null,
+            genres: Array.isArray(row?.genres) ? uniqStrings(row.genres) : [],
+            vote_average: 0,
+            overview: "",
+            sources: ["friends"],
+          });
+        });
+      } catch (_) { /* RPC may not exist yet */ }
+
+      // 3b. Well-reviewed boost: for candidates ALREADY in our catalog, look up their
+      // stored IMDb vote count and give a moderate ranking bump to films above the
+      // admin-set threshold (Settings.discover_min_imdb_votes, default 25k). Most
+      // candidates are fresh TMDb movies not in the catalog, so they get no bump.
+      let reviewThreshold = 25000;
+      try {
+        const { data: srow } = await supabaseAdmin
+          .from("Settings").select("discover_min_imdb_votes").limit(1).maybeSingle();
+        const t = Number(srow?.discover_min_imdb_votes);
+        if (Number.isFinite(t) && t > 0) reviewThreshold = Math.round(t);
+      } catch (_) { /* keep default */ }
+
+      const votesByTmdb = new Map(); // tmdb_id -> stored IMDb vote count (catalog only)
+      try {
+        const poolTmdbIds = Array.from(pool.keys());
+        if (poolTmdbIds.length) {
+          const { data: movieRows } = await supabaseAdmin
+            .from("Movies").select("id, tmdb_id").in("tmdb_id", poolTmdbIds);
+          const tmdbByMovieId = new Map();
+          (Array.isArray(movieRows) ? movieRows : []).forEach((m) => {
+            if (m?.id && Number.isFinite(Number(m?.tmdb_id))) tmdbByMovieId.set(m.id, Number(m.tmdb_id));
+          });
+          const movieIds = Array.from(tmdbByMovieId.keys());
+          if (movieIds.length) {
+            const { data: extRows } = await supabaseAdmin
+              .from("Movie External Ratings").select("movie_id, votes")
+              .eq("source", "imdb").in("movie_id", movieIds);
+            (Array.isArray(extRows) ? extRows : []).forEach((e) => {
+              const tid = tmdbByMovieId.get(e?.movie_id);
+              const v = Number(e?.votes);
+              if (tid && Number.isFinite(v) && v > 0) votesByTmdb.set(tid, Math.round(v));
+            });
+          }
+        }
+      } catch (_) { /* best-effort: no catalog-votes boost */ }
+
+      // 4. Score + rank (taste score + small social + review-count boosts + jitter).
+      const cards = Array.from(pool.values()).map((c) => {
+        const pred = tasteModel.hasData
+          ? predictTasteScore(tasteModel, { genres: c.genres, year: c.year, vote_average: c.vote_average })
+          : null;
+        const taste_score = pred ? pred.score : null;
+        const friends = (socialByTmdb.get(c.tmdb_id) || []).slice().sort((a, b) => b.overall - a.overall).slice(0, 3);
+        const friendsCount = (socialByTmdb.get(c.tmdb_id) || []).length;
+        const socialBoost = friendsCount ? 3 : 0; // socially-validated picks surface a bit (kept gentle so friends' picks don't dominate)
+        const imdbVotes = votesByTmdb.get(c.tmdb_id) ?? null;
+        const reviewBoost = (imdbVotes !== null && imdbVotes >= reviewThreshold) ? 6 : 0;
+        const rankBase = (Number.isFinite(taste_score) ? taste_score : 45) + socialBoost + reviewBoost;
+        return {
+          tmdb_id: c.tmdb_id,
+          title: c.title,
+          year: c.year,
+          poster_path: c.poster_path,
+          genres: c.genres,
+          tmdb_rating: c.vote_average,
+          overview: c.overview,
+          taste_score,
+          taste_reasons: pred && pred.reasons.length ? pred.reasons : [],
+          friends,
+          friends_count: friendsCount,
+          ...(imdbVotes !== null ? { imdb_votes: imdbVotes } : {}),
+          _rank: rankBase + (Math.random() * 16 - 8),
+        };
+      });
+      cards.sort((a, b) => b._rank - a._rank);
+      const deck = cards.slice(0, limit).map(({ _rank, ...rest }) => rest);
+
+        return deck;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -1774,6 +2061,57 @@ Deno.serve(async (req) => {
     // rating/votes via OMDb, and upserts into "Game Pool" (keyed by tmdb_id; movies
     // already present are skipped, so re-runs are cheap). Batched — run repeatedly
     // (build-game-pool.yml) until pool_total reaches ~1000. Gated by CRON_SECRET.
+    // Cron-gated (x-cron-secret == CRON_SECRET, no user session). Precomputes each
+    // user's "You Might Like" home-strip deck (via the shared computeSwipeDeck) into the
+    // "Home Recommendations" table so the client reads a row instead of computing live.
+    // Stalest-first so daily runs (refresh-home-recs.yml) rotate through everyone.
+    if (action === "build_home_recs") {
+      const provided = String(req.headers.get("x-cron-secret") ?? "").trim();
+      const expected = String(Deno.env.get("CRON_SECRET") ?? "").trim();
+      if (!expected || provided !== expected) {
+        return jsonResponse({ code: 401, message: "Unauthorized" }, 401);
+      }
+      const limit = Math.max(1, Math.min(1000, Number(body?.limit) || 150));
+      const concurrency = Math.max(1, Math.min(8, Number(body?.concurrency) || 4));
+      const deckSize = Math.max(10, Math.min(40, Number(body?.deck_size) || 40));
+
+      const { data: allUsers } = await supabaseAdmin.from("Users").select("id");
+      const { data: recRows } = await supabaseAdmin.from("Home Recommendations").select("user_id, computed_at");
+      const computedAt = new Map((Array.isArray(recRows) ? recRows : []).map((r) => [r.user_id, r.computed_at]));
+      const targets = (Array.isArray(allUsers) ? allUsers : [])
+        .map((u) => u.id)
+        .filter(Boolean)
+        .sort((a, b) => {
+          const ca = computedAt.get(a); const cb = computedAt.get(b);
+          if (!ca && !cb) return 0;
+          if (!ca) return -1;   // never-computed first
+          if (!cb) return 1;
+          return String(ca).localeCompare(String(cb)); // then stalest first
+        })
+        .slice(0, limit);
+
+      let processed = 0;
+      let failed = 0;
+      for (let i = 0; i < targets.length; i += concurrency) {
+        const chunk = targets.slice(i, i + concurrency);
+        await Promise.all(chunk.map(async (userId) => {
+          try {
+            const deck = await computeSwipeDeck(supabaseAdmin, null, userId, { limit: deckSize, batch: 0, tmdbToken: TMDB_READ_ACCESS_TOKEN });
+            const { error } = await supabaseAdmin.from("Home Recommendations").upsert(
+              { user_id: userId, cards: deck, computed_at: new Date().toISOString() },
+              { onConflict: "user_id" }
+            );
+            if (error) throw error;
+            processed += 1;
+          } catch (_) {
+            failed += 1;
+          }
+        }));
+      }
+
+      return jsonResponse({ ok: true, processed, failed, total: Array.isArray(allUsers) ? allUsers.length : 0 }, 200);
+    }
+
     if (action === "build_game_pool") {
       const provided = String(req.headers.get("x-cron-secret") ?? "").trim();
       const expected = String(Deno.env.get("CRON_SECRET") ?? "").trim();
@@ -5132,290 +5470,10 @@ Deno.serve(async (req) => {
     // random jitter for exploration/variety. No LLM. (Friends'-favorites source +
     // social proof are phase 2.)
     if (action === "swipe_deck") {
-      const tmdbHeaders = { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` };
       const limit = Math.max(5, Math.min(40, Number(body?.limit) || 25));
       const uid = userData.user.id;
-      // Batch cursor: the client increments this each time it fetches another deck this
-      // session, so we walk DEEPER TMDB pages instead of re-returning the same top pages.
-      // (0 → pages 1-3, 1 → pages 4-6, …). Without this the pool repeats and runs dry.
       const batch = Math.max(0, Math.min(50, Math.floor(Number(body?.batch) || 0)));
-      // Today (UTC, YYYY-MM-DD) — used to drop unreleased movies from the deck.
-      const todayStr = new Date().toISOString().slice(0, 10);
-
-      // 1. Taste model + top genres to seed discover.
-      let tasteModel = { hasData: false };
-      let topGenres = [];
-      try {
-        const { data: rows } = await supabaseAdmin
-          .from("Taste Profiles")
-          .select("mean_overall, decade_bins_json, imdb_delta, genre_affinity_json, keyword_affinity_json, swipe_genre_affinity_json")
-          .eq("user_id", uid)
-          .limit(1);
-        if (Array.isArray(rows) && rows.length) {
-          tasteModel = buildTasteModel(rows[0]);
-          const ga = rows[0]?.genre_affinity_json && typeof rows[0].genre_affinity_json === "object" ? rows[0].genre_affinity_json : {};
-          topGenres = Object.entries(ga)
-            .map(([name, info]) => ({ name, aff: Number(info?.aff ?? 0), count: Number(info?.count ?? 0) }))
-            .filter((x) => x.aff > 0 && x.count >= 2)
-            .sort((a, b) => b.aff - a.aff)
-            .slice(0, 3)
-            .map((x) => x.name);
-        }
-      } catch (_) { /* new user: no profile yet */ }
-
-      // Cold start: a user with no taste profile (or one too sparse to surface genre
-      // affinities) gets no taste-seeded source — the deck collapses to trending +
-      // popular. Fall back to the genres they've actually rated HIGHEST so Discover is
-      // personalized from day one. Count the genres of their top-rated movies and take
-      // the 3 most common.
-      if (!topGenres.length) {
-        try {
-          const { data: rated } = await supabaseAdmin
-            .from("Movie Ratings")
-            .select("movie_id, overall_rating")
-            .eq("user_id", uid)
-            .gte("overall_rating", 70)
-            .order("overall_rating", { ascending: false })
-            .limit(60);
-          const movieIds = uniqStrings((Array.isArray(rated) ? rated : []).map((r) => r?.movie_id).filter(Boolean));
-          if (movieIds.length) {
-            const { data: genreRows } = await supabaseAdmin
-              .from("Movie Genres")
-              .select("Genres(name)")
-              .in("movie_id", movieIds);
-            const counts = new Map();
-            (Array.isArray(genreRows) ? genreRows : []).forEach((r) => {
-              const rel = r?.Genres;
-              const name = String((Array.isArray(rel) ? rel[0]?.name : rel?.name) ?? "").trim();
-              if (name) counts.set(name, (counts.get(name) || 0) + 1);
-            });
-            topGenres = Array.from(counts.entries())
-              .sort((a, b) => b[1] - a[1])
-              .slice(0, 3)
-              .map((x) => x[0]);
-          }
-        } catch (_) { /* no ratings yet → trending + popular only */ }
-      }
-
-      // 2. Exclusions: watched + already-swiped (right ever, left within 30 days).
-      let watched = new Set();
-      try { watched = await fetchWatchedTmdbIds(supabaseAdmin, uid); } catch (_) { watched = new Set(); }
-      const swipedExclude = new Set();
-      try {
-        const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-        const { data: sw } = await supabaseAdmin
-          .from("swipes")
-          .select("tmdb_id, direction, created_at")
-          .eq("user_id", uid);
-        (Array.isArray(sw) ? sw : []).forEach((s) => {
-          const id = Number(s?.tmdb_id);
-          if (!Number.isFinite(id)) return;
-          if (s.direction === "right") swipedExclude.add(id);
-          else if (s.direction === "left" && String(s.created_at || "") >= cutoff) swipedExclude.add(id);
-        });
-      } catch (_) { /* swipes table may not exist yet */ }
-
-      // Also exclude movies already on the user's Bucket List OR Recs list (don't
-      // suggest a movie they've already saved or been recommended). Movie Lists keys
-      // on Movies.id, so resolve to tmdb_id.
-      try {
-        const { data: alists } = await supabaseAdmin
-          .from("Lists")
-          .select("id")
-          .eq("user_id", uid)
-          .in("list_name", ["Bucket List", "Recs"]);
-        const listIds = (Array.isArray(alists) ? alists : []).map((l) => l.id).filter(Boolean);
-        if (listIds.length) {
-          const { data: items } = await supabaseAdmin
-            .from("Movie Lists")
-            .select("Movies(tmdb_id)")
-            .in("list_id", listIds);
-          (Array.isArray(items) ? items : []).forEach((row) => {
-            const id = Number(row?.Movies?.tmdb_id);
-            if (Number.isFinite(id) && id > 0) swipedExclude.add(id);
-          });
-        }
-      } catch (_) { /* best-effort: bucket list / recs exclusion */ }
-
-      // 3. Build the candidate pool.
-      const pool = new Map();
-      const addCand = (r, source) => {
-        const id = Number(r?.id);
-        const title = String(r?.title ?? "").trim();
-        if (!Number.isFinite(id) || id <= 0 || !title) return;
-        if (watched.has(id) || swipedExclude.has(id)) return;
-        // Drop Indian-subcontinent commercial films that flood the popularity/trending
-        // sources (see DISCOVER_EXCLUDED_LANGS). The friends source bypasses addCand,
-        // so a followed user's pick in one of these languages still gets through.
-        const lang = String(r?.original_language ?? "").trim().toLowerCase();
-        if (lang && DISCOVER_EXCLUDED_LANGS.has(lang)) return;
-        // Drop unreleased movies — new/upcoming films often ride the trending list
-        // before they've come out. Require a real release_date that's today or earlier.
-        const rd = String(r?.release_date ?? "").trim();
-        if (!rd || rd > todayStr) return;
-        if (pool.has(id)) { pool.get(id).sources.push(source); return; }
-        const year = r?.release_date ? Number(String(r.release_date).slice(0, 4)) : null;
-        const ids = Array.isArray(r?.genre_ids) ? r.genre_ids : [];
-        const genres = uniqStrings(ids.map((g) => TMDB_MOVIE_GENRES[Number(g)]).filter(Boolean));
-        pool.set(id, {
-          tmdb_id: id,
-          title,
-          year: Number.isFinite(year) ? year : null,
-          poster_path: normalizePosterPath(r?.poster_path) || null,
-          genres,
-          vote_average: Number(r?.vote_average ?? 0) || 0,
-          overview: String(r?.overview ?? "").trim(),
-          original_language: lang || null,
-          sources: [source],
-        });
-      };
-
-      const tmdbDiscover = async (params) => {
-        const url = new URL("https://api.themoviedb.org/3/discover/movie");
-        url.searchParams.set("include_adult", "false");
-        url.searchParams.set("language", "en-US");
-        // Never surface unreleased movies in the deck.
-        url.searchParams.set("primary_release_date.lte", todayStr);
-        for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
-        const res = await fetch(url.toString(), { headers: tmdbHeaders });
-        if (!res.ok) return [];
-        const j = await res.json().catch(() => null);
-        return Array.isArray(j?.results) ? j.results : [];
-      };
-
-      // Each batch walks three fresh pages deeper so successive decks don't repeat AND
-      // each batch has a big enough raw pool to still yield ~25 cards after exclusions
-      // (watched / swiped / bucketed). Stride matches the page count so batches never overlap.
-      const deckPages = [batch * 3 + 1, batch * 3 + 2, batch * 3 + 3];
-
-      // Source 1 — your taste (top-affinity genres, popular within them).
-      const genreIds = mapGenreNamesToIds(topGenres);
-      if (genreIds.length) {
-        for (const p of deckPages) {
-          const r = await tmdbDiscover({ sort_by: "popularity.desc", with_genres: genreIds.join("|"), "vote_count.gte": 100, page: p });
-          r.forEach((x) => addCand(x, "taste"));
-        }
-      }
-      // Source 2 — trending this week (only paginate the first couple batches; TMDB's
-      // trending list is short and deeper pages just repeat).
-      try {
-        const trendPage = batch < 2 ? batch + 1 : null;
-        if (trendPage) {
-          const res = await fetch(`https://api.themoviedb.org/3/trending/movie/week?page=${trendPage}`, { headers: tmdbHeaders });
-          if (res.ok) {
-            const j = await res.json().catch(() => null);
-            (Array.isArray(j?.results) ? j.results : []).forEach((x) => addCand(x, "trending"));
-          }
-        }
-      } catch (_) { /* best-effort */ }
-      // Source 3 — all-time popular (highly-voted classics, not just current hits).
-      for (const p of deckPages) {
-        const r = await tmdbDiscover({ sort_by: "vote_count.desc", "vote_count.gte": 5000, page: p });
-        r.forEach((x) => addCand(x, "popular"));
-      }
-
-      // Source 4 — movies your follows rated highly + the social-proof data, via the
-      // SECURITY DEFINER RPC (runs as the caller, so only people they follow are
-      // visible and only safe public columns + the score come back).
-      const socialByTmdb = new Map(); // tmdb_id -> [{ name, icon, overall }] for raters >= 90
-      try {
-        const { data: frows } = await supabaseUserClient.rpc("get_follow_rated_movies", { p_min_overall: 70 });
-        const bestFriend = new Map(); // tmdb_id -> { row, best }
-        (Array.isArray(frows) ? frows : []).forEach((row) => {
-          const id = Number(row?.tmdb_id);
-          if (!Number.isFinite(id)) return;
-          const overall = Number(row?.overall_rating);
-          if (Number.isFinite(overall) && overall >= 85) {
-            if (!socialByTmdb.has(id)) socialByTmdb.set(id, []);
-            socialByTmdb.get(id).push({ name: String(row?.rater_username || ""), icon: String(row?.rater_icon || ""), overall });
-          }
-          if (!bestFriend.has(id) || overall > bestFriend.get(id).best) bestFriend.set(id, { row, best: overall });
-        });
-        // Add the highly-rated ones (>=85) as candidates, built from the RPC's fields.
-        bestFriend.forEach(({ row, best }, id) => {
-          const title = String(row?.title ?? "").trim();
-          if (best < 85 || !title || watched.has(id) || swipedExclude.has(id)) return;
-          if (pool.has(id)) { pool.get(id).sources.push("friends"); return; }
-          pool.set(id, {
-            tmdb_id: id,
-            title,
-            year: Number.isFinite(Number(row?.release_year)) ? Number(row.release_year) : null,
-            poster_path: normalizePosterPath(row?.poster_path) || null,
-            genres: Array.isArray(row?.genres) ? uniqStrings(row.genres) : [],
-            vote_average: 0,
-            overview: "",
-            sources: ["friends"],
-          });
-        });
-      } catch (_) { /* RPC may not exist yet */ }
-
-      // 3b. Well-reviewed boost: for candidates ALREADY in our catalog, look up their
-      // stored IMDb vote count and give a moderate ranking bump to films above the
-      // admin-set threshold (Settings.discover_min_imdb_votes, default 25k). Most
-      // candidates are fresh TMDb movies not in the catalog, so they get no bump.
-      let reviewThreshold = 25000;
-      try {
-        const { data: srow } = await supabaseAdmin
-          .from("Settings").select("discover_min_imdb_votes").limit(1).maybeSingle();
-        const t = Number(srow?.discover_min_imdb_votes);
-        if (Number.isFinite(t) && t > 0) reviewThreshold = Math.round(t);
-      } catch (_) { /* keep default */ }
-
-      const votesByTmdb = new Map(); // tmdb_id -> stored IMDb vote count (catalog only)
-      try {
-        const poolTmdbIds = Array.from(pool.keys());
-        if (poolTmdbIds.length) {
-          const { data: movieRows } = await supabaseAdmin
-            .from("Movies").select("id, tmdb_id").in("tmdb_id", poolTmdbIds);
-          const tmdbByMovieId = new Map();
-          (Array.isArray(movieRows) ? movieRows : []).forEach((m) => {
-            if (m?.id && Number.isFinite(Number(m?.tmdb_id))) tmdbByMovieId.set(m.id, Number(m.tmdb_id));
-          });
-          const movieIds = Array.from(tmdbByMovieId.keys());
-          if (movieIds.length) {
-            const { data: extRows } = await supabaseAdmin
-              .from("Movie External Ratings").select("movie_id, votes")
-              .eq("source", "imdb").in("movie_id", movieIds);
-            (Array.isArray(extRows) ? extRows : []).forEach((e) => {
-              const tid = tmdbByMovieId.get(e?.movie_id);
-              const v = Number(e?.votes);
-              if (tid && Number.isFinite(v) && v > 0) votesByTmdb.set(tid, Math.round(v));
-            });
-          }
-        }
-      } catch (_) { /* best-effort: no catalog-votes boost */ }
-
-      // 4. Score + rank (taste score + small social + review-count boosts + jitter).
-      const cards = Array.from(pool.values()).map((c) => {
-        const pred = tasteModel.hasData
-          ? predictTasteScore(tasteModel, { genres: c.genres, year: c.year, vote_average: c.vote_average })
-          : null;
-        const taste_score = pred ? pred.score : null;
-        const friends = (socialByTmdb.get(c.tmdb_id) || []).slice().sort((a, b) => b.overall - a.overall).slice(0, 3);
-        const friendsCount = (socialByTmdb.get(c.tmdb_id) || []).length;
-        const socialBoost = friendsCount ? 3 : 0; // socially-validated picks surface a bit (kept gentle so friends' picks don't dominate)
-        const imdbVotes = votesByTmdb.get(c.tmdb_id) ?? null;
-        const reviewBoost = (imdbVotes !== null && imdbVotes >= reviewThreshold) ? 6 : 0;
-        const rankBase = (Number.isFinite(taste_score) ? taste_score : 45) + socialBoost + reviewBoost;
-        return {
-          tmdb_id: c.tmdb_id,
-          title: c.title,
-          year: c.year,
-          poster_path: c.poster_path,
-          genres: c.genres,
-          tmdb_rating: c.vote_average,
-          overview: c.overview,
-          taste_score,
-          taste_reasons: pred && pred.reasons.length ? pred.reasons : [],
-          friends,
-          friends_count: friendsCount,
-          ...(imdbVotes !== null ? { imdb_votes: imdbVotes } : {}),
-          _rank: rankBase + (Math.random() * 16 - 8),
-        };
-      });
-      cards.sort((a, b) => b._rank - a._rank);
-      const deck = cards.slice(0, limit).map(({ _rank, ...rest }) => rest);
-
+      const deck = await computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, { limit, batch, tmdbToken: TMDB_READ_ACCESS_TOKEN });
       return jsonResponse({ ok: true, cards: deck }, 200);
     }
 

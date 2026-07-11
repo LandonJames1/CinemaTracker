@@ -1290,6 +1290,8 @@
 
                     // Ratings changed → refresh my taste profile in the background.
                     recomputeMyTasteProfile().catch(() => null);
+                    // Drop the "You Might Like" cache so this now-watched movie can't linger.
+                    try { invalidateHomeForYouCache(); } catch (_) {}
 
                     openRatingsSuccessModal('updated');
                     return;
@@ -1363,6 +1365,8 @@
 
                 // Ratings changed → refresh my taste profile in the background.
                 recomputeMyTasteProfile().catch(() => null);
+                // Drop the "You Might Like" cache so this now-watched movie can't linger.
+                try { invalidateHomeForYouCache(); } catch (_) {}
 
                 // Saved successfully → drop the autosaved draft for this movie.
                 try { clearDiaryDraftForCurrentForm(); } catch (_) {}

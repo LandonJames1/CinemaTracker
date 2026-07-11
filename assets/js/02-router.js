@@ -203,7 +203,7 @@
                     this.pendingTitle = '';
                     refreshAuthStateAndUI();   // keep the header avatar/title identical to other pages
                     resetHomeSearchAndFilters();
-                    loadTrendingNow();
+                    loadHomeForYou();   // taste-based "You Might Like" strip; falls back to loadTrendingNow() for cold-start/logged-out
                 } else if (page === 'feed') {
                     root.innerHTML = this.renderFeed();
                     refreshAuthStateAndUI();
@@ -820,6 +820,29 @@
                                             </div>
                                         </div>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- "You Might Like" (Full Width) — taste-based picks from the
+                             swift-api swipe_deck action (NOT the Recs list). Shown on BOTH mobile
+                             and desktop; starts hidden and is revealed by loadHomeForYou() only
+                             when the user has enough ratings + real picks came back. On cold-start
+                             / logged-out it stays hidden and the Trending marquee below shows. -->
+                        <div class="home-foryou" id="home-foryou" style="display: none; background: var(--surface); padding: 1rem 0 2.15rem; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin-top: 2.5rem; position: relative; z-index: 1;">
+                            <div class="container mb-6 foryou-head">
+                                <h2 class="text-white" style="font-size: 2rem; font-weight: 900; letter-spacing: 0.04em; line-height: 1.1; display: inline-flex; align-items: center; gap: 0.55rem; text-shadow: 0 10px 24px rgba(0,0,0,0.45);">
+                                    <span style="display:inline-block; width: 0.45rem; height: 1.55rem; border-radius: 999px; background: linear-gradient(180deg, var(--brand), var(--accent-2));"></span>
+                                    <span style="background: linear-gradient(to right, #ffffff, color-mix(in srgb, var(--brand) 55%, #ffffff)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">You Might Like</span>
+                                </h2>
+                            </div>
+                            <!-- Full-bleed strip: auto-scrolling marquee on desktop (two duplicate
+                                 tracks for a seamless loop), manual horizontal scroll on mobile
+                                 (CSS disables the animation + hides the 2nd track ≤768px). -->
+                            <div class="w-full foryou-strip" style="position: relative;">
+                                <div class="animate-marquee foryou-marquee">
+                                    <div class="flex foryou-track" id="home-foryou-track-1"></div>
+                                    <div class="flex foryou-track" id="home-foryou-track-2"></div>
                                 </div>
                             </div>
                         </div>

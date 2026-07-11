@@ -1511,6 +1511,49 @@
         }
         .trending-card:hover { transform: scale(1.05); }
         .trending-card img { width: 100%; height: 100%; object-fit: cover; }
+
+        /* "You Might Like" home strip. DESKTOP: full-bleed auto-scrolling marquee (two
+           duplicate tracks inside .foryou-marquee/.animate-marquee → seamless -50% loop).
+           MOBILE: the animation is disabled + the 2nd track hidden, and the strip becomes
+           a manual horizontal scroller. */
+        .foryou-strip { width: 100%; overflow: hidden; }
+        .foryou-card {
+            flex: 0 0 150px;
+            height: 225px;
+            margin: 0 0.4rem;
+            border-radius: 0.6rem;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: var(--surface);
+            cursor: pointer;
+            transition: transform 0.25s;
+        }
+        .foryou-card:hover { transform: translateY(-4px); }
+        .foryou-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        /* Always-visible title gradient (the shared .movie-overlay is hover-only, which
+           would leave the title invisible on touch devices). */
+        .foryou-card .movie-overlay {
+            opacity: 1;
+            background: linear-gradient(to top, rgba(0,0,0,0.9), rgba(0,0,0,0) 58%);
+            padding: 0.6rem;
+        }
+        .foryou-card .movie-overlay h4 { font-size: 0.8rem; line-height: 1.15; }
+        @media (max-width: 768px) {
+            /* Manual scroll: kill the marquee animation, hide the duplicate track, and
+               let the strip scroll horizontally under the finger. */
+            .foryou-strip { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+            .foryou-marquee { animation: none; width: max-content; padding: 0 0.75rem; }
+            #home-foryou-track-2 { display: none; }
+            .foryou-card { flex-basis: 122px; height: 183px; margin: 0 0.3rem; }
+            .foryou-card .movie-overlay h4 { font-size: 0.74rem; }
+            /* Tighten the header→posters gap on mobile (was far too big). */
+            .home-foryou { margin-top: 1.25rem; padding-top: 0.5rem; padding-bottom: 1.25rem; }
+            /* The .container side padding is zeroed by the mobile full-bleed rule (which
+               uses !important), so re-add a gutter with a more specific + !important rule
+               so the accent bar + heading aren't flush against the screen edge. */
+            #app-root .home-foryou .foryou-head { margin-bottom: 0.4rem; padding-left: 1rem !important; padding-right: 1rem !important; }
+        }
         
         /* Search Dropdown */
         .search-dropdown {
@@ -8018,6 +8061,20 @@
         .ms-overview { font-size: 0.97rem; line-height: 1.65; color: rgba(255,255,255,0.88); font-weight: 500; margin: 0; }
 
         /* Details tab — Row 1: Director + IMDb · Row 2: Genre · Row 3: MPA/Runtime/Released */
+
+        /* "% match" banner — shown only when the spotlight was opened from the home
+           "Recommended for you" strip (movieSpotlightState.tasteScore). Tier-colored to
+           match the AI Picks / Discover match badges. */
+        .ms-match-row {
+            display: flex; align-items: baseline; gap: 0.5rem;
+            border-radius: 0.9rem; padding: 0.6rem 0.9rem; margin-bottom: 0.55rem;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.06);
+        }
+        .ms-match-row[data-tier="high"] { background: linear-gradient(90deg, color-mix(in srgb, var(--brand, #14b8a6) 34%, #1d1d22), color-mix(in srgb, var(--brand-2, #6366f1) 34%, #1d1d22)); border-color: color-mix(in srgb, var(--brand, #14b8a6) 45%, transparent); }
+        .ms-match-row[data-tier="mid"]  { background: linear-gradient(90deg, color-mix(in srgb, var(--brand, #14b8a6) 22%, #1d1d22), #1d1d22); }
+        .ms-match-num { font-size: 1.45rem; font-weight: 900; line-height: 1; color: #fff; }
+        .ms-match-label { font-size: 0.78rem; font-weight: 800; letter-spacing: 0.02em; color: rgba(255,255,255,0.75); text-transform: uppercase; }
 
         /* Row 1: Director (with headshot) + IMDb, equal-height side by side */
         .ms-top-row { display: grid; grid-template-columns: 1.6fr 1fr; gap: 0.6rem; align-items: stretch; margin-bottom: 0.55rem; }

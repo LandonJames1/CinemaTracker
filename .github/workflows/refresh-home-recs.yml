@@ -1,0 +1,32 @@
+name: Daily "You Might Like" home recommendations
+
+# Once a day, precomputes each user's "You Might Like" home-strip deck into the
+# "Home Recommendations" table so the Home page reads a row instead of computing the
+# taste-ranked deck LIVE on every first visit (the swift-api `swipe_deck` action makes
+# 7+ sequential TMDB round trips — too slow for a cold page load). GitHub Actions is
+# only the timer + HTTP trigger; the swift-api `build_home_recs` Edge action does the
+# compute + upsert (stalest-user-first, so runs rotate through everyone). The `limit`
+# input caps how many users are refreshed per run (raise it to cover a bigger user base
+# in one pass). Reuses the existing cron secrets.
+on:
+  schedule:
+    - cron: '30 3 * * *'   # daily at 03:30 UTC (off-peak); tune as desired
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Max users to refresh this run (stalest first)'
+        required: false
+        default: '150'
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger build_home_recs
+        run: |
+          curl -sS -X POST "${{ secrets.SUPABASE_FUNCTION_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -d "{\"action\":\"build_home_recs\",\"limit\":${{ github.event.inputs.limit || 150 }}}" \
+            --fail-with-body

@@ -144,6 +144,262 @@
             }
         }
 
+        // ── "You Might Like" home strip ─────────────────────────────────────────
+        // Taste-based picks from the swift-api `swipe_deck` action (scored off the
+        // user's Taste Profile). This is NOT the "Recs" list — swipe_deck explicitly
+        // EXCLUDES movies already in Recs/Bucket List, movies already WATCHED, and
+        // UNRELEASED movies (all filtered server-side). Clean posters (no % badge); the
+        // taste-match % is surfaced INSIDE the Movie Spotlight instead (the tapped card
+        // carries `taste_score`, which openMovieSpotlight reads). Rendered as an
+        // auto-scrolling marquee on desktop (two duplicate tracks) + a manual horizontal
+        // scroll on mobile (CSS disables the animation + hides track-2 ≤768px).
+        function foryouCardHtml(m) {
+            const title = String(m?.title || '').trim();
+            const posterPath = String(m?.poster_path || '').trim();
+            const posterUrl = posterPath ? `https://image.tmdb.org/t/p/w342${posterPath}` : '';
+            if (!posterUrl) return '';
+            const tmdbId = Number(m?.tmdb_id ?? m?.id) || '';
+            return `
+                <div class="foryou-card" role="button" tabindex="0" data-foryou-tmdb="${tmdbId}">
+                    <img src="${posterUrl}" alt="${escapeHtml(title)}" loading="lazy" onerror="this.closest('.foryou-card')?.remove?.()">
+                    <div class="movie-overlay">
+                        <h4 class="text-white font-bold text-sm">${escapeHtml(title)}</h4>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderHomeForYou(items) {
+            const wrap = document.getElementById('home-foryou');
+            const track1 = document.getElementById('home-foryou-track-1');
+            const track2 = document.getElementById('home-foryou-track-2');
+            if (!track1) return;
+
+            const safeItems = Array.isArray(items) ? items : [];
+            const cardsHTML = safeItems.map(foryouCardHtml).join('');
+            track1.innerHTML = cardsHTML;
+            if (track2) track2.innerHTML = cardsHTML; // duplicate set → seamless desktop marquee loop
+            if (wrap) wrap.style.display = cardsHTML ? 'block' : 'none';
+
+            // Bind interactions once per track (both tracks carry cards on desktop).
+            [track1, track2].forEach((track) => {
+                if (!track || track.dataset.boundForYou) return;
+                track.dataset.boundForYou = 'true';
+
+                // Tapping a card carries its taste_score into the Movie Spotlight, where the
+                // "% match" tile renders (only movies opened from here have a taste_score).
+                track.addEventListener('click', (e) => {
+                    const card = e?.target?.closest ? e.target.closest('.foryou-card[data-foryou-tmdb]') : null;
+                    if (!card) return;
+                    const tmdbId = Number(card.getAttribute('data-foryou-tmdb'));
+                    if (!Number.isFinite(tmdbId) || tmdbId <= 0) return;
+                    const picked = (Array.isArray(homeForYouItems) ? homeForYouItems : [])
+                        .find((it) => Number(it?.tmdb_id ?? it?.id) === tmdbId);
+                    if (picked && typeof openMovieSpotlight === 'function') openMovieSpotlight(picked);
+                });
+
+                // Prefetch details so the spotlight opens instantly. pointerdown always;
+                // hover only on mobile (on desktop the marquee moves cards under a stationary
+                // cursor, which would fire pointerover constantly and prefetch junk).
+                const prefetch = (e) => {
+                    const card = e?.target?.closest ? e.target.closest('.foryou-card[data-foryou-tmdb]') : null;
+                    if (!card) return;
+                    const id = Number(card.getAttribute('data-foryou-tmdb'));
+                    if (Number.isFinite(id) && id > 0 && typeof prefetchMovieDetails === 'function') prefetchMovieDetails(id);
+                };
+                track.addEventListener('pointerdown', prefetch);
+                track.addEventListener('pointerover', (e) => {
+                    if (typeof isMobileViewport === 'function' && !isMobileViewport()) return;
+                    prefetch(e);
+                });
+            });
+        }
+
+        // ── Fetch + cache (perf: instant paint on repeat visits) ────────────────
+        const HOME_FORYOU_MIN = 10;            // always fill the strip to at least this many cards
+        const HOME_FORYOU_MAX_BATCHES = 5;     // page swipe_deck this many times max to reach the minimum
+        const HOME_FORYOU_LIMIT = 40;          // one big first call almost always yields >=10 → no extra round trips
+        const HOME_FORYOU_TTL_MS = 10 * 60 * 1000;   // a cached deck is "fresh" (no refetch) for 10 min
+        const HOME_FORYOU_CACHE_KEY = 'ct_foryou_cache_v1';
+
+        function homeForYouCacheHas(userId) {
+            return !!(homeForYouCache && homeForYouCache.userId === userId
+                && Array.isArray(homeForYouCache.items) && homeForYouCache.items.length);
+        }
+        function homeForYouCacheFresh(userId) {
+            return homeForYouCacheHas(userId) && (Date.now() - homeForYouCache.ts) < HOME_FORYOU_TTL_MS;
+        }
+        function hydrateHomeForYouCacheFromSession() {
+            if (homeForYouCache) return; // in-memory wins
+            try {
+                const raw = sessionStorage.getItem(HOME_FORYOU_CACHE_KEY);
+                if (!raw) return;
+                const parsed = JSON.parse(raw);
+                if (parsed && parsed.userId && Array.isArray(parsed.items) && parsed.items.length) homeForYouCache = parsed;
+            } catch (_) {}
+        }
+        function saveHomeForYouCache(userId, items) {
+            homeForYouCache = { userId, items, ts: Date.now() };
+            try { sessionStorage.setItem(HOME_FORYOU_CACHE_KEY, JSON.stringify(homeForYouCache)); } catch (_) {}
+        }
+        // Drop the cache so the next Home visit refetches — call after a rating save so a
+        // just-watched movie can't linger in the strip within the TTL window.
+        function invalidateHomeForYouCache() {
+            homeForYouCache = null;
+            homeForYouInflight = null;
+            try { sessionStorage.removeItem(HOME_FORYOU_CACHE_KEY); } catch (_) {}
+        }
+
+        // The set of tmdb_ids the viewer has already rated — used to filter the precomputed
+        // deck in case they watched one of its movies AFTER the last daily recompute (so a
+        // just-watched movie never lingers in "You Might Like"). Fail-open (empty on error).
+        async function fetchWatchedTmdbSet(userId) {
+            const set = new Set();
+            try {
+                const { data } = await supabaseClient
+                    .from('Movie Ratings')
+                    .select('Movies(tmdb_id)')
+                    .eq('user_id', userId);
+                (Array.isArray(data) ? data : []).forEach((r) => {
+                    const rel = r?.Movies;
+                    const t = Number((Array.isArray(rel) ? rel[0]?.tmdb_id : rel?.tmdb_id));
+                    if (Number.isFinite(t) && t > 0) set.add(t);
+                });
+            } catch (_) { /* fail open */ }
+            return set;
+        }
+
+        // Live deep-paging of swipe_deck — the FALLBACK when a user has no precomputed row
+        // yet (brand-new user the daily cron hasn't reached). swipe_deck already excludes
+        // watched/swiped/Recs/Bucket-List AND unreleased movies server-side. Returns [] on
+        // total failure.
+        async function fetchHomeForYouLive() {
+            const items = [];
+            const seen = new Set();
+            for (let b = 0; b < HOME_FORYOU_MAX_BATCHES && items.length < HOME_FORYOU_MIN; b += 1) {
+                // First (b=0) call asks for a big pool so ONE round trip usually suffices.
+                const limit = b === 0 ? HOME_FORYOU_LIMIT : 25;
+                const data = await callSwiftApiPublic({ action: 'swipe_deck', limit, batch: b });
+                const cards = Array.isArray(data?.cards) ? data.cards : [];
+                let added = 0;
+                for (const c of cards) {
+                    const id = Number(c?.tmdb_id ?? c?.id);
+                    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue;
+                    seen.add(id); items.push(c); added += 1;
+                }
+                if (added === 0) break; // pool exhausted — deeper batches won't add anything
+            }
+            return items;
+        }
+
+        // Returns the deck cards for a user. FAST PATH: read the daily-precomputed row from
+        // "Home Recommendations" (one indexed query, no TMDB) and filter out anything watched
+        // since the last recompute. SLOW PATH (new user, no row yet): compute live via
+        // swipe_deck so they still get picks immediately (the next cron backfills their row).
+        async function fetchHomeForYouCards(userId) {
+            if (userId && supabaseClient) {
+                try {
+                    const [recRes, watched] = await Promise.all([
+                        supabaseClient.from('Home Recommendations').select('cards').eq('user_id', userId).maybeSingle(),
+                        fetchWatchedTmdbSet(userId),
+                    ]);
+                    let cards = Array.isArray(recRes?.data?.cards) ? recRes.data.cards : [];
+                    if (cards.length) {
+                        cards = cards.filter((c) => !watched.has(Number(c?.tmdb_id ?? c?.id)));
+                        if (cards.length) return cards;
+                    }
+                } catch (_) { /* fall through to live */ }
+            }
+            return fetchHomeForYouLive();
+        }
+
+        // Returns the deck for `userId`, using the cache when fresh and DE-DUPING concurrent
+        // fetches (the boot prefetch + a Home render share one in-flight promise, so we never
+        // hit swipe_deck twice). `force` bypasses the freshness check (background revalidation)
+        // but still de-dupes in-flight.
+        function ensureHomeForYouItems(userId, { force = false } = {}) {
+            if (!force && homeForYouCacheFresh(userId)) return Promise.resolve(homeForYouCache.items);
+            if (homeForYouInflight) return homeForYouInflight;
+            homeForYouInflight = (async () => {
+                try {
+                    const items = await fetchHomeForYouCards(userId);
+                    if (items && items.length) saveHomeForYouCache(userId, items);
+                    return items;
+                } finally {
+                    homeForYouInflight = null;
+                }
+            })();
+            return homeForYouInflight;
+        }
+
+        // Warm the cache as early as possible (called from the boot sequence once auth
+        // resolves) so the FIRST Home visit paints instantly. Fire-and-forget.
+        function prefetchHomeForYou() {
+            try {
+                const userId = (typeof getActiveUserId === 'function') ? getActiveUserId() : null;
+                if (!userId || !supabaseClient) return;
+                hydrateHomeForYouCacheFromSession();
+                if (homeForYouCacheFresh(userId)) return; // already warm
+                ensureHomeForYouItems(userId).catch(() => {});
+            } catch (_) {}
+        }
+
+        async function loadHomeForYou() {
+            const wrap = document.getElementById('home-foryou');
+            const track1 = document.getElementById('home-foryou-track-1');
+            const trendingWrap = document.querySelector('.home-trending');
+            if (!track1) return;
+
+            const showTrendingFallback = () => {
+                if (wrap) wrap.style.display = 'none';
+                if (trendingWrap) trendingWrap.style.display = '';   // let CSS govern (desktop shows, mobile hidden)
+                loadTrendingNow();
+            };
+
+            const userId = (typeof getActiveUserId === 'function') ? getActiveUserId() : null;
+
+            // Logged out: can't personalize — hide the strip and show the Trending marquee instead.
+            if (!userId || !supabaseClient) { showTrendingFallback(); return; }
+
+            // The for-you strip REPLACES Trending on desktop, so hide the marquee.
+            if (trendingWrap) trendingWrap.style.display = 'none';
+            if (wrap) wrap.style.display = 'block';
+
+            hydrateHomeForYouCacheFromSession();
+
+            // Stale-while-revalidate: if we have ANY cached deck for this user, paint it
+            // INSTANTLY (0 network). Otherwise show the skeleton while the first fetch runs.
+            if (homeForYouCacheHas(userId)) {
+                homeForYouItems = homeForYouCache.items;
+                renderHomeForYou(homeForYouItems);
+            } else {
+                const track2 = document.getElementById('home-foryou-track-2');
+                const skel = Array.from({ length: 8 }).map(() => `<div class="foryou-card skel"></div>`).join('');
+                track1.innerHTML = skel;
+                if (track2) track2.innerHTML = skel;
+            }
+
+            // Fresh cache → don't touch the network at all.
+            if (homeForYouCacheFresh(userId)) return;
+
+            // Revalidate (or first-load). Guard against navigating away / switching account
+            // before it resolves so we never paint into the wrong page.
+            try {
+                const items = await ensureHomeForYouItems(userId, { force: true });
+                const stillHome = (document.body?.dataset?.page === 'home');
+                const stillSameUser = ((typeof getActiveUserId === 'function') ? getActiveUserId() : null) === userId;
+                if (!stillHome || !stillSameUser) return;
+                if (items && items.length) {
+                    homeForYouItems = items;
+                    renderHomeForYou(items);
+                } else if (!homeForYouCacheHas(userId)) {
+                    showTrendingFallback();
+                }
+            } catch (_) {
+                if (!homeForYouCacheHas(userId)) showTrendingFallback();
+            }
+        }
+
         function renderHomeSearchResults(items) {
             const results = document.getElementById('search-results');
             if (!results) return;
