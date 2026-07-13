@@ -10,14 +10,16 @@
         //   - rank    : sort 4 movies high→low by IMDb rating.
         //   - poster  : a blurred poster that sharpens with each wrong guess.
         //
-        // ALL THREE games have a Hint + a two-tap Give Up (points account for both;
-        // giving up still records a finished/"Done" result). spottle+poster share the
-        // guess-game hint (decade+genre, unlocks after N guesses); rank's hint reveals
-        // the #1 film (game_hint) and costs points on submit.
+        // EVERY game has a two-tap Give Up (giving up still records a finished/"Done"
+        // result). The three GUESS games (spottle/poster/cast) also share a ladder of
+        // progressive hint tiers that unlock as guesses are spent — era+genre → studio
+        // + box office → director → lead actor, the last omitted for `cast` so the
+        // headshot finale isn't spoiled (see spottleHints in EdgeFunc). Opening any
+        // hint costs 1 point. RANK HAS NO HINT — ordering the films is the whole puzzle.
         //
         // Cheat-resistance: the daily answers are NEVER client-readable. Progress +
         // guess-checking go through the authenticated edge actions (game_today /
-        // game_guess / game_submit / game_giveup / game_hint), which strip
+        // game_guess / game_submit / game_giveup), which strip
         // ratings/answers for unfinished games. The guess autocomplete searches ALL of TMDB via the same
         // public `search` action the Home page uses (movie titles aren't secret; the
         // server checks the guess and reveals nothing early). Route is auth-gated.
@@ -216,7 +218,7 @@
             gamesFinishedView[game] = 'results';
             if (gamesResultTimer) { clearTimeout(gamesResultTimer); gamesResultTimer = null; }
             if (game === 'spottle') renderSpottle();
-            else if (game === 'rank') { rankHintUsed = false; rankHintId = null; rankOrderIds = []; renderRank(); }
+            else if (game === 'rank') { rankOrderIds = []; renderRank(); }
             else if (game === 'poster') { posterPrevBlur = null; renderPoster(); }
             else if (game === 'cast') renderCast();
             try { window.scrollTo({ top: 0, behavior: 'auto' }); } catch (_) {}
@@ -686,8 +688,7 @@
         const gameHintShown = { spottle: 0, poster: 0, cast: 0 };
         const gameGiveUpArmed = { spottle: false, poster: false, rank: false, cast: false };  // two-tap arm
         let gameGiveUpTimer = null;
-        let rankHintUsed = false;            // rank: was the #1 hint revealed this play?
-        let rankHintId = null;               // rank: tmdb_id of the hinted #1 film
+        // (Rank has no hint — ordering the films IS the puzzle — so it has no hint state.)
 
         // "Christopher Nolan" -> "C. Nolan"; single-word names pass through.
         function spottleAbbrevName(name) {
@@ -977,9 +978,11 @@
         }
 
         // ---- Cast ("Starring") ---------------------------------------------------
-        // Guess the daily film from its cast. The server reveals headshots
-        // progressively (least-billed first, lead actor last), one more per wrong
-        // guess; only the revealed slice is client-readable (full cast once done).
+        // Guess the daily film from its cast. The puzzle always uses EXACTLY the film's
+        // top 6 billed actors; the server reveals them progressively by billing role
+        // (least-billed first, the LEAD always 6th/last — so the final guess knows the
+        // lead), one more per wrong guess. Only the revealed slice is client-readable
+        // (all six once done).
         const CAST_SILHOUETTE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
 
         function castFaceHtml(c, isNew) {
@@ -1091,23 +1094,18 @@
             if (!play) return;
             if (!d) { play.innerHTML = gamePlayHeadHtml('rank') + '<div class="games-error">No puzzle available today.</div>'; return; }
             if (d.done) { renderRankResult(d); return; }
-            // Initialize the order ONCE per play (openGame clears it) so re-renders
-            // triggered by the hint / give-up controls preserve the user's arrangement.
+            // Initialize the order ONCE per play (openGame clears it) so a re-render
+            // triggered by the give-up control preserves the user's arrangement.
             if (!rankOrderIds.length) rankOrderIds = (d.movies || []).map((m) => Number(m.tmdb_id));
             const armed = !!gameGiveUpArmed.rank;
-            const hintBtn = rankHintUsed
-                ? `<button class="spottle-topbtn spottle-hint-btn is-locked" type="button" disabled>${SPOTTLE_LOCK_ICON} Hint used</button>`
-                : `<button class="spottle-topbtn spottle-hint-btn" type="button" data-rank-hint>${SPOTTLE_LOCK_ICON} Hint</button>`;
-            const hintBanner = rankHintUsed
-                ? '<div class="spottle-hint-reveal">💡 Hint: the top-rated film was placed at #1.</div>' : '';
+            // Rank has NO hint — ordering the films IS the puzzle — so the top bar is
+            // just the counter + Give Up.
             play.innerHTML = `
                 ${gamePlayHeadHtml('rank')}
                 <div class="spottle-topbar">
-                    ${hintBtn}
                     <div class="spottle-counter">Order ${(d.movies || []).length || 6} films</div>
                     <button class="spottle-topbtn spottle-giveup-btn ${armed ? 'is-armed' : ''}" type="button" data-rank-giveup>${SPOTTLE_FLAG_ICON} ${armed ? 'Confirm' : 'Give Up'}</button>
                 </div>
-                ${hintBanner}
                 <div class="rank-hint">Drag the cards (or use ▲▼) to order them from <strong>highest</strong> to <strong>lowest</strong> IMDb rating.</div>
                 <div id="rank-list" class="rank-list"></div>
                 <button class="rank-submit" type="button" data-rank-submit>
@@ -1126,25 +1124,6 @@
             rankOrderIds[i] = rankOrderIds[j];
             rankOrderIds[j] = tmp;
             paintRankList();
-        }
-
-        // Rank hint: reveal the single highest-rated film and place it at #1 (the
-        // user can still rearrange). Costs points on submit (server penalty).
-        async function rankRevealHint() {
-            const d = gamesTodayData?.games?.rank;
-            if (!d || d.done || rankHintUsed) return;
-            try {
-                const res = await gamesApi({ action: 'game_hint', game: 'rank' });
-                if (!res?.ok || !res.tmdb_id) { showToast(res?.message || 'No hint available.', { level: 'warn' }); return; }
-                rankHintUsed = true;
-                rankHintId = Number(res.tmdb_id);
-                const i = rankOrderIds.indexOf(rankHintId);
-                if (i > 0) { rankOrderIds.splice(i, 1); rankOrderIds.unshift(rankHintId); }
-                renderRank();   // rankOrderIds is preserved; re-render shows the banner + disabled button
-                try { showToast('The top-rated film is now #1.', { durationMs: 1800 }); } catch (_) {}
-            } catch (e) {
-                showToast(String(e?.message || e), { level: 'error' });
-            }
         }
 
         // Rank give-up: two-tap confirm, then end the game unsolved and reveal the
@@ -1290,7 +1269,7 @@
             const btnHtml = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
             try {
-                const res = await gamesApi({ action: 'game_submit', order: rankOrderIds, hint_used: rankHintUsed });
+                const res = await gamesApi({ action: 'game_submit', order: rankOrderIds });
                 if (!res?.ok) { showToast(res?.message || 'Could not submit ranking.', { level: 'warn' }); if (btn) { btn.disabled = false; btn.innerHTML = btnHtml; } return; }
                 const d = gamesTodayData.games.rank;
                 d.done = true; d.solved = !!res.solved; d.score = res.score || 0;
@@ -1487,7 +1466,6 @@
             if (hintBtn) { e.preventDefault(); gameToggleHint(hintBtn.getAttribute('data-game-hint')); return; }
             const giveupBtn = t.closest('[data-game-giveup]');
             if (giveupBtn) { e.preventDefault(); gameGiveUp(giveupBtn.getAttribute('data-game-giveup')); return; }
-            if (t.closest('[data-rank-hint]')) { e.preventDefault(); rankRevealHint(); return; }
             if (t.closest('[data-rank-giveup]')) { e.preventDefault(); rankGiveUp(); return; }
             const mv = t.closest('[data-rank-move]');
             if (mv) { e.preventDefault(); rankMove(mv.getAttribute('data-rank-id'), mv.getAttribute('data-rank-move')); return; }

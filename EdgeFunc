@@ -891,22 +891,27 @@ function applyMovieSetSourceToRule(rule, source, films) {
 // the UTC cron that seeds it — the day rolls over at 12:00 AM Pacific.
 const GAME_LIST = ["spottle", "rank", "poster", "cast"];
 const GAME_MAX_GUESSES = { spottle: 10, poster: 6, cast: 6 };
-// Cast ("Starring"): the daily film needs at least this many top-billed cast
-// members for a fair progressive reveal (one new face per wrong guess).
-const GAME_CAST_MIN = 4;
+// Cast ("Starring"): the puzzle shows EXACTLY this many cast members — the film's
+// top 6 by billing order — revealed least-billed first, one more per wrong guess,
+// so the LEAD (billing #1) is always the 6th and final face (visible on the last
+// guess). The daily film therefore needs at least 6 named cast members.
+const GAME_CAST_SHOW = 6;
+const GAME_CAST_MIN = GAME_CAST_SHOW;
 const GAME_POSTER_MAX_BLUR = 36; // px at zero guesses; steps to 0 exactly on the 6th guess
 const GAME_RANK_COUNT = 6;
 // Rank reuses films over time (6/day burns the pool fast), but NO two daily rank
 // sets may share more than this many of their 6 films.
 const GAME_RANK_MAX_SHARED = 4;
-// Every guess-based game (spottle/poster/cast) surfaces the SAME ordered set of
-// increasingly-revealing hint tiers (era/genre → studio/box office → lead actor →
-// director; see spottleHints). Rather than hand-picking unlock points per game, the
-// tiers are spread PROPORTIONALLY across each game's own guess budget
-// (GAME_MAX_GUESSES) so the hint-to-guess ratio stays consistent no matter how many
-// guesses a game allows — a game with fewer guesses just unlocks its hints closer
-// together. e.g. with the usual 4 tiers: spottle (10 guesses) → @2/4/6/8 (~a hint
-// every 2 guesses); poster + cast (6 guesses) → @2/3/4/5 (~a hint every guess).
+// The guess-based games (spottle/poster/cast) surface an ordered ladder of
+// increasingly-revealing hint tiers (era/genre → studio/box office → director →
+// lead actor; see spottleHints, where "cast" drops the lead-actor tier so the
+// headshot finale isn't spoiled). Unlock points are normally spread PROPORTIONALLY
+// across each game's own guess budget (GAME_MAX_GUESSES) by gameHintThresholds, so
+// the hint-to-guess ratio stays consistent no matter how many guesses a game allows:
+// spottle (4 tiers / 10 guesses) → @2/4/6/8; poster (4 tiers / 6 guesses) → @2/3/4/5.
+// GAME_HINT_AFTER pins an explicit schedule for a game that wants one — cast (3 tiers
+// / 6 guesses) is spaced @2/4/5 rather than the even 2/3/5. Rank has NO hints.
+const GAME_HINT_AFTER = { cast: [2, 4, 5] };
 // Returns the guesses-after thresholds for `n` tiers, strictly increasing, leaving
 // guess 1 hint-free and the last tier usable before the final guess.
 function gameHintThresholds(game, n) {
@@ -922,9 +927,9 @@ function gameHintThresholds(game, n) {
   }
   return out;
 }
-// Rank: the hint reveals the single highest-rated film (locks its #1 slot). Using
-// it costs this many points on submit (offsets the free correct placement).
-const GAME_RANK_HINT_PENALTY = 2;
+// Rank has NO hint — ordering 6 films by rating is the whole puzzle, and revealing
+// the #1 handed over a sixth of the answer. (The old game_hint action + its
+// GAME_RANK_HINT_PENALTY were removed.)
 
 function gamePuzzleDatePT(d = new Date()) {
   try {
@@ -1044,10 +1049,19 @@ function formatBoxOffice(n) {
 // Progressive, increasingly-revealing movie hints (used by spottle + poster + cast).
 // Returns an ORDERED list of hint tiers, each with the guess count it unlocks after
 // (`after`). The FIRST tier is intentionally vague (decade + primary genre); later
-// tiers reveal more (studio + box office → lead actor → director, the most
-// revealing). Only non-empty tiers are included, then spread evenly across the game's
-// guess budget by gameHintThresholds. The server sends a tier's `text` only once
-// unlocked (see gameHintsForResponse) so content can't be read early.
+// tiers reveal more (studio + box office → director → lead actor, the most revealing
+// — the marquee name is the biggest giveaway, so it comes last).
+//
+// The LEAD ACTOR tier is DELIBERATELY OMITTED for the "cast" (Starring) game: the
+// whole point of that game is the progressive headshot reveal, whose finale is the
+// lead's face on the 6th/last guess (see gameCastReveal) — naming the lead in a hint
+// would spoil that reveal a guess early. Starring therefore plays with 3 tiers.
+//
+// Only non-empty tiers are included (a tier whose data the movie lacks is dropped),
+// then unlock points come from GAME_HINT_AFTER when that game pins them explicitly,
+// else are spread evenly across the guess budget by gameHintThresholds. The server
+// sends a tier's `text` only once unlocked (see gameHintsForResponse) so content
+// can't be read early.
 function spottleHints(a, game) {
   if (!a || typeof a !== "object") return [];
   const yr = Number(a.release_year);
@@ -1064,12 +1078,13 @@ function spottleHints(a, game) {
   if (t1) raw.push({ label: "Era & genre", text: t1 });
   const t2 = [studio && `Studio: ${studio}`, box && `Box office ${box}`].filter(Boolean).join(" · ");
   if (t2) raw.push({ label: "Studio & box office", text: t2 });
-  if (lead) raw.push({ label: "Lead actor", text: `Stars ${lead}` });
   if (director) raw.push({ label: "Director", text: `Directed by ${director}` });
+  if (lead && game !== "cast") raw.push({ label: "Lead actor", text: `Stars ${lead}` });
 
-  // Spread however many tiers we actually built evenly across THIS game's guesses.
-  const thr = gameHintThresholds(game, raw.length);
-  return raw.map((h, i) => ({ ...h, after: thr[i] }));
+  // Unlock points: an explicit per-game schedule if pinned, else spread evenly.
+  const pinned = GAME_HINT_AFTER[game];
+  const thr = pinned ? pinned.slice(0, raw.length) : gameHintThresholds(game, raw.length);
+  return raw.map((h, i) => ({ ...h, after: thr[i] ?? gameHintThresholds(game, raw.length)[i] }));
 }
 
 // Shape the hint tiers for a client response: reveal a tier's TEXT only once the
@@ -1175,14 +1190,23 @@ function gamePosterBlur(attempts, max, done) {
   return Math.round(GAME_POSTER_MAX_BLUR * frac);
 }
 
-// Cast ("Starring") progressive reveal: the cast headshots visible for the current
-// attempt count. Reveals the LEAST-prominent billed actor first and adds one more
-// (working UP the billing order toward the lead) per wrong guess, so the marquee
-// name is the last clue. Server-controlled so the full cast can't be read early —
-// only the currently-revealed slice is returned (all of it once the game is done).
-// Each face carries only name + headshot path (no character — too revealing).
-function gameCastReveal(answer, attempts, done) {
+// The EXACTLY-6 cast members a "Starring" puzzle is played with: the film's top 6
+// by TMDB billing order (top_cast is stored billing-ordered, so index 0 = the lead).
+// Anything billed below 6th is never shown.
+function gameCastPuzzleList(answer) {
   const cast = Array.isArray(answer?.top_cast) ? answer.top_cast : [];
+  return cast.filter((c) => c && String(c.name || "").trim()).slice(0, GAME_CAST_SHOW);
+}
+
+// Cast ("Starring") progressive reveal: the cast headshots visible for the current
+// attempt count. Reveals strictly by BILLING ROLE — the least-prominent of the six
+// first, adding one more (working UP the billing order toward the lead) per wrong
+// guess — so the LEAD is always the 6th and final face, shown on the player's last
+// guess. Server-controlled so the full cast can't be read early: only the currently
+// revealed slice is returned (all six once the game is done). Each face carries only
+// name + headshot path (no character — too revealing).
+function gameCastReveal(answer, attempts, done) {
+  const cast = gameCastPuzzleList(answer);
   if (!cast.length) return [];
   const lite = (c) => ({ name: String(c?.name || "").trim(), profile_path: c?.profile_path || null });
   if (done) return cast.map(lite);
@@ -2304,9 +2328,10 @@ Deno.serve(async (req) => {
         seeded[game] = error ? `error: ${error.message}` : "seeded";
       }
 
-      // cast ("Starring"): a DISTINCT film with enough top-billed cast for a fair
-      // progressive reveal (one face per wrong guess). Scan the remaining shuffled
-      // pool for the first candidate with >= GAME_CAST_MIN named cast members.
+      // cast ("Starring"): a DISTINCT film with enough top-billed cast for the fixed
+      // 6-face progressive reveal (one face per wrong guess, lead revealed 6th/last).
+      // Scan the remaining shuffled pool for the first candidate with >= GAME_CAST_MIN
+      // (6) named cast members.
       if (!wantsGame("cast")) {
         // not requested — skip
       } else if (alreadySeeded.has("cast") && !force) {
@@ -2735,37 +2760,7 @@ Deno.serve(async (req) => {
       }, 200);
     }
 
-    // ---- Games: reveal a hint for the RANK game (authenticated) ----------------
-    // Reveals ONLY the single highest-rated film (its correct #1 slot). The client
-    // places it at the top; using the hint costs GAME_RANK_HINT_PENALTY points on
-    // submit (client passes hint_used, exactly like spottle/poster trust it).
-    if (action === "game_hint") {
-      const authHeader = req.headers.get("Authorization") ?? "";
-      if (!authHeader) return jsonResponse({ code: 401, message: "Missing Authorization bearer token." }, 401);
-      const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        global: { headers: { Authorization: authHeader } },
-      });
-      const { data: userData, error: userErr } = await supabaseUserClient.auth.getUser();
-      const me = userData?.user || null;
-      if (userErr || !me?.id) return jsonResponse({ code: 401, message: "Invalid or expired session." }, 401);
-
-      const game = String(body?.game || "").trim().toLowerCase();
-      if (game !== "rank") return jsonResponse({ ok: false, message: "No hint for this game." }, 200);
-
-      const date = gamePuzzleDatePT();
-      const { data: dailyRow } = await supabaseAdmin
-        .from("Game Daily").select("payload").eq("puzzle_date", date).eq("game", "rank").maybeSingle();
-      const movies = Array.isArray(dailyRow?.payload?.movies) ? dailyRow.payload.movies : [];
-      if (!movies.length) return jsonResponse({ ok: false, message: "No puzzle for today." }, 200);
-
-      // Don't reveal after the game is already finished.
-      const { data: resRow } = await supabaseAdmin
-        .from("Game Results").select("id").eq("user_id", me.id).eq("puzzle_date", date).eq("game", "rank").maybeSingle();
-      if (resRow) return jsonResponse({ ok: false, done: true, message: "Already played today." }, 200);
-
-      const top = movies.slice().sort((a, b) => Number(b.imdb_rating) - Number(a.imdb_rating))[0];
-      return jsonResponse({ ok: true, game: "rank", position: 1, tmdb_id: Number(top.tmdb_id) }, 200);
-    }
+    // (The rank-only `game_hint` action was REMOVED — Rank It has no hint.)
 
     // ---- Games: backfill box office + studio logo for the pool (cron) ----------
     // build_game_pool skips movies already in "Game Pool", so it never refreshes
@@ -2864,17 +2859,17 @@ Deno.serve(async (req) => {
         && new Set(order).size === movies.length && order.every((id) => ids.has(id));
       if (!validPermutation) return jsonResponse({ ok: false, message: "Invalid ordering." }, 200);
 
-      // Score = 2 points per movie placed in its correct position, minus a flat
-      // penalty if the #1 hint was used (offsets the free correct placement).
+      // Score = 2 points per movie placed in its correct position. (Rank has no hint,
+      // so there's no penalty to subtract — any legacy `hint_used` in the body is
+      // ignored.)
       let correctPositions = 0;
       trueOrder.forEach((m, i) => { if (Number(order[i]) === Number(m.tmdb_id)) correctPositions++; });
       const solved = correctPositions === order.length;
-      const usedHint = !!body?.hint_used;
-      const score = Math.max(0, correctPositions * 2 - (usedHint ? GAME_RANK_HINT_PENALTY : 0));
+      const score = Math.max(0, correctPositions * 2);
 
       const { error: upErr } = await supabaseAdmin.from("Game Results").upsert({
         user_id: me.id, puzzle_date: date, game, solved, attempts: 1, score,
-        guesses: [{ order, hint_used: usedHint }], completed_at: new Date().toISOString(),
+        guesses: [{ order }], completed_at: new Date().toISOString(),
       }, { onConflict: "user_id,puzzle_date,game" });
       if (upErr) return jsonResponse({ ok: false, message: `Save failed: ${upErr.message}` }, 200);
 
