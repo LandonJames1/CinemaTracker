@@ -115,6 +115,13 @@
                 if (prevPage === 'discover' && page !== 'discover') {
                     try { discoverFlushAppeal(); } catch (_) {}
                 }
+                // Leaving the log form → NOW mirror the in-progress review to "Review
+                // Drafts" (must run before root.innerHTML wipes the form). While the user
+                // is still on the form nothing is written server-side, so the To Rate
+                // badge can't pop up mid-review.
+                if (prevPage === 'submit' && page !== 'submit') {
+                    try { flushDiaryDraft(); } catch (_) {}
+                }
                 if (navMode === 'push' && page !== prevPage) {
                     const entry = {
                         page: prevPage,
@@ -382,32 +389,9 @@
                         return;
                     }
 
-                    // If the user is logged in and already has a rating for this movie, prevent duplicates.
-                    try {
-                        if (supabaseClient) {
-                            const { data } = await supabaseClient.auth.getSession();
-                            const authedUser = data?.session?.user;
-                            if (authedUser?.id) {
-                                const movie_id = await resolveDbMovieIdFromSelectedMovie(this.selectedMovie);
-                                if (movie_id) {
-                                    const alreadyRated = await hasExistingMovieRating({ user_id: authedUser.id, movie_id });
-                                    if (alreadyRated) {
-                                        showToast('This movie is already in your diary. Use “Update Existing” instead.', { level: 'warn' });
-                                        return;
-                                    }
-                                }
-                            }
-                        }
-                    } catch (_) {}
-
-                    // If we already have full details, just navigate.
-                    if (this.selectedMovie?.detailsReadonly) {
-                        this.navigate('submit', 'new');
-                        return;
-                    }
-
+                    const hasDetails = Boolean(this.selectedMovie?.detailsReadonly);
                     const tmdb_id = Number(this.selectedMovie?.tmdb_id ?? this.selectedMovie?.id);
-                    if (!Number.isFinite(tmdb_id) || tmdb_id <= 0) {
+                    if (!hasDetails && (!Number.isFinite(tmdb_id) || tmdb_id <= 0)) {
                         showToast('Please select a movie from the search dropdown first.', { level: 'warn' });
                         return;
                     }
@@ -418,7 +402,42 @@
                         btn.style.opacity = 0.85;
                     }
 
-                    const details = await callSwiftApiGetMovieDetails({ tmdb_id });
+                    // The duplicate guard and the details fetch don't depend on each
+                    // other — run them together instead of back to back. Details go
+                    // through prefetchMovieDetails, so a movie whose spotlight was just
+                    // open (or merely hovered) is already cached and costs nothing.
+                    const dupCheck = (async () => {
+                        try {
+                            if (!supabaseClient) return false;
+                            const { data } = await supabaseClient.auth.getSession();
+                            const authedUser = data?.session?.user;
+                            if (!authedUser?.id) return false;
+                            const movie_id = await resolveDbMovieIdFromSelectedMovie(this.selectedMovie);
+                            if (!movie_id) return false;   // not in Movies → can't be rated
+                            return await hasExistingMovieRating({ user_id: authedUser.id, movie_id });
+                        } catch (_) { return false; }
+                    })();
+
+                    const [alreadyRated, details] = await Promise.all([
+                        dupCheck,
+                        hasDetails ? Promise.resolve(null) : prefetchMovieDetails(tmdb_id),
+                    ]);
+
+                    if (alreadyRated) {
+                        showToast('This movie is already in your diary. Use “Update Existing” instead.', { level: 'warn' });
+                        return;
+                    }
+
+                    // Already have full details → straight to the form.
+                    if (hasDetails) {
+                        this.navigate('submit', 'new');
+                        return;
+                    }
+
+                    if (!details || details._error) {
+                        showToast('Failed to load movie details. Please try again.', { level: 'warn' });
+                        return;
+                    }
 
                     // Shape the prefill object to match the submit page expectations.
                     const genres = Array.isArray(details?.genres)
@@ -533,34 +552,26 @@
                         return;
                     }
 
-                    const existing = await getExistingMovieRatingRow({ user_id: authedUser.id, movie_id });
+                    // Everything below depends only on movie_id, so fetch it all at once:
+                    // the rating row, the Movies row (to populate the form's detail
+                    // fields), and this user's watches for the movie — the last of which
+                    // is ONE query that yields earliest + latest + count.
+                    const [existing, movieRow, watchLogs] = await Promise.all([
+                        getExistingMovieRatingRow({ user_id: authedUser.id, movie_id }),
+                        getDbMovieRowById(movie_id).catch(() => null),
+                        getWatchLogsForMovie({ user_id: authedUser.id, movie_id }).catch(() => []),
+                    ]);
+
                     if (!existing) {
                         showToast('No existing rating found for this movie. Use “Log as New Entry” instead.');
                         return;
                     }
 
-                    // Pull movie details from the DB so the update form is fully populated.
-                    let movieRow = null;
-                    try {
-                        movieRow = await getDbMovieRowById(movie_id);
-                    } catch (_) {
-                        movieRow = null;
-                    }
-
-                    const latestWatch = await getLatestWatchLog({ user_id: authedUser.id, movie_id });
-                    const earliestWatch = await getEarliestWatchLog({ user_id: authedUser.id, movie_id });
-                    let watchCount = null;
-                    try {
-                        watchCount = await getWatchLogCount({ user_id: authedUser.id, movie_id });
-                    } catch (_) {
-                        watchCount = null;
-                    }
-                    const watchedTimes = (() => {
-                        const n = Number(watchCount);
-                        if (Number.isFinite(n) && n > 0) return n;
-                        // Back-compat: older data may be missing Watch Logs rows.
-                        return 1;
-                    })();
+                    const earliestWatch = watchLogs.length ? watchLogs[0] : null;
+                    const latestWatch = watchLogs.length ? watchLogs[watchLogs.length - 1] : null;
+                    const watchedTimes = watchLogs.length > 0
+                        ? watchLogs.length
+                        : 1;   // back-compat: older data may be missing Watch Logs rows
                     const defaultDate = getLocalISODate();
                     const date = existing?.[COL_WATCH_DATE]
                         ? String(existing[COL_WATCH_DATE])
@@ -647,7 +658,8 @@
 
                     if (needsTmdbDetails) {
                         try {
-                            const details = await callSwiftApiGetMovieDetails({ tmdb_id });
+                            // Cached when the movie's spotlight was just open (or hovered).
+                            const details = await prefetchMovieDetails(tmdb_id);
 
                             if (!resolvedDirector) {
                                 resolvedDirector = String(details?.director || '').trim();

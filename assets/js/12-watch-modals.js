@@ -1075,6 +1075,26 @@
             return data[0] || null;
         }
 
+        // All of a user's watches for one movie, oldest first — so a caller that needs
+        // the earliest + latest + the count (the Update Ratings form) gets all three
+        // from ONE round-trip instead of three.
+        async function getWatchLogsForMovie({ user_id, movie_id }) {
+            if (!supabaseClient) throw new Error('Supabase client not initialized.');
+            if (!user_id) throw new Error('Missing user_id.');
+            if (!movie_id) throw new Error('Missing movie_id.');
+
+            const { data, error } = await supabaseClient
+                .from('Watch Logs')
+                .select(`id, watch_method, ${COL_WATCH_DATE}`)
+                .eq('user_id', user_id)
+                .eq('movie_id', movie_id)
+                .order(COL_WATCH_DATE, { ascending: true })
+                .order('id', { ascending: true });
+
+            if (error) throw error;
+            return Array.isArray(data) ? data : [];
+        }
+
         async function getWatchLogCount({ user_id, movie_id }) {
             if (!supabaseClient) throw new Error('Supabase client not initialized.');
             if (!user_id) throw new Error('Missing user_id.');

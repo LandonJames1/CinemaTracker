@@ -464,10 +464,10 @@
         function spotlightActionsHtml() {
             const rated = movieSpotlightState.rated;
             const primary = rated
-                ? `<button type="button" class="ms-action ms-action-secondary" onclick="movieSpotlightAction('quick')">${icons.refreshCw} Quick Watch +1</button>
-                   <button type="button" class="ms-action ms-action-primary" onclick="movieSpotlightAction('update')">${icons.edit3} Update Ratings</button>`
-                : `<button type="button" class="ms-action ms-action-secondary" onclick="movieSpotlightAction('later')">${icons.clock} Rate Later</button>
-                   <button type="button" class="ms-action ms-action-primary" onclick="movieSpotlightAction('new')">${icons.plusCircle} Log as New Entry</button>`;
+                ? `<button type="button" class="ms-action ms-action-secondary" onclick="movieSpotlightAction('quick', this)">${icons.refreshCw} Quick Watch +1</button>
+                   <button type="button" class="ms-action ms-action-primary" onclick="movieSpotlightAction('update', this)">${icons.edit3} Update Ratings</button>`
+                : `<button type="button" class="ms-action ms-action-secondary" onclick="movieSpotlightAction('later', this)">${icons.clock} Rate Later</button>
+                   <button type="button" class="ms-action ms-action-primary" onclick="movieSpotlightAction('new', this)">${icons.plusCircle} Log as New Entry</button>`;
             return `
                 <div class="ms-actions-row ms-actions-primary">${primary}</div>
                 <div class="ms-actions-row">
@@ -476,16 +476,50 @@
                 </div>`;
         }
 
-        // The action buttons reuse the existing Home flow. Navigation actions close
-        // the spotlight first; modal-opening actions also close it so they don't stack.
-        function movieSpotlightAction(kind) {
+        // The action buttons reuse the existing Home flow. Modal-opening actions close
+        // the spotlight first so they don't stack. The two that navigate to the log form
+        // (`new`/`update`) may still need a details/diary fetch, so they keep the
+        // spotlight OPEN with a spinner on the clicked button until the form is ready —
+        // closing first left the user staring at the old page with no feedback, which
+        // read as the app crashing.
+        function movieSpotlightAction(kind, btnEl) {
             const movie = movieSpotlightState.movie;
             try { if (movie) { router.selectedMovie = movie; router.pendingTitle = movie?.title || ''; } } catch (_) {}
+
+            if (kind === 'new' || kind === 'update') {
+                const btn = btnEl || null;
+                const originalHTML = btn ? btn.innerHTML : null;
+                if (btn) {
+                    btn.innerHTML = `${icons.loader} Loading…`;
+                    btn.disabled = true;
+                    btn.style.opacity = '0.85';
+                }
+                const finish = () => {
+                    if (btn && originalHTML !== null) {
+                        btn.innerHTML = originalHTML;
+                        btn.disabled = false;
+                        btn.style.opacity = '';
+                    }
+                    closeMovieSpotlight();
+                };
+                let p;
+                try {
+                    p = (kind === 'new') ? router.startNewEntry() : router.startUpdateRatings();
+                } catch (e) {
+                    try { emitLog('Spotlight action failed: ' + String(e?.message || e)); } catch (_) {}
+                    finish();
+                    return;
+                }
+                Promise.resolve(p).then(finish, (e) => {
+                    try { emitLog('Spotlight action failed: ' + String(e?.message || e)); } catch (_) {}
+                    finish();
+                });
+                return;
+            }
+
             closeMovieSpotlight();
             try {
-                if (kind === 'new') router.startNewEntry();
-                else if (kind === 'later') saveMovieForLater(movie);
-                else if (kind === 'update') router.startUpdateRatings();
+                if (kind === 'later') saveMovieForLater(movie);
                 else if (kind === 'quick') router.quickIncrement();
                 else if (kind === 'list') openAddToListModal();
                 else if (kind === 'recommend') openRecModalFromHome();
@@ -544,10 +578,20 @@
             }
 
             if (tab === 'details') {
-                if (loading) {
+                // Paint whatever the OPENER already gave us (Lists carry director/genre/
+                // MPA/runtime/IMDb; search + feed carry year/genre) instead of blanking
+                // the whole tab behind a spinner — the details fetch then fills the gaps.
+                // Only a movie we know nothing about gets the bare spinner.
+                const hasAny = Boolean(mv.director) || mv.genres.length > 0 || Boolean(mv.mpa)
+                    || Boolean(mv.runtime) || Boolean(mv.year)
+                    || typeof mv.imdb_rating_pct === 'number';
+                if (loading && !hasAny) {
                     return `<div class="ms-loading"><div class="discover-spinner discover-spinner-sm"></div><span>Loading details…</span></div>`;
                 }
-                return spotlightDetailsCardsHtml(mv);
+                const cards = spotlightDetailsCardsHtml(mv);
+                return loading
+                    ? `${cards}<div class="ms-loading ms-loading-inline"><div class="discover-spinner discover-spinner-sm"></div><span>Loading more…</span></div>`
+                    : cards;
             }
 
             // Overview (default)

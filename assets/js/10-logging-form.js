@@ -463,6 +463,14 @@
         const DIARY_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // expire after 7 days
         let diaryDraftSaveTimer = null;
         let diaryDraftGlobalsBound = false;
+        // The server ("Review Drafts") mirror is written ONLY when the user leaves the
+        // form or the app is backgrounded/closed — never while they're still typing.
+        // That table feeds the To Rate tab + the red "still to rate" badge, and a badge
+        // appearing mid-review (while the user is just thinking) reads as a bug.
+        // localStorage still autosaves on every keystroke (device-local, no badge), so a
+        // crash/refresh mid-typing is still recoverable.
+        let diaryDraftDisabled = false;   // set once the draft is saved/discarded, so the
+                                          // leave-the-page flush can't resurrect it
         // Watch info (date + method) carried in from a "Rate Later" / To Rate draft so
         // the post-save Watch Details prompt can SKIP re-asking those (it still asks
         // "have you watched this before?"). Set when a draft is surfaced on form open;
@@ -668,13 +676,16 @@
             return false;
         }
 
-        function saveDiaryDraftNow() {
+        // `server:true` also mirrors the draft to the "Review Drafts" table — only done
+        // on the way OUT of the form (see flushDiaryDraft), never while typing.
+        function saveDiaryDraftNow({ server = false } = {}) {
             try {
+                if (diaryDraftDisabled) return;
                 const ctx = diaryDraftContext();
                 if (!ctx) return;
                 const fields = collectDiaryDraftFields();
                 const store = readDiaryDraftStore();
-                const identity = diaryDraftServerIdentity();
+                const identity = server ? diaryDraftServerIdentity() : null;
                 if (!diaryDraftHasContent(fields)) {
                     if (store[ctx.key]) { delete store[ctx.key]; writeDiaryDraftStore(store); }
                     // Drop an empty server draft too, but PRESERVE a watch-only draft
@@ -696,18 +707,31 @@
                 // Watch columns are intentionally omitted so a "Rate Later" watch_date/
                 // method already on the row is preserved (upsert only sets sent columns).
                 if (identity) {
-                    upsertReviewDraft({ ...identity, ...diaryDraftRatingColumns(fields) });
+                    upsertReviewDraft({ ...identity, ...diaryDraftRatingColumns(fields) })
+                        .then(() => { try { refreshNavBadges(); } catch (_) {} }, () => {});
                 }
             } catch (_) {}
         }
 
+        // Local-only autosave (no server write → no To Rate badge while still typing).
         function scheduleDiaryDraftSave() {
             try { clearTimeout(diaryDraftSaveTimer); } catch (_) {}
-            diaryDraftSaveTimer = setTimeout(saveDiaryDraftNow, 600);
+            diaryDraftSaveTimer = setTimeout(() => saveDiaryDraftNow({ server: false }), 600);
+        }
+
+        // Called when the user LEAVES the form (router.navigate away) or the app is
+        // hidden/closed — this is the only path that writes the server draft row.
+        function flushDiaryDraft() {
+            try { clearTimeout(diaryDraftSaveTimer); } catch (_) {}
+            saveDiaryDraftNow({ server: true });
         }
 
         function clearDiaryDraftForCurrentForm() {
             try {
+                // The form is still on screen after a save/discard (success modal), so
+                // stop any later flush (navigate-away / pagehide) from re-creating it.
+                diaryDraftDisabled = true;
+                try { clearTimeout(diaryDraftSaveTimer); } catch (_) {}
                 const ctx = diaryDraftContext();
                 if (ctx) {
                     const store = readDiaryDraftStore();
@@ -817,11 +841,11 @@
         function ensureDiaryDraftGlobalListeners() {
             if (diaryDraftGlobalsBound) return;
             diaryDraftGlobalsBound = true;
-            const flush = () => { try { clearTimeout(diaryDraftSaveTimer); } catch (_) {} saveDiaryDraftNow(); };
-            // saveDiaryDraftNow no-ops off the submit page (no entryType input), so
-            // these can stay bound for the app's lifetime.
-            window.addEventListener('pagehide', flush);
-            document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush(); });
+            // flushDiaryDraft no-ops off the submit page (no entryType input), so these
+            // can stay bound for the app's lifetime. Leaving the app = a "leave", so this
+            // is one of the two moments the server draft row (and its badge) is written.
+            window.addEventListener('pagehide', flushDiaryDraft);
+            document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushDiaryDraft(); });
         }
 
         // Wire up autosave + the restore banner. Called from the router's submit
@@ -829,6 +853,7 @@
         function initDiaryDraftAutosave() {
             const form = document.querySelector('#app-root form');
             if (!form) return;
+            diaryDraftDisabled = false;   // fresh form → drafting is live again
             const ctx = diaryDraftContext();
             if (!ctx) { diaryDraftForceRestore = false; return; } // new entries only
             ensureDiaryDraftGlobalListeners();

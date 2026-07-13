@@ -4237,7 +4237,7 @@
                         return `
                             <div class="lists-movie-card${recsNewByMovieId.has(String(id)) ? ' is-new' : ''}">
                                 <div class="lists-poster-wrap">
-                                    <button type="button" class="lists-poster-btn" data-lists-action="open_movie" data-movie-id="${escapeHtml(String(id))}" title="Open entry">
+                                    <button type="button" class="lists-poster-btn" data-lists-action="open_movie" data-movie-id="${escapeHtml(String(id))}" title="Open entry"${(Number.isFinite(tmdb_id) && tmdb_id > 0) ? ` onpointerdown="if(typeof prefetchMovieDetails==='function')prefetchMovieDetails(${tmdb_id})"` : ''}>
                                         <div class="lists-poster" style="width:100%; aspect-ratio:2/3;">
                                             <div class="library-poster-flip">
                                                 <div class="library-poster-flip-inner">

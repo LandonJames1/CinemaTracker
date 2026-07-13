@@ -272,6 +272,12 @@ function uniqStrings(arr) {
 // Features available at AI Picks rerank time: { genres:[names], year, vote_average }.
 // People/runtime affinity live in the profile too and will feed the per-movie
 // predictor once full movie details are available (e.g. the future swipe deck).
+// How recently a stored IMDb rating must have been fetched for the public "details"
+// action to trust it and SKIP the OMDb call. OMDb is a serial external round-trip on
+// the critical path of every Movie Spotlight open, and the daily refresh_imdb_ratings
+// cron rotates the whole catalog — so anything fresher than this is worth reusing.
+const DETAILS_IMDB_STALE_MS = 30 * 24 * 60 * 60 * 1000;   // 30 days
+
 const TASTE_GENRE_WEIGHT = 1.0;        // genre affinity is the strongest available signal
 const TASTE_KEYWORD_WEIGHT = 0.8;      // theme/keyword affinity (only when keywords are known)
 const TASTE_DECADE_WEIGHT = 0.5;       // era is a weaker, noisier signal
@@ -4558,6 +4564,39 @@ Deno.serve(async (req) => {
       url.searchParams.set("language", "en-US");
       url.searchParams.set("append_to_response", "credits,release_dates,external_ids,watch/providers");
 
+      // The catalog lookup keys off tmdb_id, so it does NOT depend on the TMDb
+      // response — fire it NOW, in parallel, instead of after. It also gives us the
+      // stored IMDb rating, which lets us skip the (serial, slow) OMDb call below.
+      const catalogP = (async () => {
+        const { data: movieRow } = await supabaseAdmin
+          .from("Movies")
+          .select("id, release_year, runtime_minutes, mpa_rating, is_series")
+          .eq("tmdb_id", tmdb_id)
+          .maybeSingle();
+        if (!movieRow?.id) return null;
+
+        // Everything below hangs off movieRow.id only — fetch it all at once.
+        const [extRes, crewRes, genreRes, platformRes] = await Promise.all([
+          supabaseAdmin.from("Movie External Ratings")
+            .select("rating, votes, fetched_at")
+            .eq("movie_id", movieRow.id).eq("source", "imdb").maybeSingle(),
+          supabaseAdmin.from("Movie Crew")
+            .select("job, People(name)")
+            .eq("movie_id", movieRow.id).eq("job", "Director").limit(1),
+          supabaseAdmin.from("Movie Genres")
+            .select("Genres(name)").eq("movie_id", movieRow.id),
+          supabaseAdmin.from("Movie Platforms")
+            .select("Platforms(name)").eq("movie_id", movieRow.id),
+        ]);
+        return {
+          movieRow,
+          ext: extRes?.data ?? null,
+          crewRows: crewRes?.data ?? [],
+          genreRows: genreRes?.data ?? [],
+          platformRows: platformRes?.data ?? [],
+        };
+      })().catch(() => null);
+
       const tmdbRes = await fetch(url.toString(), {
         headers: { Authorization: `Bearer ${TMDB_READ_ACCESS_TOKEN}` },
       });
@@ -4619,127 +4658,111 @@ Deno.serve(async (req) => {
       let imdb_rating_pct = null;
       let imdb_votes = null;
       let imdb_rating_error = null;
-      try {
-        const r = await fetchOmdbImdbRatingPercent({
-          imdb_id,
-          title,
-          year,
-          omdbApiKey: OMDB_API_KEY,
-        });
-        imdb_rating_pct = r?.pct ?? null;
-        imdb_votes = Number(r?.votes) > 0 ? Math.round(Number(r.votes)) : null;
-        imdb_rating_error = r?.ok ? null : (r?.reason ?? null);
-      } catch (e) {
-        imdb_rating_pct = null;
-        imdb_rating_error = `OMDb fetch crashed: ${String(e?.message ?? e)}`;
-      }
+
+      // The catalog read we kicked off before the TMDb fetch has had the whole TMDb
+      // round-trip to finish, so it's effectively free by now.
+      const catalog = await catalogP;
 
       // If this movie is ALREADY in our catalog, merge in the stored DB record so a
       // later user sees whatever the FIRST user contributed — including any details
       // they had to enter MANUALLY because TMDb/OMDb lacked them (MPA for foreign
       // films, IMDb rating, runtime, year, genre, etc.). The rule is "fill the gaps":
-      // we always prefer fresh TMDb/OMDb data when it has a value, and only fall back
-      // to the stored value where the live source came up blank. This means only the
-      // first person to log a movie ever has to type a missing detail.
-      try {
-        const { data: movieRow } = await supabaseAdmin
-          .from("Movies")
-          .select("id, release_year, runtime_minutes, mpa_rating, is_series")
-          .eq("tmdb_id", tmdb_id)
-          .maybeSingle();
+      // we prefer fresh TMDb data when it has a value, and only fall back to the
+      // stored value where the live source came up blank. This means only the first
+      // person to log a movie ever has to type a missing detail.
+      const storedPct = Number(catalog?.ext?.rating);
+      const storedVotes = Number(catalog?.ext?.votes);
+      const storedFetchedAt = Date.parse(String(catalog?.ext?.fetched_at ?? "")) || 0;
+      const storedRatingIsFresh = (
+        Number.isFinite(storedPct) && storedPct > 0 &&
+        storedFetchedAt > 0 && (Date.now() - storedFetchedAt) < DETAILS_IMDB_STALE_MS
+      );
 
-        if (movieRow?.id) {
-          // IMDb rating + vote count — stored in "Movie External Ratings" (shared).
-          if (imdb_rating_pct === null || imdb_rating_pct === undefined || imdb_votes === null) {
-            const { data: extRow } = await supabaseAdmin
-              .from("Movie External Ratings")
-              .select("rating, votes")
-              .eq("movie_id", movieRow.id)
-              .eq("source", "imdb")
-              .maybeSingle();
-            const stored = Number(extRow?.rating);
-            if ((imdb_rating_pct === null || imdb_rating_pct === undefined) && Number.isFinite(stored) && stored > 0) {
-              imdb_rating_pct = stored;
-              imdb_rating_error = null;
-            }
-            const storedVotes = Number(extRow?.votes);
-            if (imdb_votes === null && Number.isFinite(storedVotes) && storedVotes > 0) {
-              imdb_votes = Math.round(storedVotes);
-            }
-          }
+      if (storedRatingIsFresh) {
+        // Skip OMDb entirely — this is a serial external round-trip on the critical
+        // path of every Movie Spotlight open, and the daily refresh_imdb_ratings cron
+        // already keeps stored ratings current. Also spares the ~1000/day OMDb quota.
+        imdb_rating_pct = storedPct;
+        imdb_votes = (Number.isFinite(storedVotes) && storedVotes > 0) ? Math.round(storedVotes) : null;
+      } else {
+        try {
+          const r = await fetchOmdbImdbRatingPercent({
+            imdb_id,
+            title,
+            year,
+            omdbApiKey: OMDB_API_KEY,
+          });
+          imdb_rating_pct = r?.pct ?? null;
+          imdb_votes = Number(r?.votes) > 0 ? Math.round(Number(r.votes)) : null;
+          imdb_rating_error = r?.ok ? null : (r?.reason ?? null);
+        } catch (e) {
+          imdb_rating_pct = null;
+          imdb_rating_error = `OMDb fetch crashed: ${String(e?.message ?? e)}`;
+        }
+        // OMDb came up empty (or stale-but-present) → fall back to whatever we stored.
+        if ((imdb_rating_pct === null || imdb_rating_pct === undefined) && Number.isFinite(storedPct) && storedPct > 0) {
+          imdb_rating_pct = storedPct;
+          imdb_rating_error = null;
+        }
+        if (imdb_votes === null && Number.isFinite(storedVotes) && storedVotes > 0) {
+          imdb_votes = Math.round(storedVotes);
+        }
+      }
 
-          // Plain Movies columns.
-          if ((year === null || !Number.isFinite(year)) && Number.isFinite(Number(movieRow.release_year))) {
-            year = Number(movieRow.release_year);
-          }
-          if ((runtime === null || !Number.isFinite(runtime) || runtime <= 0) && Number(movieRow.runtime_minutes) > 0) {
-            runtime = Number(movieRow.runtime_minutes);
-          }
-          if (!String(mpa || "").trim() && String(movieRow.mpa_rating || "").trim()) {
-            mpa = String(movieRow.mpa_rating).trim();
-          }
-          if (!isSeries && movieRow.is_series === true) {
-            isSeries = true;
-          }
+      if (catalog?.movieRow) {
+        const movieRow = catalog.movieRow;
 
-          // Director — stored in "Movie Crew" (job='Director') → "People".
-          if (!String(director || "").trim()) {
-            try {
-              const { data: crewRows } = await supabaseAdmin
-                .from("Movie Crew")
-                .select("job, People(name)")
-                .eq("movie_id", movieRow.id)
-                .eq("job", "Director")
-                .limit(1);
-              const peopleRel = crewRows?.[0]?.People;
-              const dbDirector = String(
-                (Array.isArray(peopleRel) ? peopleRel[0]?.name : peopleRel?.name) ?? "",
-              ).trim();
-              if (dbDirector) director = dbDirector;
-            } catch (_) { /* best-effort */ }
-          }
+        // Plain Movies columns.
+        if ((year === null || !Number.isFinite(year)) && Number.isFinite(Number(movieRow.release_year))) {
+          year = Number(movieRow.release_year);
+        }
+        if ((runtime === null || !Number.isFinite(runtime) || runtime <= 0) && Number(movieRow.runtime_minutes) > 0) {
+          runtime = Number(movieRow.runtime_minutes);
+        }
+        if (!String(mpa || "").trim() && String(movieRow.mpa_rating || "").trim()) {
+          mpa = String(movieRow.mpa_rating).trim();
+        }
+        if (!isSeries && movieRow.is_series === true) {
+          isSeries = true;
+        }
 
-          // Genre — stored in "Movie Genres" → "Genres".
-          if (genres.length === 0) {
-            try {
-              const { data: genreRows } = await supabaseAdmin
-                .from("Movie Genres")
-                .select("Genres(name)")
-                .eq("movie_id", movieRow.id);
-              const dbGenres = uniqStrings(
-                (Array.isArray(genreRows) ? genreRows : []).map((r) => {
-                  const rel = r?.Genres;
-                  return String((Array.isArray(rel) ? rel[0]?.name : rel?.name) ?? "").trim();
-                }),
-              );
-              if (dbGenres.length) {
-                genres = dbGenres;
-                genre = dbGenres.join(", ");
-              }
-            } catch (_) { /* best-effort */ }
-          }
+        // Director — stored in "Movie Crew" (job='Director') → "People".
+        if (!String(director || "").trim()) {
+          const peopleRel = catalog.crewRows?.[0]?.People;
+          const dbDirector = String(
+            (Array.isArray(peopleRel) ? peopleRel[0]?.name : peopleRel?.name) ?? "",
+          ).trim();
+          if (dbDirector) director = dbDirector;
+        }
 
-          // Watch options — fall back to stored "Movie Platforms" → "Platforms" when
-          // TMDb's live watch/providers came up empty (e.g. rate-limited append).
-          if (!watch_providers.length) {
-            try {
-              const { data: mpRows } = await supabaseAdmin
-                .from("Movie Platforms")
-                .select("Platforms(name)")
-                .eq("movie_id", movieRow.id);
-              const dbPlatforms = uniqStrings(
-                (Array.isArray(mpRows) ? mpRows : []).map((r) => {
-                  const rel = r?.Platforms;
-                  return normalizePlatformName(
-                    String((Array.isArray(rel) ? rel[0]?.name : rel?.name) ?? "").trim(),
-                  );
-                }),
-              ).filter(Boolean);
-              if (dbPlatforms.length) watch_providers = dbPlatforms;
-            } catch (_) { /* best-effort */ }
+        // Genre — stored in "Movie Genres" → "Genres".
+        if (genres.length === 0) {
+          const dbGenres = uniqStrings(
+            (Array.isArray(catalog.genreRows) ? catalog.genreRows : []).map((r) => {
+              const rel = r?.Genres;
+              return String((Array.isArray(rel) ? rel[0]?.name : rel?.name) ?? "").trim();
+            }),
+          );
+          if (dbGenres.length) {
+            genres = dbGenres;
+            genre = dbGenres.join(", ");
           }
         }
-      } catch (_) { /* best-effort DB merge — never block prefill */ }
+
+        // Watch options — fall back to stored "Movie Platforms" → "Platforms" when
+        // TMDb's live watch/providers came up empty (e.g. rate-limited append).
+        if (!watch_providers.length) {
+          const dbPlatforms = uniqStrings(
+            (Array.isArray(catalog.platformRows) ? catalog.platformRows : []).map((r) => {
+              const rel = r?.Platforms;
+              return normalizePlatformName(
+                String((Array.isArray(rel) ? rel[0]?.name : rel?.name) ?? "").trim(),
+              );
+            }),
+          ).filter(Boolean);
+          if (dbPlatforms.length) watch_providers = dbPlatforms;
+        }
+      }
 
       return jsonResponse(
         {

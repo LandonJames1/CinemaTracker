@@ -8059,6 +8059,11 @@
             display: flex; align-items: center; gap: 0.6rem; padding: 1.2rem 0;
             color: rgba(255,255,255,0.6); font-weight: 700; font-size: 0.88rem;
         }
+        /* Info tab while the details fetch is still in flight: the cards we already have
+           are painted, with this quiet line underneath instead of a blanking spinner. */
+        .ms-loading-inline {
+            padding: 0.55rem 0 0; font-size: 0.78rem; color: rgba(255,255,255,0.42);
+        }
 
         /* Synopsis tab */
         .ms-overview { font-size: 0.97rem; line-height: 1.65; color: rgba(255,255,255,0.88); font-weight: 500; margin: 0; }
