@@ -173,8 +173,13 @@ _original_backup/              Byte-identical pre-refactor originals (safety net
                                "You Might Like" strip + the Discover deck. Broad by design
                                (all-time most-voted + per-GENRE + per-DECADE + recent), and every
                                field comes free in the /discover response, so a ~3-5k movie pool
-                               costs only ~150 TMDb calls per run TOTAL and NO OMDb quota.
-                               Replaced the old per-user TMDb crawl. Reuses the existing cron secrets.
+                               costs only ~133 TMDb calls per run TOTAL and NO OMDb quota.
+                               Replaced the old per-user TMDb crawl. Also workflow_dispatch with
+                               3 inputs — `pages` (per genre/decade/recent query), `global_pages`
+                               (the canon), and `vote_count_gte` (min TMDb votes for the genre/decade
+                               picks: higher = a more mainstream pool, so more of it is already in our
+                               catalog and fewer `details` opens need an OMDb lookup).
+                               Reuses the existing cron secrets.
 .github/workflows/refresh-home-recs.yml  Daily GitHub Actions cron → calls the swift-api
                                `build_home_recs` action (precomputes each user's "You Might Like"
                                home-strip deck into the `Home Recommendations` table so the Home

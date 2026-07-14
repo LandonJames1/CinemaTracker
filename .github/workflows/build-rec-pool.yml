@@ -25,6 +25,10 @@ on:
         description: 'Pages of all-time most-voted films (the canon)'
         required: false
         default: '20'
+      vote_count_gte:
+        description: 'Min TMDb votes for genre/decade picks. Higher = more mainstream pool (more of it already in our catalog, so fewer OMDb lookups when users open details). Lower = broader/more obscure.'
+        required: false
+        default: '150'
 
 jobs:
   build:
@@ -36,5 +40,5 @@ jobs:
             -H "Content-Type: application/json" \
             -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-            -d "{\"action\":\"build_rec_pool\",\"pages\":${{ github.event.inputs.pages || 5 }},\"global_pages\":${{ github.event.inputs.global_pages || 20 }}}" \
+            -d "{\"action\":\"build_rec_pool\",\"pages\":${{ github.event.inputs.pages || 5 }},\"global_pages\":${{ github.event.inputs.global_pages || 20 }},\"vote_count_gte\":${{ github.event.inputs.vote_count_gte || 150 }}}" \
             --fail-with-body
