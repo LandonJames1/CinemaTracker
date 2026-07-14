@@ -1682,13 +1682,87 @@ function uuidLike(s) {
   );
 }
 
+// How many "Rec Pool" rows to pull as the raw candidate set (read in pages of 1000).
+// The pool is the SHARED, pre-crawled candidate set (see rec_pool.sql / build_rec_pool)
+// — reading it is the ONLY candidate source now, so this compute makes ZERO TMDB calls.
+const REC_POOL_READ_CAP = 6000;
+const REC_POOL_PAGE = 1000;
+
+// Read the shared candidate pool (service role — the table is server-only). Lean columns
+// only; paged so a PostgREST row cap can't silently truncate it.
+async function fetchRecPool(supabaseAdmin, cap = REC_POOL_READ_CAP) {
+  const rows = [];
+  for (let from = 0; from < cap; from += REC_POOL_PAGE) {
+    const to = Math.min(from + REC_POOL_PAGE, cap) - 1;
+    const { data, error } = await supabaseAdmin
+      .from("Rec Pool")
+      .select("tmdb_id, title, release_year, release_date, poster_path, genres, original_language, vote_average, vote_count, popularity, overview")
+      .order("vote_count", { ascending: false, nullsFirst: false })
+      .range(from, to);
+    if (error) throw error;
+    const batchRows = Array.isArray(data) ? data : [];
+    rows.push(...batchRows);
+    if (batchRows.length < (to - from + 1)) break; // pool exhausted
+  }
+  return rows;
+}
+
+// The admin-tunable IMDb-vote threshold for the "well-reviewed" ranking boost.
+async function fetchReviewThreshold(supabaseAdmin) {
+  try {
+    const { data: srow } = await supabaseAdmin
+      .from("Settings").select("discover_min_imdb_votes").limit(1).maybeSingle();
+    const t = Number(srow?.discover_min_imdb_votes);
+    if (Number.isFinite(t) && t > 0) return Math.round(t);
+  } catch (_) { /* keep default */ }
+  return 25000;
+}
+
+// tmdb_id -> stored IMDb vote count, for movies in OUR catalog (bounded by catalog size,
+// which is far smaller than the pool). Deliberately NOT filtered by the pool's tmdb_ids:
+// the pool is thousands of rows and an `.in("tmdb_id", [...5000 ids])` builds a query
+// string long enough to be rejected (414). We intersect in memory instead.
+async function fetchCatalogVotesByTmdb(supabaseAdmin) {
+  const votesByTmdb = new Map();
+  try {
+    const { data: extRows } = await supabaseAdmin
+      .from("Movie External Ratings")
+      .select("movie_id, votes")
+      .eq("source", "imdb")
+      .gt("votes", 0);
+    const votesByMovieId = new Map();
+    (Array.isArray(extRows) ? extRows : []).forEach((e) => {
+      const v = Number(e?.votes);
+      if (e?.movie_id && Number.isFinite(v) && v > 0) votesByMovieId.set(e.movie_id, Math.round(v));
+    });
+    if (!votesByMovieId.size) return votesByTmdb;
+    const { data: movieRows } = await supabaseAdmin.from("Movies").select("id, tmdb_id");
+    (Array.isArray(movieRows) ? movieRows : []).forEach((m) => {
+      const tid = Number(m?.tmdb_id);
+      const v = votesByMovieId.get(m?.id);
+      if (Number.isFinite(tid) && tid > 0 && v) votesByTmdb.set(tid, v);
+    });
+  } catch (_) { /* best-effort: no catalog-votes boost */ }
+  return votesByTmdb;
+}
+
 // Shared "Discover deck" compute — the taste-ranked, exclusion-filtered candidate deck
-// used by BOTH the live `swipe_deck` action and the `build_home_recs` cron. Pass
-// supabaseUserClient=null (cron / no session) to skip the follows source (its rpc call
-// is already wrapped in try/catch, so a null client just yields no social boost).
+// used by the live `swipe_deck` action, the `home_recs` action, and the `build_home_recs`
+// cron. Pass supabaseUserClient=null (cron / no session) to skip the follows source (its
+// rpc call is already wrapped in try/catch, so a null client just yields no social boost).
+//
+// Candidates come from the shared "Rec Pool" table — NOT from a live TMDB crawl. This is
+// what makes the deck fast + reliable: a handful of indexed DB queries and no external API
+// on the read path. `batch` now pages through the RANKED pool (batch N = the Nth slice of
+// `limit` cards) instead of paging TMDB deeper. `tmdbToken` is accepted for signature
+// compatibility but is no longer used.
+//
+// `shared` lets a caller that loops over MANY users (the build_home_recs cron) do the
+// user-independent reads — the pool, the catalog vote counts, the Settings threshold —
+// ONCE instead of per user.
+//
 // Returns the deck array (already sliced to `limit`).
-async function computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, { limit, batch, tmdbToken, includeTrending = true }) {
-  const tmdbHeaders = { Authorization: `Bearer ${tmdbToken}` };
+async function computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, { limit, batch, tmdbToken, includeTrending = true, shared = null }) {
   const todayStr = new Date().toISOString().slice(0, 10);
 
 
@@ -1787,85 +1861,52 @@ async function computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, { limit,
         }
       } catch (_) { /* best-effort: bucket list / recs exclusion */ }
 
-      // 3. Build the candidate pool.
+      // 3. Build the candidate pool — ONE read of the shared, pre-crawled "Rec Pool"
+      // (rec_pool.sql), NOT a live per-user TMDB crawl. The pool is the same for every
+      // user; only the scoring + exclusions below are personal.
       const pool = new Map();
       const addCand = (r, source) => {
-        const id = Number(r?.id);
+        const id = Number(r?.tmdb_id);
         const title = String(r?.title ?? "").trim();
         if (!Number.isFinite(id) || id <= 0 || !title) return;
         if (watched.has(id) || swipedExclude.has(id)) return;
-        // Drop Indian-subcontinent commercial films that flood the popularity/trending
-        // sources (see DISCOVER_EXCLUDED_LANGS). The friends source bypasses addCand,
-        // so a followed user's pick in one of these languages still gets through.
+        // Language denylist + released-only are already enforced at pool-build time, but
+        // re-check cheaply so an older pool row can't leak through. The friends source
+        // bypasses addCand, so a followed user's pick in one of these languages still gets through.
         const lang = String(r?.original_language ?? "").trim().toLowerCase();
         if (lang && DISCOVER_EXCLUDED_LANGS.has(lang)) return;
-        // Drop unreleased movies — new/upcoming films often ride the trending list
-        // before they've come out. Require a real release_date that's today or earlier.
         const rd = String(r?.release_date ?? "").trim();
-        if (!rd || rd > todayStr) return;
+        if (rd && rd > todayStr) return;
         if (pool.has(id)) { pool.get(id).sources.push(source); return; }
-        const year = r?.release_date ? Number(String(r.release_date).slice(0, 4)) : null;
-        const ids = Array.isArray(r?.genre_ids) ? r.genre_ids : [];
-        const genres = uniqStrings(ids.map((g) => TMDB_MOVIE_GENRES[Number(g)]).filter(Boolean));
+        const year = Number(r?.release_year);
         pool.set(id, {
           tmdb_id: id,
           title,
           year: Number.isFinite(year) ? year : null,
           poster_path: normalizePosterPath(r?.poster_path) || null,
-          genres,
+          genres: uniqStrings(Array.isArray(r?.genres) ? r.genres : []),
           vote_average: Number(r?.vote_average ?? 0) || 0,
+          vote_count: Number(r?.vote_count ?? 0) || 0,
+          popularity: Number(r?.popularity ?? 0) || 0,
           overview: String(r?.overview ?? "").trim(),
           original_language: lang || null,
           sources: [source],
         });
       };
 
-      const tmdbDiscover = async (params) => {
-        const url = new URL("https://api.themoviedb.org/3/discover/movie");
-        url.searchParams.set("include_adult", "false");
-        url.searchParams.set("language", "en-US");
-        // Never surface unreleased movies in the deck.
-        url.searchParams.set("primary_release_date.lte", todayStr);
-        for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
-        const res = await fetch(url.toString(), { headers: tmdbHeaders });
-        if (!res.ok) return [];
-        const j = await res.json().catch(() => null);
-        return Array.isArray(j?.results) ? j.results : [];
-      };
-
-      // Each batch walks three fresh pages deeper so successive decks don't repeat AND
-      // each batch has a big enough raw pool to still yield ~25 cards after exclusions
-      // (watched / swiped / bucketed). Stride matches the page count so batches never overlap.
-      const deckPages = [batch * 3 + 1, batch * 3 + 2, batch * 3 + 3];
-
-      // Source 1 — your taste (top-affinity genres, popular within them).
-      const genreIds = mapGenreNamesToIds(topGenres);
-      if (genreIds.length) {
-        for (const p of deckPages) {
-          const r = await tmdbDiscover({ sort_by: "popularity.desc", with_genres: genreIds.join("|"), "vote_count.gte": 100, page: p });
-          r.forEach((x) => addCand(x, "taste"));
-        }
-      }
-      // Source 2 — trending this week (only paginate the first couple batches; TMDB's
-      // trending list is short and deeper pages just repeat). Skipped when includeTrending
-      // is false (the "You Might Like" home strip opts out — taste + popular only).
-      if (includeTrending) {
+      const topGenreSet = new Set(topGenres.map((g) => String(g).toLowerCase()));
+      let poolRows = Array.isArray(shared?.poolRows) ? shared.poolRows : [];
+      if (!poolRows.length) {
         try {
-          const trendPage = batch < 2 ? batch + 1 : null;
-          if (trendPage) {
-            const res = await fetch(`https://api.themoviedb.org/3/trending/movie/week?page=${trendPage}`, { headers: tmdbHeaders });
-            if (res.ok) {
-              const j = await res.json().catch(() => null);
-              (Array.isArray(j?.results) ? j.results : []).forEach((x) => addCand(x, "trending"));
-            }
-          }
-        } catch (_) { /* best-effort */ }
+          poolRows = await fetchRecPool(supabaseAdmin);
+        } catch (_) { poolRows = []; }
       }
-      // Source 3 — all-time popular (highly-voted classics, not just current hits).
-      for (const p of deckPages) {
-        const r = await tmdbDiscover({ sort_by: "vote_count.desc", "vote_count.gte": 5000, page: p });
-        r.forEach((x) => addCand(x, "popular"));
-      }
+      poolRows.forEach((r) => {
+        // Tag the source so the taste-genre matches can get their usual nudge below.
+        const hit = (Array.isArray(r?.genres) ? r.genres : [])
+          .some((g) => topGenreSet.has(String(g).toLowerCase()));
+        addCand(r, hit ? "taste" : "popular");
+      });
 
       // Source 4 — movies your follows rated highly + the social-proof data, via the
       // SECURITY DEFINER RPC (runs as the caller, so only people they follow are
@@ -1904,41 +1945,20 @@ async function computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, { limit,
 
       // 3b. Well-reviewed boost: for candidates ALREADY in our catalog, look up their
       // stored IMDb vote count and give a moderate ranking bump to films above the
-      // admin-set threshold (Settings.discover_min_imdb_votes, default 25k). Most
-      // candidates are fresh TMDb movies not in the catalog, so they get no bump.
-      let reviewThreshold = 25000;
-      try {
-        const { data: srow } = await supabaseAdmin
-          .from("Settings").select("discover_min_imdb_votes").limit(1).maybeSingle();
-        const t = Number(srow?.discover_min_imdb_votes);
-        if (Number.isFinite(t) && t > 0) reviewThreshold = Math.round(t);
-      } catch (_) { /* keep default */ }
-
-      const votesByTmdb = new Map(); // tmdb_id -> stored IMDb vote count (catalog only)
-      try {
-        const poolTmdbIds = Array.from(pool.keys());
-        if (poolTmdbIds.length) {
-          const { data: movieRows } = await supabaseAdmin
-            .from("Movies").select("id, tmdb_id").in("tmdb_id", poolTmdbIds);
-          const tmdbByMovieId = new Map();
-          (Array.isArray(movieRows) ? movieRows : []).forEach((m) => {
-            if (m?.id && Number.isFinite(Number(m?.tmdb_id))) tmdbByMovieId.set(m.id, Number(m.tmdb_id));
-          });
-          const movieIds = Array.from(tmdbByMovieId.keys());
-          if (movieIds.length) {
-            const { data: extRows } = await supabaseAdmin
-              .from("Movie External Ratings").select("movie_id, votes")
-              .eq("source", "imdb").in("movie_id", movieIds);
-            (Array.isArray(extRows) ? extRows : []).forEach((e) => {
-              const tid = tmdbByMovieId.get(e?.movie_id);
-              const v = Number(e?.votes);
-              if (tid && Number.isFinite(v) && v > 0) votesByTmdb.set(tid, Math.round(v));
-            });
-          }
-        }
-      } catch (_) { /* best-effort: no catalog-votes boost */ }
+      // admin-set threshold (Settings.discover_min_imdb_votes, default 25k). Pool movies
+      // nobody has logged yet aren't in the catalog, so they get no bump.
+      const reviewThreshold = Number.isFinite(Number(shared?.reviewThreshold))
+        ? Number(shared.reviewThreshold)
+        : await fetchReviewThreshold(supabaseAdmin);
+      const votesByTmdb = (shared?.votesByTmdb instanceof Map)
+        ? shared.votesByTmdb
+        : await fetchCatalogVotesByTmdb(supabaseAdmin);
 
       // 4. Score + rank (taste score + small social + review-count boosts + jitter).
+      // `includeTrending` no longer pulls a separate TMDB trending source — the pool
+      // already carries recent films. It now just tilts the ranking toward currently-hot
+      // titles, which is what Discover wants and the Home strip opts out of.
+      const recentCutoffYear = new Date().getFullYear() - 1;
       const cards = Array.from(pool.values()).map((c) => {
         const pred = tasteModel.hasData
           ? predictTasteScore(tasteModel, { genres: c.genres, year: c.year, vote_average: c.vote_average })
@@ -1949,7 +1969,8 @@ async function computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, { limit,
         const socialBoost = friendsCount ? 3 : 0; // socially-validated picks surface a bit (kept gentle so friends' picks don't dominate)
         const imdbVotes = votesByTmdb.get(c.tmdb_id) ?? null;
         const reviewBoost = (imdbVotes !== null && imdbVotes >= reviewThreshold) ? 6 : 0;
-        const rankBase = (Number.isFinite(taste_score) ? taste_score : 45) + socialBoost + reviewBoost;
+        const trendBoost = (includeTrending && Number(c.year) >= recentCutoffYear && c.popularity > 100) ? 4 : 0;
+        const rankBase = (Number.isFinite(taste_score) ? taste_score : 45) + socialBoost + reviewBoost + trendBoost;
         return {
           tmdb_id: c.tmdb_id,
           title: c.title,
@@ -1967,7 +1988,10 @@ async function computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, { limit,
         };
       });
       cards.sort((a, b) => b._rank - a._rank);
-      const deck = cards.slice(0, limit).map(({ _rank, ...rest }) => rest);
+      // `batch` pages through the RANKED pool (batch N = the Nth slice of `limit` cards).
+      // An out-of-range batch returns [] — the caller reads that as "pool exhausted".
+      const start = Math.max(0, Number(batch) || 0) * limit;
+      const deck = cards.slice(start, start + limit).map(({ _rank, ...rest }) => rest);
 
         return deck;
 }
@@ -2094,20 +2118,160 @@ Deno.serve(async (req) => {
     // rating/votes via OMDb, and upserts into "Game Pool" (keyed by tmdb_id; movies
     // already present are skipped, so re-runs are cheap). Batched — run repeatedly
     // (build-game-pool.yml) until pool_total reaches ~1000. Gated by CRON_SECRET.
+    // ---- Recommendations: build the SHARED candidate pool (cron, no user session) ----
+    // Crawls TMDB /discover ONCE A DAY FOR EVERYONE into the "Rec Pool" table (rec_pool.sql),
+    // which is then the only candidate source for "You Might Like" + Discover. Every column
+    // we store comes free in the /discover response — no OMDb, no per-movie TMDB lookup —
+    // so a ~3-5k movie pool costs only ~150 TMDB calls per run, TOTAL, for all users.
+    //
+    // Breadth is deliberate (this is what stops everyone seeing the same 60 blockbusters):
+    //   - all-time most-voted     (the canon)
+    //   - per GENRE, most-voted   (depth in every genre, not just the user's top 3)
+    //   - per DECADE, most-voted  (so the pool isn't all post-2010)
+    //   - recent + popular        (what's out now)
+    // Gated by CRON_SECRET. Idempotent: upserts on tmdb_id, so re-runs just refresh.
+    if (action === "build_rec_pool") {
+      const provided = String(req.headers.get("x-cron-secret") ?? "").trim();
+      const expected = String(Deno.env.get("CRON_SECRET") ?? "").trim();
+      if (!expected || provided !== expected) {
+        return jsonResponse({ code: 401, message: "Unauthorized" }, 401);
+      }
+      if (!TMDB_READ_ACCESS_TOKEN) {
+        return jsonResponse({ code: 500, message: "TMDB_READ_ACCESS_TOKEN not set" }, 500);
+      }
+
+      const pagesPerQuery = Math.max(1, Math.min(10, Number(body?.pages) || 5));   // 20 movies/page
+      const globalPages = Math.max(1, Math.min(30, Number(body?.global_pages) || 20));
+      const minVotes = Math.max(0, Number(body?.vote_count_gte) || 150);
+      const todayStr = new Date().toISOString().slice(0, 10);
+
+      // Build the list of discover queries to run.
+      const queries = [];
+      // 1) The canon — all-time most-voted.
+      for (let p = 1; p <= globalPages; p += 1) {
+        queries.push({ sort_by: "vote_count.desc", "vote_count.gte": 2000, page: p });
+      }
+      // 2) Depth in every genre.
+      for (const gid of Object.keys(TMDB_MOVIE_GENRES)) {
+        if (String(TMDB_MOVIE_GENRES[gid]) === "TV Movie") continue; // not a real cinema genre
+        for (let p = 1; p <= pagesPerQuery; p += 1) {
+          queries.push({ sort_by: "vote_count.desc", with_genres: gid, "vote_count.gte": minVotes, page: p });
+        }
+      }
+      // 3) Spread across decades so the pool isn't all recent.
+      const nowYear = new Date().getFullYear();
+      for (let decade = 1970; decade <= nowYear; decade += 10) {
+        for (let p = 1; p <= Math.min(pagesPerQuery, 3); p += 1) {
+          queries.push({
+            sort_by: "vote_count.desc",
+            "primary_release_date.gte": `${decade}-01-01`,
+            "primary_release_date.lte": `${decade + 9}-12-31`,
+            "vote_count.gte": minVotes,
+            page: p,
+          });
+        }
+      }
+      // 4) What's out now.
+      const twoYearsAgo = `${nowYear - 2}-01-01`;
+      for (let p = 1; p <= pagesPerQuery; p += 1) {
+        queries.push({
+          sort_by: "popularity.desc",
+          "primary_release_date.gte": twoYearsAgo,
+          "vote_count.gte": minVotes,
+          page: p,
+        });
+      }
+
+      // Run them with bounded concurrency, collecting deduped rows.
+      const rowsByTmdb = new Map();
+      const takeResult = (r) => {
+        const id = Number(r?.id);
+        const title = String(r?.title ?? "").trim();
+        if (!Number.isFinite(id) || id <= 0 || !title) return;
+        if (rowsByTmdb.has(id)) return;
+        const lang = String(r?.original_language ?? "").trim().toLowerCase();
+        if (lang && DISCOVER_EXCLUDED_LANGS.has(lang)) return;   // see DISCOVER_EXCLUDED_LANGS
+        const rd = String(r?.release_date ?? "").trim();
+        if (!rd || rd > todayStr) return;                        // released films only
+        const poster = normalizePosterPath(r?.poster_path);
+        if (!poster) return;                                     // a card with no poster is useless
+        const year = Number(rd.slice(0, 4));
+        const gids = Array.isArray(r?.genre_ids) ? r.genre_ids : [];
+        rowsByTmdb.set(id, {
+          tmdb_id: id,
+          title,
+          release_year: Number.isFinite(year) ? year : null,
+          release_date: rd,
+          poster_path: poster,
+          genres: uniqStrings(gids.map((g) => TMDB_MOVIE_GENRES[Number(g)]).filter(Boolean)),
+          original_language: lang || null,
+          vote_average: Number(r?.vote_average ?? 0) || 0,
+          vote_count: Math.round(Number(r?.vote_count ?? 0) || 0),
+          popularity: Number(r?.popularity ?? 0) || 0,
+          overview: String(r?.overview ?? "").trim() || null,
+          updated_at: new Date().toISOString(),
+        });
+      };
+
+      let qi = 0;
+      let tmdbCalls = 0;
+      const QUERY_CONCURRENCY = 6;
+      const runQueries = async () => {
+        while (qi < queries.length) {
+          const params = queries[qi++];
+          const j = await tmdbGetJson("discover/movie", {
+            include_adult: "false",
+            include_video: "false",
+            language: "en-US",
+            "primary_release_date.lte": todayStr,
+            ...params,
+          }, TMDB_READ_ACCESS_TOKEN);
+          tmdbCalls += 1;
+          (Array.isArray(j?.results) ? j.results : []).forEach(takeResult);
+        }
+      };
+      await Promise.all(Array.from({ length: QUERY_CONCURRENCY }, runQueries));
+
+      // Upsert in chunks (one big upsert would blow the request size).
+      const allRows = Array.from(rowsByTmdb.values());
+      let upserted = 0;
+      let failedChunks = 0;
+      const CHUNK = 500;
+      for (let i = 0; i < allRows.length; i += CHUNK) {
+        const chunk = allRows.slice(i, i + CHUNK);
+        const { error } = await supabaseAdmin.from("Rec Pool").upsert(chunk, { onConflict: "tmdb_id" });
+        if (error) failedChunks += 1; else upserted += chunk.length;
+      }
+
+      const { count: poolTotal } = await supabaseAdmin
+        .from("Rec Pool").select("tmdb_id", { count: "exact", head: true });
+
+      return jsonResponse({
+        ok: true, queries: queries.length, tmdb_calls: tmdbCalls,
+        fetched: allRows.length, upserted, failed_chunks: failedChunks, pool_total: poolTotal ?? null,
+      }, 200);
+    }
+
     // Cron-gated (x-cron-secret == CRON_SECRET, no user session). Precomputes each
     // user's "You Might Like" home-strip deck (via the shared computeSwipeDeck) into the
     // "Home Recommendations" table so the client reads a row instead of computing live.
     // Stalest-first so daily runs (refresh-home-recs.yml) rotate through everyone.
+    //
+    // Now that computeSwipeDeck reads the shared "Rec Pool" instead of crawling TMDB per
+    // user, this is cheap: the user-INDEPENDENT reads (the pool, catalog vote counts, the
+    // Settings threshold) are done ONCE up front and passed to every user's compute, so a
+    // run is DB-only and actually finishes for everybody. It used to fire ~36 sequential
+    // TMDB calls per user (~5,400 in one invocation at limit=150) and time out — which is
+    // why so many users had no row and fell through to the slow live path.
     if (action === "build_home_recs") {
       const provided = String(req.headers.get("x-cron-secret") ?? "").trim();
       const expected = String(Deno.env.get("CRON_SECRET") ?? "").trim();
       if (!expected || provided !== expected) {
         return jsonResponse({ code: 401, message: "Unauthorized" }, 401);
       }
-      const limit = Math.max(1, Math.min(1000, Number(body?.limit) || 150));
+      const limit = Math.max(1, Math.min(5000, Number(body?.limit) || 500));
       const concurrency = Math.max(1, Math.min(8, Number(body?.concurrency) || 4));
       const deckSize = Math.max(10, Math.min(40, Number(body?.deck_size) || 30));
-      const HOME_RECS_MAX_BATCHES = 6;   // page this many swipe_deck batches deep to reach deckSize
 
       const { data: allUsers } = await supabaseAdmin.from("Users").select("id");
       const { data: recRows } = await supabaseAdmin.from("Home Recommendations").select("user_id, computed_at");
@@ -2124,30 +2288,28 @@ Deno.serve(async (req) => {
         })
         .slice(0, limit);
 
+      // The expensive, user-independent reads — done ONCE for the whole run.
+      const shared = {
+        poolRows: await fetchRecPool(supabaseAdmin),
+        votesByTmdb: await fetchCatalogVotesByTmdb(supabaseAdmin),
+        reviewThreshold: await fetchReviewThreshold(supabaseAdmin),
+      };
+      if (!shared.poolRows.length) {
+        return jsonResponse({ code: 409, message: "Rec Pool is empty — run build_rec_pool first." }, 409);
+      }
+
       let processed = 0;
       let failed = 0;
       for (let i = 0; i < targets.length; i += concurrency) {
         const chunk = targets.slice(i, i + concurrency);
         await Promise.all(chunk.map(async (userId) => {
           try {
-            // DEEP-PAGE like the live path: a single batch is mostly filtered out by the
-            // watched/swiped/listed exclusions for heavy users, leaving only a handful.
-            // Walk deeper batches (dedup) until we've gathered `deckSize` unseen cards or
-            // the pool is exhausted, so every stored deck is generous.
-            const seen = new Set();
-            const deck = [];
-            for (let b = 0; b < HOME_RECS_MAX_BATCHES && deck.length < deckSize; b += 1) {
-              const part = await computeSwipeDeck(supabaseAdmin, null, userId, { limit: 40, batch: b, tmdbToken: TMDB_READ_ACCESS_TOKEN, includeTrending: false });
-              let added = 0;
-              for (const c of (Array.isArray(part) ? part : [])) {
-                const id = Number(c?.tmdb_id);
-                if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue;
-                seen.add(id); deck.push(c); added += 1;
-              }
-              if (added === 0) break; // pool exhausted — deeper batches won't add anything
-            }
+            const deck = await computeSwipeDeck(supabaseAdmin, null, userId, {
+              limit: deckSize, batch: 0, tmdbToken: TMDB_READ_ACCESS_TOKEN,
+              includeTrending: false, shared,
+            });
             const { error } = await supabaseAdmin.from("Home Recommendations").upsert(
-              { user_id: userId, cards: deck, computed_at: new Date().toISOString() },
+              { user_id: userId, cards: Array.isArray(deck) ? deck : [], computed_at: new Date().toISOString() },
               { onConflict: "user_id" }
             );
             if (error) throw error;
@@ -5501,20 +5663,65 @@ Deno.serve(async (req) => {
     }
 
     // ---- Discover swipe deck: a ranked batch of unseen movies to swipe on --------
-    // Pool = (1) the user's top-affinity genres, (2) trending this week, (3) all-time
-    // highly-voted classics. Excludes movies already rated/logged, right-swiped ever,
-    // or left-swiped in the last 30 days. Ranked by predictTasteScore with a little
-    // random jitter for exploration/variety. No LLM. (Friends'-favorites source +
-    // social proof are phase 2.)
+    // Candidates come from the shared "Rec Pool" (rec_pool.sql) — NOT a live TMDB crawl.
+    // Excludes movies already rated/logged, right-swiped ever, left-swiped in the last 30
+    // days, or already on the user's Bucket List / Recs. Ranked by predictTasteScore with a
+    // little random jitter for variety, plus friends'-favorites social proof. No LLM.
+    // `batch` pages through the ranked pool.
     if (action === "swipe_deck") {
       const limit = Math.max(5, Math.min(40, Number(body?.limit) || 25));
       const uid = userData.user.id;
       const batch = Math.max(0, Math.min(50, Math.floor(Number(body?.batch) || 0)));
-      // Callers can opt out of the trending source (the "You Might Like" home strip does);
-      // Discover sends nothing, so it keeps the default (trending included).
+      // Callers can opt out of the recency tilt (the "You Might Like" home strip does);
+      // Discover sends nothing, so it keeps the default.
       const includeTrending = body?.include_trending !== false;
       const deck = await computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, { limit, batch, tmdbToken: TMDB_READ_ACCESS_TOKEN, includeTrending });
       return jsonResponse({ ok: true, cards: deck }, 200);
+    }
+
+    // ---- Home "You Might Like" strip: today's STABLE deck ------------------------
+    // The strip is a STABLE DAILY deck: the same picks all day, so it never re-rolls
+    // under you while you browse. The nightly build_home_recs cron writes most users'
+    // rows; this action is what a user hits when their row is MISSING or from a PREVIOUS
+    // day (a brand-new account, or a user the cron hasn't reached yet). It computes the
+    // deck and SAVES it, so the rest of the day is stable and served straight from the row.
+    //
+    // This is cheap now (a pool read + scoring, no TMDB), which is the whole point: the
+    // client no longer has to deep-page a live TMDB crawl when its row is missing — that
+    // slow, failure-prone path is what made the strip vanish on a network hiccup.
+    if (action === "home_recs") {
+      const uid = userData.user.id;
+      const deckSize = Math.max(10, Math.min(40, Number(body?.deck_size) || 30));
+      const today = gamePuzzleDatePT();   // Pacific day boundary, same as the games
+      const force = body?.force === true;
+
+      // Already computed TODAY → serve the saved deck unchanged (stable daily deck).
+      if (!force) {
+        try {
+          const { data: row } = await supabaseAdmin
+            .from("Home Recommendations")
+            .select("cards, computed_at")
+            .eq("user_id", uid)
+            .maybeSingle();
+          const cards = Array.isArray(row?.cards) ? row.cards : [];
+          const rowDay = row?.computed_at ? gamePuzzleDatePT(new Date(row.computed_at)) : null;
+          if (cards.length && rowDay === today) {
+            return jsonResponse({ ok: true, cards, computed_at: row.computed_at, cached: true }, 200);
+          }
+        } catch (_) { /* fall through and recompute */ }
+      }
+
+      const deck = await computeSwipeDeck(supabaseAdmin, supabaseUserClient, uid, {
+        limit: deckSize, batch: 0, tmdbToken: TMDB_READ_ACCESS_TOKEN, includeTrending: false,
+      });
+      const computed_at = new Date().toISOString();
+      try {
+        await supabaseAdmin.from("Home Recommendations").upsert(
+          { user_id: uid, cards: Array.isArray(deck) ? deck : [], computed_at },
+          { onConflict: "user_id" },
+        );
+      } catch (_) { /* best-effort: still return the deck we computed */ }
+      return jsonResponse({ ok: true, cards: deck, computed_at, cached: false }, 200);
     }
 
     const title = String(body?.title ?? "").trim();

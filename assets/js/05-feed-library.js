@@ -1910,9 +1910,26 @@
             }
         }
 
+        // In-flight guard: loadMyFollowingIds() is called from BOTH loadFeedPage() and
+        // refreshNavBadges() (which fires on boot, tab focus, app resume, and the 45s
+        // notification poll), so two calls routinely overlap. Sharing one promise means the
+        // feed and the badges can't fight over the shared set.
+        let feedFollowingIdsInflight = null;
+
         async function loadMyFollowingIds() {
-            feedFollowingIds = new Set();
-            if (!supabaseClient) return;
+            if (feedFollowingIdsInflight) return feedFollowingIdsInflight;
+            feedFollowingIdsInflight = (async () => {
+                try {
+                    await loadMyFollowingIdsNow();
+                } finally {
+                    feedFollowingIdsInflight = null;
+                }
+            })();
+            return feedFollowingIdsInflight;
+        }
+
+        async function loadMyFollowingIdsNow() {
+            if (!supabaseClient) { feedFollowingIds = new Set(); return; }
             // Resolve the user id from the LOCAL session FIRST. auth.getUser() does a
             // server round-trip that comes back EMPTY on a cold boot (session still
             // restoring), which used to leave feedFollowingIds empty → the feed showed
@@ -1937,8 +1954,15 @@
                 }
                 if (!authedUserId) authedUserId = String(cachedAuthUser?.id || '').trim();
             }
-            if (!authedUserId) return;
+            if (!authedUserId) { feedFollowingIds = new Set(); return; }
 
+            // Build into a LOCAL set and only publish it once the rows are in. Assigning
+            // `feedFollowingIds = new Set()` up front (as this used to) meant a badge
+            // refresh starting mid-feed-load would blank the shared set for the duration of
+            // its own network call — and if loadFeedItems() read it in that window it saw
+            // zero follows and rendered "Follow someone to see activity here." Building
+            // locally also leaves the previous set intact when the query fails.
+            const next = new Set();
             const { data, error } = await supabaseClient
                 .from('Follows')
                 .select('followed_id')
@@ -1947,8 +1971,9 @@
             const rows = Array.isArray(data) ? data : [];
             for (const r of rows) {
                 const id = String(r?.followed_id || '').trim();
-                if (id) feedFollowingIds.add(id);
+                if (id) next.add(id);
             }
+            feedFollowingIds = next;
         }
 
         async function loadFeedPage() {
@@ -3481,6 +3506,14 @@
             }
 
             loadFeedFilterPrefs();
+
+            // Last-resort guard against rendering the "Follow someone…" empty state off a
+            // set that just hasn't loaded yet (a concurrent caller could still be resolving
+            // it). If we have a signed-in user but zero follows, re-resolve once and only
+            // then trust the empty answer.
+            if (feedFollowingIds.size === 0 && authedUserId) {
+                try { await loadMyFollowingIds(); } catch (_) {}
+            }
             const followedIds = Array.from(feedFollowingIds);
 
             // Whose entries to show: followed users that are NOT unchecked in the Filter,

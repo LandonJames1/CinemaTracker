@@ -1,0 +1,40 @@
+name: Daily "Rec Pool" (recommendation candidate pool)
+
+# Crawls TMDB /discover ONCE A DAY FOR EVERYONE into the "Rec Pool" table (rec_pool.sql),
+# which is the ONLY candidate source for the Home "You Might Like" strip + the Discover
+# swipe deck. Every field we store comes free in the /discover response — no OMDb, no
+# per-movie TMDB lookup — so a full ~3-5k movie pool costs only ~150 TMDB calls per run,
+# TOTAL, for the whole user base (the old design crawled TMDB *per user*, which is what
+# kept timing out).
+#
+# This does NOT touch the OMDb quota, so it can't starve refresh-imdb / build-game-pool.
+#
+# Runs BEFORE refresh-home-recs.yml (03:30 UTC) so each day's decks are built off a
+# freshly-refreshed pool. GitHub Actions is only the timer + HTTP trigger; the swift-api
+# `build_rec_pool` edge action does the crawl + upsert. Reuses the existing cron secrets.
+on:
+  schedule:
+    - cron: '0 3 * * *'   # daily at 03:00 UTC, 30 min before refresh-home-recs
+  workflow_dispatch:
+    inputs:
+      pages:
+        description: 'Pages per genre/decade/recent query (20 movies each)'
+        required: false
+        default: '5'
+      global_pages:
+        description: 'Pages of all-time most-voted films (the canon)'
+        required: false
+        default: '20'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger build_rec_pool
+        run: |
+          curl -sS -X POST "${{ secrets.SUPABASE_FUNCTION_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -d "{\"action\":\"build_rec_pool\",\"pages\":${{ github.event.inputs.pages || 5 }},\"global_pages\":${{ github.event.inputs.global_pages || 20 }}}" \
+            --fail-with-body

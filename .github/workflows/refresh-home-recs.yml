@@ -1,13 +1,19 @@
 name: Daily "You Might Like" home recommendations
 
 # Once a day, precomputes each user's "You Might Like" home-strip deck into the
-# "Home Recommendations" table so the Home page reads a row instead of computing the
-# taste-ranked deck LIVE on every first visit (the swift-api `swipe_deck` action makes
-# 7+ sequential TMDB round trips — too slow for a cold page load). GitHub Actions is
-# only the timer + HTTP trigger; the swift-api `build_home_recs` Edge action does the
-# compute + upsert (stalest-user-first, so runs rotate through everyone). The `limit`
-# input caps how many users are refreshed per run (raise it to cover a bigger user base
-# in one pass). Reuses the existing cron secrets.
+# "Home Recommendations" table — the strip is a STABLE DAILY deck, so it's served from
+# that row all day and never re-rolls while you browse.
+#
+# This is now CHEAP: `build_home_recs` scores the shared "Rec Pool" (built once a day for
+# everyone by build-rec-pool.yml, which runs 30 min earlier) instead of crawling TMDB per
+# user, and it does the user-independent reads once per run. It used to fire ~36 sequential
+# TMDB calls PER USER — ~5,400 in one invocation at limit=150 — and time out, leaving most
+# users with no row at all. Hence the much higher default limit below.
+#
+# A user the cron still hasn't reached (or a brand-new account) is NOT stranded: the client
+# calls the `home_recs` edge action, which computes their deck on the spot and saves it.
+#
+# GitHub Actions is only the timer + HTTP trigger. Reuses the existing cron secrets.
 on:
   schedule:
     - cron: '30 3 * * *'   # daily at 03:30 UTC (off-peak); tune as desired
@@ -16,7 +22,7 @@ on:
       limit:
         description: 'Max users to refresh this run (stalest first)'
         required: false
-        default: '150'
+        default: '500'
 
 jobs:
   refresh:
@@ -28,5 +34,5 @@ jobs:
             -H "Content-Type: application/json" \
             -H "apikey: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
-            -d "{\"action\":\"build_home_recs\",\"limit\":${{ github.event.inputs.limit || 150 }}}" \
+            -d "{\"action\":\"build_home_recs\",\"limit\":${{ github.event.inputs.limit || 500 }}}" \
             --fail-with-body

@@ -145,10 +145,11 @@
         }
 
         // ── "You Might Like" home strip ─────────────────────────────────────────
-        // Taste-based picks from the swift-api `swipe_deck` action (scored off the
-        // user's Taste Profile). This is NOT the "Recs" list — swipe_deck explicitly
-        // EXCLUDES movies already in Recs/Bucket List, movies already WATCHED, and
-        // UNRELEASED movies (all filtered server-side). Clean posters (no % badge); the
+        // A STABLE DAILY DECK of taste-based picks: the server scores the shared "Rec Pool"
+        // (rec_pool.sql) against the user's Taste Profile and stores the result in
+        // "Home Recommendations"; the same picks show all day. This is NOT the "Recs" list —
+        // the deck explicitly EXCLUDES movies already in Recs/Bucket List, movies already
+        // WATCHED, and UNRELEASED movies (all filtered server-side). Clean posters (no % badge); the
         // taste-match % is surfaced INSIDE the Movie Spotlight instead (the tapped card
         // carries `taste_score`, which openMovieSpotlight reads). Rendered as an
         // auto-scrolling marquee on desktop (two duplicate tracks) + a manual horizontal
@@ -215,19 +216,38 @@
             });
         }
 
-        // ── Fetch + cache (perf: instant paint on repeat visits) ────────────────
-        const HOME_FORYOU_MIN = 10;            // always fill the strip to at least this many cards
-        const HOME_FORYOU_MAX_BATCHES = 5;     // page swipe_deck this many times max to reach the minimum
-        const HOME_FORYOU_LIMIT = 40;          // one big first call almost always yields >=10 → no extra round trips
-        const HOME_FORYOU_TTL_MS = 10 * 60 * 1000;   // a cached deck is "fresh" (no refetch) for 10 min
-        const HOME_FORYOU_CACHE_KEY = 'ct_foryou_cache_v1';
+        // ── Fetch + cache ───────────────────────────────────────────────────────
+        // The strip is a STABLE DAILY DECK: the same picks all day, so it never re-rolls
+        // under you while you browse. The server owns that (the nightly `build_home_recs`
+        // cron writes each user's row, and the `home_recs` action computes + SAVES a row
+        // for anyone the cron hasn't reached); the client just caches today's row.
+        const HOME_FORYOU_DECK_SIZE = 30;      // cards to ask `home_recs` for
+        const HOME_FORYOU_CACHE_KEY = 'ct_foryou_cache_v2';   // v2: keyed by DAY, not a TTL
+        const HOME_FORYOU_RETRIES = 2;         // extra attempts after a FAILED fetch (network hiccup on app resume)
+        const HOME_FORYOU_RETRY_MS = 900;      // backoff step between those attempts (x attempt #)
+
+        // The deck's "day" — Pacific, matching the server's gamePuzzleDatePT() so the client
+        // and the stored row roll over to a new deck at the same moment.
+        function homeForYouDayKey() {
+            try {
+                return new Intl.DateTimeFormat('en-CA', {
+                    timeZone: 'America/Los_Angeles',
+                    year: 'numeric', month: '2-digit', day: '2-digit',
+                }).format(new Date());
+            } catch (_) {
+                return new Date().toISOString().slice(0, 10);
+            }
+        }
 
         function homeForYouCacheHas(userId) {
             return !!(homeForYouCache && homeForYouCache.userId === userId
                 && Array.isArray(homeForYouCache.items) && homeForYouCache.items.length);
         }
+        // "Fresh" = it's still the same DAY. Within a day we never refetch, which is what
+        // makes the deck stable; at the Pacific day boundary it goes stale and we pull the
+        // new one. (A rating save still invalidates it immediately — see below.)
         function homeForYouCacheFresh(userId) {
-            return homeForYouCacheHas(userId) && (Date.now() - homeForYouCache.ts) < HOME_FORYOU_TTL_MS;
+            return homeForYouCacheHas(userId) && homeForYouCache.day === homeForYouDayKey();
         }
         function hydrateHomeForYouCacheFromSession() {
             if (homeForYouCache) return; // in-memory wins
@@ -239,11 +259,11 @@
             } catch (_) {}
         }
         function saveHomeForYouCache(userId, items) {
-            homeForYouCache = { userId, items, ts: Date.now() };
+            homeForYouCache = { userId, items, day: homeForYouDayKey(), ts: Date.now() };
             try { sessionStorage.setItem(HOME_FORYOU_CACHE_KEY, JSON.stringify(homeForYouCache)); } catch (_) {}
         }
-        // Drop the cache so the next Home visit refetches — call after a rating save so a
-        // just-watched movie can't linger in the strip within the TTL window.
+        // Drop the cache so the next Home visit refetches — called after a rating save so a
+        // just-watched movie can't linger in the strip for the rest of the day.
         function invalidateHomeForYouCache() {
             homeForYouCache = null;
             homeForYouInflight = null;
@@ -269,48 +289,55 @@
             return set;
         }
 
-        // Live deep-paging of swipe_deck — the FALLBACK when a user has no precomputed row
-        // yet (brand-new user the daily cron hasn't reached). swipe_deck already excludes
-        // watched/swiped/Recs/Bucket-List AND unreleased movies server-side. Returns [] on
-        // total failure.
-        async function fetchHomeForYouLive() {
-            const items = [];
-            const seen = new Set();
-            for (let b = 0; b < HOME_FORYOU_MAX_BATCHES && items.length < HOME_FORYOU_MIN; b += 1) {
-                // First (b=0) call asks for a big pool so ONE round trip usually suffices.
-                const limit = b === 0 ? HOME_FORYOU_LIMIT : 25;
-                const data = await callSwiftApiPublic({ action: 'swipe_deck', limit, batch: b, include_trending: false });
-                const cards = Array.isArray(data?.cards) ? data.cards : [];
-                let added = 0;
-                for (const c of cards) {
-                    const id = Number(c?.tmdb_id ?? c?.id);
-                    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue;
-                    seen.add(id); items.push(c); added += 1;
-                }
-                if (added === 0) break; // pool exhausted — deeper batches won't add anything
-            }
-            return items;
+        // Is this row's deck the one for TODAY? The strip is a stable daily deck, so a row
+        // from a previous day (the cron hasn't reached this user yet) must be recomputed.
+        function homeRecsRowIsToday(computedAt) {
+            if (!computedAt) return false;
+            try {
+                const rowDay = new Intl.DateTimeFormat('en-CA', {
+                    timeZone: 'America/Los_Angeles',
+                    year: 'numeric', month: '2-digit', day: '2-digit',
+                }).format(new Date(computedAt));
+                return rowDay === homeForYouDayKey();
+            } catch (_) { return false; }
         }
 
-        // Returns the deck cards for a user. FAST PATH: read the daily-precomputed row from
-        // "Home Recommendations" (one indexed query, no TMDB) and filter out anything watched
-        // since the last recompute. SLOW PATH (new user, no row yet): compute live via
-        // swipe_deck so they still get picks immediately (the next cron backfills their row).
+        // Returns today's deck cards for a user.
+        //
+        // FAST PATH: read the precomputed row from "Home Recommendations" — ONE indexed
+        // query, no edge call, no TMDB — and drop anything they've watched since it was
+        // built (so a just-rated movie can't linger).
+        //
+        // SLOW PATH: no row, or a row from a PREVIOUS day (a brand-new account, or a user
+        // the nightly cron hasn't reached). Call the `home_recs` edge action, which scores
+        // the shared "Rec Pool" and SAVES the result — so the deck is stable for the rest of
+        // the day and every later visit hits the fast path. This is now a single cheap call
+        // (a DB read + scoring, no TMDB); it used to be up to 5 deep-paged `swipe_deck`
+        // calls, each crawling TMDB, which is what made the strip time out and vanish.
+        //
+        // THROWS on a failed fetch (never returns [] on an error) so loadHomeForYou can tell
+        // "genuinely no picks" apart from "network hiccup" and retry the latter.
         async function fetchHomeForYouCards(userId) {
-            if (userId && supabaseClient) {
-                try {
-                    const [recRes, watched] = await Promise.all([
-                        supabaseClient.from('Home Recommendations').select('cards').eq('user_id', userId).maybeSingle(),
-                        fetchWatchedTmdbSet(userId),
-                    ]);
-                    let cards = Array.isArray(recRes?.data?.cards) ? recRes.data.cards : [];
-                    if (cards.length) {
-                        cards = cards.filter((c) => !watched.has(Number(c?.tmdb_id ?? c?.id)));
-                        if (cards.length) return cards;
-                    }
-                } catch (_) { /* fall through to live */ }
-            }
-            return fetchHomeForYouLive();
+            if (!userId || !supabaseClient) return [];
+
+            let watched = new Set();
+            try {
+                const [recRes, watchedSet] = await Promise.all([
+                    supabaseClient.from('Home Recommendations').select('cards, computed_at').eq('user_id', userId).maybeSingle(),
+                    fetchWatchedTmdbSet(userId),
+                ]);
+                watched = watchedSet;
+                const row = recRes?.data;
+                let cards = Array.isArray(row?.cards) ? row.cards : [];
+                if (cards.length && homeRecsRowIsToday(row?.computed_at)) {
+                    cards = cards.filter((c) => !watched.has(Number(c?.tmdb_id ?? c?.id)));
+                    if (cards.length) return cards;
+                }
+            } catch (_) { /* fall through and compute today's deck */ }
+
+            const data = await callSwiftApiPublic({ action: 'home_recs', deck_size: HOME_FORYOU_DECK_SIZE });
+            const cards = Array.isArray(data?.cards) ? data.cards : [];
+            return cards.filter((c) => !watched.has(Number(c?.tmdb_id ?? c?.id)));
         }
 
         // Returns the deck for `userId`, using the cache when fresh and DE-DUPING concurrent
@@ -367,8 +394,9 @@
 
             hydrateHomeForYouCacheFromSession();
 
-            // Stale-while-revalidate: if we have ANY cached deck for this user, paint it
-            // INSTANTLY (0 network). Otherwise show the skeleton while the first fetch runs.
+            // If we have ANY cached deck for this user, paint it INSTANTLY (0 network) —
+            // even a previous day's, which is then replaced below. Otherwise show the
+            // skeleton while the first fetch runs.
             if (homeForYouCacheHas(userId)) {
                 homeForYouItems = homeForYouCache.items;
                 renderHomeForYou(homeForYouItems);
@@ -379,24 +407,45 @@
                 if (track2) track2.innerHTML = skel;
             }
 
-            // Fresh cache → don't touch the network at all.
+            // Already have TODAY's deck → don't touch the network at all. This is what makes
+            // the strip a stable daily deck: within a day we never refetch, so the picks
+            // can't shift under you while you browse. (A rating save calls
+            // invalidateHomeForYouCache(), so a movie you just logged still drops out.)
             if (homeForYouCacheFresh(userId)) return;
 
             // Revalidate (or first-load). Guard against navigating away / switching account
             // before it resolves so we never paint into the wrong page.
-            try {
-                const items = await ensureHomeForYouItems(userId, { force: true });
-                const stillHome = (document.body?.dataset?.page === 'home');
-                const stillSameUser = ((typeof getActiveUserId === 'function') ? getActiveUserId() : null) === userId;
-                if (!stillHome || !stillSameUser) return;
-                if (items && items.length) {
-                    homeForYouItems = items;
-                    renderHomeForYou(items);
-                } else if (!homeForYouCacheHas(userId)) {
-                    showTrendingFallback();
+            const stillShowing = () => (document.body?.dataset?.page === 'home')
+                && (((typeof getActiveUserId === 'function') ? getActiveUserId() : null) === userId);
+
+            // RETRY on failure. A single transient error (an app resume before the network is
+            // back, an edge cold start) used to fall straight through to showTrendingFallback,
+            // which hides the strip — and since CSS hides the Trending marquee on mobile, the
+            // section simply VANISHED after its skeleton. Only a fetch that SUCCEEDS and comes
+            // back genuinely empty is allowed to hide the strip.
+            let items = null;
+            for (let attempt = 0; attempt <= HOME_FORYOU_RETRIES; attempt += 1) {
+                if (attempt > 0) {
+                    await new Promise((r) => setTimeout(r, HOME_FORYOU_RETRY_MS * attempt));
+                    if (!stillShowing()) return;
                 }
-            } catch (_) {
-                if (!homeForYouCacheHas(userId)) showTrendingFallback();
+                try {
+                    items = await ensureHomeForYouItems(userId, { force: true });
+                    break;              // success (even if empty) → stop retrying
+                } catch (_) {
+                    items = null;       // transient — try again
+                }
+            }
+
+            if (!stillShowing()) return;
+
+            if (items && items.length) {
+                homeForYouItems = items;
+                renderHomeForYou(items);
+            } else if (!homeForYouCacheHas(userId)) {
+                // Nothing to show (or every attempt failed). The cache stays empty, so simply
+                // navigating back to Home later retries the fetch from scratch.
+                showTrendingFallback();
             }
         }
 
