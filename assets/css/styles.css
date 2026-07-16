@@ -1543,22 +1543,31 @@
         }
         .foryou-card .movie-overlay h4 { font-size: 0.8rem; line-height: 1.15; }
         @media (max-width: 768px) {
-            /* Manual scroll: kill the marquee animation, hide the duplicate track, and
-               let the strip scroll horizontally under the finger.
-               HARD STOP at the first/last poster: `overscroll-behavior-x: none`. There is no
-               content past the last card (scrollWidth == the cards' width exactly), so the
-               grey you could drag into was iOS's rubber-band OVERSCROLL. It must be `none`,
-               NOT `contain` — `contain` only stops scroll CHAINING to the page and by spec
-               still allows the element's own bounce, which is the bug. `none` = no chaining
-               AND no bounce. `-webkit-overflow-scrolling: touch` is dropped: it's a legacy
-               iOS property (momentum is the default since iOS 13) whose old implementation
-               is what re-introduces the rubber-band. */
+            /* Manual scroll, and it MUST hard-stop at the first/last poster.
+               The desktop marquee machinery is what let it scroll on into empty grey: the
+               strip's scrollable width was set by the WRAPPER boxes (.foryou-marquee's
+               `width: max-content` + its translateX(-50%) marquee animation + the
+               .foryou-track box), not by the posters. A wrapper sizing wider than the cards
+               is REAL overflow, which is why overscroll-behavior alone never fixed this —
+               that only governs the rubber-band bounce, not genuine scrollable space.
+               So on mobile the wrappers are taken out of layout entirely with
+               `display: contents` (the elements stay in the DOM, so the click/prefetch
+               listeners bound to the tracks keep working — events bubble through the DOM
+               tree, not the layout box). The cards become direct flex children of the
+               scroller, so scrollWidth is exactly the posters + this padding and there is
+               nothing past the last one to scroll to. overscroll-behavior-x: none then
+               kills iOS's bounce at each end. `-webkit-overflow-scrolling: touch` stays
+               dropped: it's a legacy iOS property (momentum is the default since iOS 13)
+               whose old implementation reintroduces the rubber-band. */
             .foryou-strip {
+                display: flex;
                 overflow-x: auto;
                 overflow-y: hidden;
                 overscroll-behavior-x: none;
+                padding: 0 0.75rem;
             }
-            .foryou-marquee { animation: none; width: max-content; padding: 0 0.75rem; }
+            .foryou-marquee,
+            #home-foryou-track-1 { display: contents; }
             #home-foryou-track-2 { display: none; }
             .foryou-card { flex-basis: 122px; height: 183px; margin: 0 0.3rem; }
             .foryou-card .movie-overlay h4 { font-size: 0.74rem; }
