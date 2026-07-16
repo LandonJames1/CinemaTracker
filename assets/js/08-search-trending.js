@@ -170,6 +170,11 @@
             `;
         }
 
+        // Set by the mobile drag loop (initForYouInfiniteScroll) when a pointer gesture was a
+        // real drag rather than a tap, so releasing a swipe doesn't also open the Movie
+        // Spotlight for whatever poster the finger happened to land on.
+        let foryouDragSuppressClick = false;
+
         function renderHomeForYou(items) {
             const wrap = document.getElementById('home-foryou');
             const track1 = document.getElementById('home-foryou-track-1');
@@ -190,6 +195,8 @@
                 // Tapping a card carries its taste_score into the Movie Spotlight, where the
                 // "% match" tile renders (only movies opened from here have a taste_score).
                 track.addEventListener('click', (e) => {
+                    // Swallow the click that trails a mobile drag-swipe (see foryouDragSuppressClick).
+                    if (foryouDragSuppressClick) { foryouDragSuppressClick = false; return; }
                     const card = e?.target?.closest ? e.target.closest('.foryou-card[data-foryou-tmdb]') : null;
                     if (!card) return;
                     const tmdbId = Number(card.getAttribute('data-foryou-tmdb'));
@@ -218,30 +225,107 @@
             initForYouInfiniteScroll();
         }
 
-        // MOBILE infinite loop. The strip already renders the SAME card set twice (track-1 +
-        // track-2, the duplicate the desktop marquee loops on), so scrolling past the end of
-        // set 1 continues into an identical set 2 — which means resetting scrollLeft by exactly
-        // one track's width renders pixel-for-pixel the same frame. That wrap is what removes
-        // the visible dead end at the last poster: the strip circles back to the first movie.
-        // (Desktop is untouched — it keeps the CSS marquee animation and never scrolls.)
+        // MOBILE infinite loop = the desktop marquee, dragged by hand.
+        //
+        // The strip renders the SAME card set twice (track-1 + track-2 — the duplicate the
+        // desktop CSS marquee loops on), so shifting the marquee by exactly one track's width
+        // renders a pixel-identical frame. We drag that transform directly and keep the offset
+        // modulo one set's width, so the posters repeat forever in both directions and there is
+        // no end to hit.
+        //
+        // ⚠️ Do NOT "simplify" this back into a native overflow-x scroller that wraps
+        // scrollLeft — that was tried and fails on iOS: programmatic scrollLeft writes are
+        // dropped during momentum scrolling, which is precisely when the seam is crossed, so
+        // the strip dead-ends on the last poster. Owning the transform avoids the scroll
+        // container entirely. Desktop is untouched (CSS animation; this all self-gates to
+        // isMobileViewport()).
         function initForYouInfiniteScroll() {
             const strip = document.querySelector('.foryou-strip');
             const track1 = document.getElementById('home-foryou-track-1');
-            if (!strip || !track1 || strip.dataset.boundForYouLoop) return;
+            const marquee = strip ? strip.querySelector('.foryou-marquee') : null;
+            if (!strip || !track1 || !marquee || strip.dataset.boundForYouLoop) return;
             strip.dataset.boundForYouLoop = 'true';
 
-            let wrapping = false;
-            strip.addEventListener('scroll', () => {
-                if (wrapping) return;
-                if (typeof isMobileViewport === 'function' && !isMobileViewport()) return;
-                const setWidth = track1.scrollWidth;
-                // A set narrower than the viewport has nothing to wrap into (both sets would
-                // be on screen at once), so leave it as a plain scroller.
-                if (!setWidth || setWidth <= strip.clientWidth) return;
-                const x = strip.scrollLeft;
-                if (x >= setWidth) { wrapping = true; strip.scrollLeft = x - setWidth; wrapping = false; }
-                else if (x <= 0) { wrapping = true; strip.scrollLeft = x + setWidth; wrapping = false; }
-            }, { passive: true });
+            const isMobile = () => (typeof isMobileViewport === 'function') ? isMobileViewport() : (window.innerWidth <= 768);
+
+            let offset = 0;      // px scrolled from the start of set 1, always kept in [0, setWidth)
+            let setWidth = 0;    // width of ONE card set = the wrap period
+            let dragging = false;
+            let moved = 0;       // total px travelled this drag (→ tap vs drag)
+            let lastX = 0, lastT = 0, velocity = 0, raf = 0;
+
+            const measure = () => { setWidth = track1.getBoundingClientRect().width; };
+            const paint = () => {
+                if (setWidth > 0) {
+                    if (setWidth >= strip.clientWidth) {
+                        offset = ((offset % setWidth) + setWidth) % setWidth;  // the wrap
+                    } else {
+                        // A deck too short to fill the screen can't loop — one set's width is
+                        // less than the viewport, so wrapping at it would expose a gap. Clamp
+                        // to the two sets' combined width and let it dead-end instead.
+                        offset = Math.min(Math.max(offset, 0), Math.max(0, (setWidth * 2) - strip.clientWidth));
+                    }
+                }
+                marquee.style.transform = `translateX(${-offset}px)`;
+            };
+            const stopInertia = () => { if (raf) cancelAnimationFrame(raf); raf = 0; };
+
+            // Flick momentum, since we're no longer getting the browser's for free.
+            const inertia = () => {
+                stopInertia();
+                const step = () => {
+                    velocity *= 0.94;
+                    if (Math.abs(velocity) < 0.02) { raf = 0; return; }
+                    offset += velocity * 16;   // velocity is px/ms; ~16ms per frame
+                    paint();
+                    raf = requestAnimationFrame(step);
+                };
+                raf = requestAnimationFrame(step);
+            };
+
+            strip.addEventListener('pointerdown', (e) => {
+                if (!isMobile()) return;
+                stopInertia();
+                measure();
+                dragging = true;
+                moved = 0;
+                velocity = 0;
+                foryouDragSuppressClick = false;
+                lastX = e.clientX;
+                lastT = e.timeStamp || performance.now();
+            });
+
+            strip.addEventListener('pointermove', (e) => {
+                if (!dragging) return;
+                const now = e.timeStamp || performance.now();
+                const dx = e.clientX - lastX;
+                const dt = Math.max(1, now - lastT);
+                moved += Math.abs(dx);
+                offset -= dx;
+                velocity = -dx / dt;
+                lastX = e.clientX;
+                lastT = now;
+                paint();
+            });
+
+            // pointercancel fires when the browser takes the gesture over as a vertical page
+            // scroll (touch-action: pan-y), which correctly ends our drag.
+            const endDrag = () => {
+                if (!dragging) return;
+                dragging = false;
+                // A real drag must not also fire the card's click → Movie Spotlight.
+                foryouDragSuppressClick = moved > 8;
+                if (Math.abs(velocity) > 0.05) inertia();
+            };
+            strip.addEventListener('pointerup', endDrag);
+            strip.addEventListener('pointercancel', endDrag);
+            strip.addEventListener('pointerleave', endDrag);
+
+            window.addEventListener('resize', () => {
+                if (!isMobile()) { stopInertia(); marquee.style.transform = ''; return; }  // hand transform back to the CSS animation
+                measure();
+                paint();
+            });
         }
 
         // ── Fetch + cache ───────────────────────────────────────────────────────
