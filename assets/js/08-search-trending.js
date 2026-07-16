@@ -214,6 +214,34 @@
                     prefetch(e);
                 });
             });
+
+            initForYouInfiniteScroll();
+        }
+
+        // MOBILE infinite loop. The strip already renders the SAME card set twice (track-1 +
+        // track-2, the duplicate the desktop marquee loops on), so scrolling past the end of
+        // set 1 continues into an identical set 2 — which means resetting scrollLeft by exactly
+        // one track's width renders pixel-for-pixel the same frame. That wrap is what removes
+        // the visible dead end at the last poster: the strip circles back to the first movie.
+        // (Desktop is untouched — it keeps the CSS marquee animation and never scrolls.)
+        function initForYouInfiniteScroll() {
+            const strip = document.querySelector('.foryou-strip');
+            const track1 = document.getElementById('home-foryou-track-1');
+            if (!strip || !track1 || strip.dataset.boundForYouLoop) return;
+            strip.dataset.boundForYouLoop = 'true';
+
+            let wrapping = false;
+            strip.addEventListener('scroll', () => {
+                if (wrapping) return;
+                if (typeof isMobileViewport === 'function' && !isMobileViewport()) return;
+                const setWidth = track1.scrollWidth;
+                // A set narrower than the viewport has nothing to wrap into (both sets would
+                // be on screen at once), so leave it as a plain scroller.
+                if (!setWidth || setWidth <= strip.clientWidth) return;
+                const x = strip.scrollLeft;
+                if (x >= setWidth) { wrapping = true; strip.scrollLeft = x - setWidth; wrapping = false; }
+                else if (x <= 0) { wrapping = true; strip.scrollLeft = x + setWidth; wrapping = false; }
+            }, { passive: true });
         }
 
         // ── Fetch + cache ───────────────────────────────────────────────────────

@@ -1543,11 +1543,15 @@
         }
         .foryou-card .movie-overlay h4 { font-size: 0.8rem; line-height: 1.15; }
         @media (max-width: 768px) {
-            /* Manual scroll: kill the marquee animation, hide the duplicate track, and
-               let the strip scroll horizontally under the finger. */
+            /* Manual scroll: kill the marquee animation and let the strip scroll
+               horizontally under the finger. The duplicate track STAYS rendered here (it is
+               NOT hidden) — initForYouInfiniteScroll wraps scrollLeft by exactly one track's
+               width, which is seamless only because a second identical set follows the first,
+               so the strip loops instead of dead-ending on the last poster. The marquee's
+               side padding is dropped for the same reason: any padding would offset the two
+               sets and make the wrap visible. */
             .foryou-strip { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
-            .foryou-marquee { animation: none; width: max-content; padding: 0 0.75rem; }
-            #home-foryou-track-2 { display: none; }
+            .foryou-marquee { animation: none; width: max-content; padding: 0; }
             .foryou-card { flex-basis: 122px; height: 183px; margin: 0 0.3rem; }
             .foryou-card .movie-overlay h4 { font-size: 0.74rem; }
             /* Tighten the header→posters gap on mobile (was far too big). */
