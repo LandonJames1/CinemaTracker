@@ -1543,20 +1543,19 @@
         }
         .foryou-card .movie-overlay h4 { font-size: 0.8rem; line-height: 1.15; }
         @media (max-width: 768px) {
-            /* Mobile = the SAME endless marquee as desktop, just dragged by hand instead of
-               auto-scrolling. So: kill the animation, but keep the strip's `overflow: hidden`
-               and DON'T make it a native scroller — initForYouInfiniteScroll drags the
-               marquee's transform directly and wraps it modulo one track's width, so the
-               posters repeat forever with no scroll container to run out of. (A native
-               overflow-x scroller can't do this: iOS drops programmatic scrollLeft writes
-               during momentum, which is exactly when the seam is crossed, so the strip
-               dead-ended on the last poster.) The duplicate #home-foryou-track-2 STAYS
-               rendered — the wrap is only seamless because an identical second set follows
-               the first — and the marquee's side padding is dropped because any padding
-               would offset the two sets and make the wrap visible.
-               touch-action: pan-y = horizontal drags are ours, vertical still scrolls the page. */
-            .foryou-strip { touch-action: pan-y; }
-            .foryou-marquee { animation: none; width: max-content; padding: 0; will-change: transform; }
+            /* Manual scroll: kill the marquee animation, hide the duplicate track, and
+               let the strip scroll horizontally under the finger.
+               `overscroll-behavior-x: contain` kills the horizontal rubber-band, so the strip
+               stops dead at the first/last poster instead of dragging past it into empty
+               background (which read as a grey dead end at the end of the list). */
+            .foryou-strip {
+                overflow-x: auto;
+                overflow-y: hidden;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior-x: contain;
+            }
+            .foryou-marquee { animation: none; width: max-content; padding: 0 0.75rem; }
+            #home-foryou-track-2 { display: none; }
             .foryou-card { flex-basis: 122px; height: 183px; margin: 0 0.3rem; }
             .foryou-card .movie-overlay h4 { font-size: 0.74rem; }
             /* Tighten the header→posters gap on mobile (was far too big). */
