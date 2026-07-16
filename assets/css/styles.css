@@ -1545,14 +1545,18 @@
         @media (max-width: 768px) {
             /* Manual scroll: kill the marquee animation, hide the duplicate track, and
                let the strip scroll horizontally under the finger.
-               `overscroll-behavior-x: contain` kills the horizontal rubber-band, so the strip
-               stops dead at the first/last poster instead of dragging past it into empty
-               background (which read as a grey dead end at the end of the list). */
+               HARD STOP at the first/last poster: `overscroll-behavior-x: none`. There is no
+               content past the last card (scrollWidth == the cards' width exactly), so the
+               grey you could drag into was iOS's rubber-band OVERSCROLL. It must be `none`,
+               NOT `contain` — `contain` only stops scroll CHAINING to the page and by spec
+               still allows the element's own bounce, which is the bug. `none` = no chaining
+               AND no bounce. `-webkit-overflow-scrolling: touch` is dropped: it's a legacy
+               iOS property (momentum is the default since iOS 13) whose old implementation
+               is what re-introduces the rubber-band. */
             .foryou-strip {
                 overflow-x: auto;
                 overflow-y: hidden;
-                -webkit-overflow-scrolling: touch;
-                overscroll-behavior-x: contain;
+                overscroll-behavior-x: none;
             }
             .foryou-marquee { animation: none; width: max-content; padding: 0 0.75rem; }
             #home-foryou-track-2 { display: none; }
