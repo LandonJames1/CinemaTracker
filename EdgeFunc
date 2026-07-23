@@ -897,7 +897,10 @@ const GAME_MAX_GUESSES = { spottle: 10, poster: 6, cast: 6 };
 // guess). The daily film therefore needs at least 6 named cast members.
 const GAME_CAST_SHOW = 6;
 const GAME_CAST_MIN = GAME_CAST_SHOW;
-const GAME_POSTER_MAX_BLUR = 36; // px at zero guesses; steps to 0 exactly on the 6th guess
+// Exact blur (px) shown BEFORE each guess: index 0 = before guess 1 … index 5 =
+// before guess 6. Poster clears to 0 once the game is done (solved / out of guesses).
+// Tune these freely — one number per guess, hand-picked for feel.
+const GAME_POSTER_BLUR_STEPS = [50, 33, 24, 17, 12, 7];
 const GAME_RANK_COUNT = 6;
 // Rank reuses films over time (6/day burns the pool fast), but NO two daily rank
 // sets may share more than this many of their 6 films.
@@ -1184,10 +1187,15 @@ async function addUserGamePoints(admin, userId, delta) {
 }
 
 // Poster blur in px for the current attempt count (clears once the game is done).
+// Reads the hand-picked per-guess list GAME_POSTER_BLUR_STEPS: `attempts` = guesses
+// used so far, so attempts 0 → before guess 1, etc. Past the end of the list it holds
+// the last value; a finished game reveals fully (0).
 function gamePosterBlur(attempts, max, done) {
   if (done) return 0;
-  const frac = Math.max(0, (max - attempts) / max);
-  return Math.round(GAME_POSTER_MAX_BLUR * frac);
+  const steps = GAME_POSTER_BLUR_STEPS;
+  if (!steps.length) return 0;
+  const i = Math.max(0, Math.min(attempts, steps.length - 1));
+  return steps[i];
 }
 
 // The EXACTLY-6 cast members a "Starring" puzzle is played with: the film's top 6

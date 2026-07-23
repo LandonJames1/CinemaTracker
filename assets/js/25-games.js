@@ -960,8 +960,7 @@
                     <div class="poster-stage">
                         <div class="poster-frame ${d.done ? 'is-revealed' : ''}">
                             ${url
-                                ? `<img class="poster-img" style="filter: blur(${startBlur}px);" src="${url}" alt="Mystery movie poster">
-                                   ${d.done ? '' : '<div class="poster-scrim"></div>'}`
+                                ? `<img class="poster-img" style="filter: blur(${startBlur}px);" src="${url}" alt="Mystery movie poster">`
                                 : '<div class="poster-missing">No image</div>'}
                         </div>
                     </div>

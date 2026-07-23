@@ -66,36 +66,311 @@
             return q.split(' ').every((word) => word && hay.includes(word));
         }
 
+        // Apply the My Movies magnifier search to a library query. Loose/"fuzzy" match by
+        // TITLE **or** ACTOR: every query word must appear (as a substring) in the title,
+        // OR every word must appear in the actors list — so "Jake Gyl" finds every movie
+        // where Jake Gyllenhaal appears, and word order doesn't matter. Empty query = no-op.
+        function applyLibrarySearchFilter(q) {
+            const searchNeedle = String(librarySearchQuery || '').trim();
+            if (!searchNeedle) return q;
+            // Strip characters that would break PostgREST's or() filter grammar.
+            const words = searchNeedle.split(/\s+/)
+                .map((w) => w.replace(/[,()*%\\]/g, '').trim())
+                .filter(Boolean);
+            if (!words.length) return q;
+            const titleAnd = 'and(' + words.map((w) => `title.ilike.*${w}*`).join(',') + ')';
+            const actorAnd = 'and(' + words.map((w) => `actors.ilike.*${w}*`).join(',') + ')';
+            return q.or(`${titleAnd},${actorAnd}`);
+        }
+
+        // ===== My Movies search typeahead (movies + actors from the user's library) =====
+        // As the user types (≥2 chars) in the My Movies search popup we show a dropdown of
+        // matching MOVIES (with posters) and ACTORS (with headshots) drawn ONLY from their
+        // own library. Picking one runs the search; but selecting is optional — hitting
+        // Enter with any text (e.g. "harry pot") still runs the loose title/actor search.
+        let librarySearchIndex = null;        // { movies:[…], actors:[…] } for the current user
+        let librarySearchIndexUserId = null;
+        let librarySearchIndexInflight = null;
+        let librarySuggestDebounceTimer = null;
+        let librarySuggestToken = 0;          // guards stale renders / lazy headshot loads
+
+        function invalidateLibrarySearchIndex() {
+            librarySearchIndex = null;
+            librarySearchIndexUserId = null;
+            librarySearchIndexInflight = null;
+        }
+
+        // Build a { movies, actors } typeahead index from `user_library_items_*` view rows
+        // (each row has title/poster_path/tmdb_id/actors/release_year). Shared by My Movies
+        // (whole library) AND the Lists detail search (one list's rows, see 04-lists.js).
+        function buildSearchIndexFromRows(rows) {
+            const list = Array.isArray(rows) ? rows : [];
+            const movies = [];
+            const actorMap = new Map(); // norm-name → { name, norm, count, poster_path, tmdb_id }
+            for (const r of list) {
+                const title = String(r?.title || '').trim();
+                if (title) {
+                    movies.push({
+                        title,
+                        norm: normalizeSearchText(title),
+                        poster_path: r?.poster_path || null,
+                        tmdb_id: r?.tmdb_id ?? null,
+                        movie_id: r?.movie_id ? String(r.movie_id) : '',
+                        year: (r?.release_year === null || r?.release_year === undefined) ? '' : String(r.release_year),
+                    });
+                }
+                const actorsStr = String(r?.actors || '').trim();
+                if (actorsStr) {
+                    actorsStr.split(',').forEach((raw) => {
+                        const name = String(raw || '').trim();
+                        if (!name) return;
+                        const norm = normalizeSearchText(name);
+                        if (!norm) return;
+                        const existing = actorMap.get(norm);
+                        if (existing) {
+                            existing.count += 1;
+                            if (!existing.poster_path && r?.poster_path) existing.poster_path = r.poster_path;
+                        } else {
+                            actorMap.set(norm, {
+                                name,
+                                norm,
+                                count: 1,
+                                poster_path: r?.poster_path || null,
+                                tmdb_id: r?.tmdb_id ?? null,
+                            });
+                        }
+                    });
+                }
+            }
+            return { movies, actors: Array.from(actorMap.values()) };
+        }
+
+        async function buildLibrarySearchIndex(userId) {
+            const uid = String(userId || '').trim();
+            if (!uid || !supabaseClient) return { movies: [], actors: [] };
+            const { data, error } = await supabaseClient
+                .from(LIBRARY_ITEMS_VIEW)
+                .select('movie_id, title, tmdb_id, poster_path, actors, release_year')
+                .eq('user_id', uid)
+                .limit(3000);
+            if (error) throw error;
+            return buildSearchIndexFromRows(data);
+        }
+
+        async function ensureLibrarySearchIndex() {
+            let uid = librarySearchIndexUserId;
+            try {
+                const { user } = await requireAuthOrThrow();
+                uid = String(user?.id || '').trim();
+            } catch (_) { /* keep whatever we had */ }
+            if (librarySearchIndex && librarySearchIndexUserId === uid) return librarySearchIndex;
+            if (librarySearchIndexInflight) return librarySearchIndexInflight;
+            librarySearchIndexInflight = buildLibrarySearchIndex(uid)
+                .then((idx) => {
+                    librarySearchIndex = idx;
+                    librarySearchIndexUserId = uid;
+                    librarySearchIndexInflight = null;
+                    return idx;
+                })
+                .catch((e) => { librarySearchIndexInflight = null; throw e; });
+            return librarySearchIndexInflight;
+        }
+
+        // The search popup's typeahead serves two contexts: 'library' (My Movies, whole
+        // library) and 'lists' (a Lists detail page, that one list). Feed has none.
+        function pageSearchHasTypeahead() {
+            return pageSearchContext === 'library' || pageSearchContext === 'lists';
+        }
+        function currentSearchIndex() {
+            return pageSearchContext === 'lists' ? listsSearchIndex : librarySearchIndex;
+        }
+        async function ensureSearchIndexForContext() {
+            if (pageSearchContext === 'lists') {
+                return (typeof ensureListsSearchIndex === 'function') ? ensureListsSearchIndex() : (listsSearchIndex || { movies: [], actors: [] });
+            }
+            return ensureLibrarySearchIndex();
+        }
+
+        // Every query word must appear (as a substring) in the normalized haystack —
+        // loose + order-independent, matching the server-side search behavior.
+        function librarySuggestMatches(normHay, words) {
+            return words.every((w) => normHay.includes(w));
+        }
+
+        function librarySuggestThumbHtml({ img, isActor }) {
+            const cls = `page-search-suggest-thumb${isActor ? ' is-actor' : ''}`;
+            if (img) return `<span class="${cls}"><img src="${escapeHtml(img)}" alt="" loading="lazy" onerror="this.style.display='none'"></span>`;
+            return `<span class="${cls}"></span>`;
+        }
+
+        function renderLibrarySuggestions(rawValue) {
+            const box = document.getElementById('page-search-suggest');
+            if (!box) return;
+            const value = String(rawValue || '');
+            const norm = normalizeSearchText(value);
+            if (norm.length < 2 || !pageSearchHasTypeahead()) {
+                hideLibrarySuggestions();
+                return;
+            }
+            const words = norm.split(' ').filter(Boolean);
+            const scopeLabel = (pageSearchContext === 'lists') ? 'this list' : 'your library';
+
+            const index = currentSearchIndex();
+            if (!index) {
+                box.style.display = 'block';
+                box.innerHTML = `<div class="page-search-suggest-loading">Searching…</div>`;
+                return;
+            }
+
+            const MAX_EACH = 6;
+            const movies = index.movies
+                .filter((m) => librarySuggestMatches(m.norm, words))
+                .slice(0, MAX_EACH);
+            const actors = index.actors
+                .filter((a) => librarySuggestMatches(a.norm, words))
+                .sort((a, b) => b.count - a.count)
+                .slice(0, MAX_EACH);
+
+            if (!movies.length && !actors.length) {
+                box.style.display = 'block';
+                box.innerHTML = `<div class="page-search-suggest-empty">No matches in ${scopeLabel} — press Enter to search anyway.</div>`;
+                return;
+            }
+
+            const token = ++librarySuggestToken;
+            const parts = [];
+            if (movies.length) {
+                parts.push(`<div class="page-search-suggest-head">Movies</div>`);
+                movies.forEach((m) => {
+                    const poster = m.poster_path ? dashBuildPosterUrl(m.poster_path, 'w92') : '';
+                    parts.push(
+                        `<button type="button" class="page-search-suggest-row" data-suggest-kind="movie" data-suggest-value="${escapeHtml(m.title)}">`
+                        + librarySuggestThumbHtml({ img: poster, isActor: false })
+                        + `<span class="page-search-suggest-text"><span class="pss-title">${escapeHtml(m.title)}</span>`
+                        + `<span class="pss-sub">Movie${m.year ? ` · ${escapeHtml(m.year)}` : ''}</span></span></button>`
+                    );
+                });
+            }
+            if (actors.length) {
+                parts.push(`<div class="page-search-suggest-head">Actors</div>`);
+                actors.forEach((a, i) => {
+                    const thumbId = `pss-actor-${token}-${i}`;
+                    parts.push(
+                        `<button type="button" class="page-search-suggest-row" data-suggest-kind="actor" data-suggest-value="${escapeHtml(a.name)}">`
+                        + `<span class="page-search-suggest-thumb is-actor" id="${thumbId}"></span>`
+                        + `<span class="page-search-suggest-text"><span class="pss-title">${escapeHtml(a.name)}</span>`
+                        + `<span class="pss-sub">Actor · ${a.count} movie${a.count === 1 ? '' : 's'}</span></span></button>`
+                    );
+                    // Lazy-load the real headshot (cached across the app via dashPersonAvatarCache).
+                    loadSuggestActorHeadshot(a.name, thumbId, token);
+                });
+            }
+            box.style.display = 'block';
+            box.innerHTML = parts.join('');
+        }
+
+        async function loadSuggestActorHeadshot(name, thumbId, token) {
+            let path = null;
+            try { path = await dashFetchPersonProfile({ name, department: 'Acting' }); } catch (_) { path = null; }
+            if (token !== librarySuggestToken) return; // a newer render superseded this one
+            const el = document.getElementById(thumbId);
+            if (!el || !path) return;
+            const url = dashBuildPersonUrl(path, 'w185');
+            if (!url) return;
+            el.innerHTML = `<img src="${escapeHtml(url)}" alt="" loading="lazy" onerror="this.style.display='none'">`;
+        }
+
+        function hideLibrarySuggestions() {
+            const box = document.getElementById('page-search-suggest');
+            if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+        }
+
+        function handleLibrarySearchInput(rawValue) {
+            if (!pageSearchHasTypeahead()) { hideLibrarySuggestions(); return; }
+            const value = String(rawValue || '');
+            const norm = normalizeSearchText(value);
+            if (norm.length < 2) { hideLibrarySuggestions(); return; }
+            // Make sure the right index is loaded (My Movies: one cached query; Lists: the
+            // active list's rows, already built by loadListsPage).
+            ensureSearchIndexForContext().then(() => {
+                const input = document.getElementById('page-search-input');
+                if (input && pageSearchHasTypeahead()) renderLibrarySuggestions(input.value);
+            }).catch(() => {});
+            if (librarySuggestDebounceTimer) clearTimeout(librarySuggestDebounceTimer);
+            librarySuggestDebounceTimer = setTimeout(() => renderLibrarySuggestions(value), 110);
+        }
+
+        // Delegated click for a suggestion row: fill the input + run the search.
+        function pickLibrarySuggestion(value) {
+            const input = document.getElementById('page-search-input');
+            if (input) input.value = String(value || '');
+            hideLibrarySuggestions();
+            submitPageSearch();
+        }
+
         // Reflect the active-search state on a page's magnifier button (solid highlight +
         // tooltip showing what's being searched).
         function syncPageSearchButton(context) {
+            // Lists owns its own control-row sync (button enable/highlight + clear state).
+            if (context === 'lists') {
+                if (typeof setListsActiveListActionsEnabledState === 'function') setListsActiveListActionsEnabledState();
+                return;
+            }
             const btnId = context === 'feed' ? 'feed-search-btn' : 'library-search-btn';
             const query = context === 'feed' ? feedSearchQuery : librarySearchQuery;
             const btn = document.getElementById(btnId);
             if (!btn) return;
             const active = !!String(query || '').trim();
             btn.classList.toggle('filter-active', active);
-            btn.title = active ? `Searching: "${query}" — tap to change` : 'Search by title';
+            btn.title = active
+                ? `Searching: "${query}" — tap to change`
+                : (context === 'feed' ? 'Search by title' : 'Search by title or actor');
             // Keep the RED Clear highlight in sync — a title search also counts as
             // something to clear.
             if (context === 'feed') syncFeedClearButton();
             else syncLibraryClearButton();
         }
 
+        // Bind the delegated click handler for the typeahead dropdown (once).
+        let pageSearchSuggestBound = false;
+        function ensurePageSearchSuggestListener() {
+            if (pageSearchSuggestBound) return;
+            const box = document.getElementById('page-search-suggest');
+            if (!box) return;
+            box.addEventListener('click', (e) => {
+                const row = e.target?.closest ? e.target.closest('.page-search-suggest-row') : null;
+                if (!row) return;
+                e.preventDefault();
+                pickLibrarySuggestion(row.dataset.suggestValue || '');
+            });
+            pageSearchSuggestBound = true;
+        }
+
         function openPageSearch(context) {
-            pageSearchContext = (context === 'feed') ? 'feed' : 'library';
+            pageSearchContext = (context === 'feed') ? 'feed' : (context === 'lists' ? 'lists' : 'library');
             const overlay = document.getElementById('page-search-overlay');
             const input = document.getElementById('page-search-input');
             const titleEl = document.getElementById('page-search-title');
+            const labelEl = document.getElementById('page-search-label');
             if (!overlay || !input) return;
-            if (titleEl) titleEl.textContent = (pageSearchContext === 'feed') ? 'Search Feed' : 'Search My Movies';
-            input.value = (pageSearchContext === 'feed') ? feedSearchQuery : librarySearchQuery;
+            const isFeed = pageSearchContext === 'feed';
+            const isLists = pageSearchContext === 'lists';
+            ensurePageSearchSuggestListener();
+            hideLibrarySuggestions();
+            if (titleEl) titleEl.textContent = isFeed ? 'Search Feed' : (isLists ? 'Search This List' : 'Search My Movies');
+            if (labelEl) labelEl.textContent = isFeed ? 'Movie title' : 'Movie or actor';
+            input.placeholder = isFeed ? 'e.g. Dune' : 'e.g. Dune or Jake Gyllenhaal';
+            input.value = isFeed ? feedSearchQuery : (isLists ? listsSearchQuery : librarySearchQuery);
             overlay.style.display = 'flex';
+            // Warm the index so the first keystroke shows suggestions instantly (Lists' index
+            // is already built by loadListsPage; My Movies runs one cached query).
+            if (pageSearchHasTypeahead()) ensureSearchIndexForContext().catch(() => {});
             // Focus after the overlay paints so mobile keyboards reliably open.
             setTimeout(() => { try { input.focus(); input.select(); } catch (_) {} }, 30);
         }
 
         function closePageSearch() {
+            hideLibrarySuggestions();
             const overlay = document.getElementById('page-search-overlay');
             if (overlay) overlay.style.display = 'none';
         }
@@ -110,6 +385,10 @@
                 feedSearchQuery = value;
                 syncPageSearchButton('feed');
                 await loadFeedItems();
+            } else if (context === 'lists') {
+                listsSearchQuery = value;
+                syncPageSearchButton('lists');
+                if (typeof loadListsPage === 'function') await loadListsPage({ reset: false });
             } else {
                 librarySearchQuery = value;
                 syncPageSearchButton('library');
@@ -127,6 +406,11 @@
                 feedSearchQuery = '';
                 syncPageSearchButton('feed');
                 await loadFeedItems();
+            } else if (context === 'lists') {
+                if (!listsSearchQuery) return;
+                listsSearchQuery = '';
+                syncPageSearchButton('lists');
+                if (typeof loadListsPage === 'function') await loadListsPage({ reset: false });
             } else {
                 if (!librarySearchQuery) return;
                 librarySearchQuery = '';
@@ -681,8 +965,13 @@
         function syncLibraryViewUI() {
             const btn = document.getElementById('library-view-toggle-btn');
             if (!btn) return;
-            // The button shows the view you'll switch TO when you tap it.
-            btn.textContent = libraryViewMode === 'grid' ? 'List' : 'Grid';
+            // Icon-only: shows the view you'll switch TO when you tap it (grid icon while in
+            // list view, list icon while in grid view).
+            const switchingToGrid = libraryViewMode !== 'grid';
+            btn.innerHTML = switchingToGrid ? icons.grid : icons.list;
+            const label = switchingToGrid ? 'Grid view' : 'List view';
+            btn.title = label;
+            btn.setAttribute('aria-label', label);
             // Plain outline button — same look as Filters/Sort (no brand fill).
             btn.classList.remove('filter-active');
         }
@@ -1324,6 +1613,7 @@
                         dialogue: 'Dialogue %',
                         imdb: 'IMDb %',
                         release_year: 'Release Year',
+                        runtime: 'Run Time',
                     }
                 };
                 const model = buildSortFilterChipModel({
@@ -1582,6 +1872,9 @@
             const elMeta = document.getElementById('library-meta');
             const wrap = document.getElementById('library-load-more-wrap');
             if (!elList) return;
+            // Library contents may have changed (edit/delete/new rating, navigation) —
+            // drop the cached search typeahead index so it rebuilds fresh on next open.
+            if (reset) invalidateLibrarySearchIndex();
             syncPageSearchButton('library');
 
             if (!supabaseClient || !cachedIsAuthed) {
@@ -1654,14 +1947,9 @@
                 q = q.eq('movie_id', movieId);
             }
 
-            // Title search (magnifier popup). Loose match: each word must appear in the
-            // title (ilike substring), so "du" → "Dune", "dark knight" → "The Dark Knight".
-            const searchNeedle = String(librarySearchQuery || '').trim();
-            if (searchNeedle) {
-                searchNeedle.split(/\s+/).filter(Boolean).forEach((word) => {
-                    q = q.ilike('title', `%${word}%`);
-                });
-            }
+            // Title/actor search (magnifier popup). Loose match by title OR actor, so
+            // "du" → "Dune" and "Jake Gyl" → every Jake Gyllenhaal movie.
+            q = applyLibrarySearchFilter(q);
 
             const watchMethod = String(state?.watchMethod || '').trim();
             if (watchMethod) {
@@ -1707,6 +1995,7 @@
             else if (sortKey === 'acting') addOrder('acting_rating');
             else if (sortKey === 'plot') addOrder('plot_rating');
             else if (sortKey === 'dialogue') addOrder('dialogue_rating');
+            else if (sortKey === 'runtime') addOrder('runtime_minutes');
             else addOrder('latest_watch_date');
 
             // Pagination (+1 to detect hasMore)
@@ -1848,6 +2137,9 @@
 
                         q = q.ilike('genre', `%${genreWanted}%`);
 
+                        // Keep the title/actor search applied in the genre-string fallback too.
+                        q = applyLibrarySearchFilter(q);
+
                         const sortKey = String(state?.sortKey || 'watch_date');
                         const sortDir = (String(state?.sortDir || 'desc') === 'asc') ? 'asc' : 'desc';
                         const asc = (sortDir === 'asc');
@@ -1863,6 +2155,7 @@
                         else if (sortKey === 'acting') addOrder('acting_rating');
                         else if (sortKey === 'plot') addOrder('plot_rating');
                         else if (sortKey === 'dialogue') addOrder('dialogue_rating');
+                        else if (sortKey === 'runtime') addOrder('runtime_minutes');
                         else addOrder('latest_watch_date');
                         q = q.range(start, start + limitPlusOne);
 

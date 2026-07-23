@@ -10,6 +10,9 @@
         let listsPendingSelectName = ''; // when set, loadListsPage opens the list with this name (deep-links, e.g. "Recs")
         let listsPendingSelectId = '';   // when set, loadListsPage opens the list with this id (deep-links, e.g. a shared-list-add push)
         let recByDataByMovieId = new Map(); // movie_id -> [{ id, username, icon }] recommenders (for the Recs "+" modal)
+        // Lists detail title/actor search (shares the My Movies search popup; see 05-feed-library.js).
+        let listsSearchQuery = '';       // the active title/actor search for the open list
+        let listsSearchIndex = null;     // { movies, actors } typeahead index for the open list
         // Lists detail infinite scroll: the whole list loads in one query, but we render
         // only the first LISTS_RENDER_PAGE cards and append the rest as the user scrolls.
         const LISTS_RENDER_PAGE = 100;
@@ -1330,14 +1333,23 @@
             const sortBtn = document.getElementById('lists-sort-btn');
             const clearBtn = document.getElementById('lists-clear-btn');
             const editBtn = document.getElementById('lists-edit-btn');
+            const searchBtn = document.getElementById('lists-search-btn');
             const lid = String(listsActiveListId || '').trim();
 
-            // Filter / Sort / Edit all work for every list (Edit = cover for special
+            // Filter / Sort / Edit / Search all work for every list (Edit = cover for special
             // lists, full rename/delete for the rest — gated inside the Edit modal).
             const ready = Boolean(lid) && !listsLoading;
             if (sortBtn) sortBtn.disabled = !ready;
             if (clearBtn) clearBtn.disabled = !ready;
             if (editBtn) editBtn.disabled = !Boolean(lid);
+
+            // Title/actor search button (opens the shared My Movies search popup scoped here).
+            const searchActive = !!String(listsSearchQuery || '').trim();
+            if (searchBtn) {
+                searchBtn.disabled = !ready;
+                searchBtn.classList.toggle('filter-active', searchActive);
+                searchBtn.title = searchActive ? `Searching: "${listsSearchQuery}" — tap to change` : 'Search this list';
+            }
 
             const filtersEnabled = Boolean(lid) && !listsLoading;
             if (filterBtn) filterBtn.disabled = !filtersEnabled;
@@ -1358,6 +1370,7 @@
                         dialogue: 'Dialogue %',
                         imdb: 'IMDb %',
                         release_year: 'Release Year',
+                        runtime: 'Run Time',
                     }
                 };
                 const model = buildSortFilterChipModel({
@@ -1380,8 +1393,9 @@
                 filterBtn.classList.toggle('filter-active', filterActive);
                 const sortBtnEl = document.getElementById('lists-sort-btn');
                 if (sortBtnEl) sortBtnEl.classList.toggle('filter-active', sortActive);
-                // Light up Clear in RED when there's a filter or non-default sort to clear.
-                if (clearBtn) clearBtn.classList.toggle('clear-active', filterActive || sortActive);
+                // Light up Clear in RED when there's a filter, non-default sort, or a
+                // title/actor search to clear.
+                if (clearBtn) clearBtn.classList.toggle('clear-active', filterActive || sortActive || searchActive);
             }
         }
 
@@ -1601,7 +1615,7 @@
             // Unwatched lists have no personal ratings/watch data, so only offer
             // date-added, release year, and IMDb.
             if (isUnwatchedAutoList()) {
-                return ['rec_added', 'release_year', 'imdb'];
+                return ['rec_added', 'release_year', 'imdb', 'runtime'];
             }
             return [
                 'watch_date',
@@ -1615,6 +1629,7 @@
                 'dialogue',
                 'imdb',
                 'release_year',
+                'runtime',
             ];
         }
 
@@ -1668,6 +1683,7 @@
                 { value: 'dialogue', label: 'Dialogue %' },
                 { value: 'imdb', label: 'IMDb %' },
                 { value: 'release_year', label: 'Release Year' },
+                { value: 'runtime', label: 'Run Time' },
             ].filter(o => allowed.has(o.value));
 
             const prev = String(els.sortKey.value || '').trim();
@@ -2241,9 +2257,21 @@
                 .map((s) => String(s || '').trim().toLowerCase())
                 .filter(Boolean);
             const timeframeRange = libraryComputeTimeframeRange(st?.timeframe);
+            // Title/actor search (the shared search popup, scoped to this list). Loose match:
+            // every query word must appear in the title, OR every word in the actor list.
+            const searchWords = (typeof normalizeSearchText === 'function' ? normalizeSearchText(listsSearchQuery) : String(listsSearchQuery || '').toLowerCase())
+                .split(' ').filter(Boolean);
 
             const filtered = (Array.isArray(items) ? items : []).filter((it) => {
                 if (!it) return false;
+
+                if (searchWords.length) {
+                    const hayTitle = normalizeSearchText(it?.title);
+                    const hayActor = normalizeSearchText(it?.actor);
+                    const titleOk = searchWords.every((w) => hayTitle.includes(w));
+                    const actorOk = searchWords.every((w) => hayActor.includes(w));
+                    if (!titleOk && !actorOk) return false;
+                }
 
                 if (wantedRecBy) {
                     const recs = recByDataByMovieId.get(String(it?.movie_id || '')) || [];
@@ -2346,6 +2374,10 @@
                     const y = Number(it?.release_year);
                     return Number.isFinite(y) ? y : null;
                 }
+                if (sortKey === 'runtime') {
+                    const n = Number(it?.runtime_minutes ?? it?.runtime);
+                    return (Number.isFinite(n) && n > 0) ? n : null;
+                }
                 if (sortKey === 'imdb') {
                     const n = parsePercentLike(it?.imdb_rating_pct ?? it?.imdb_pct ?? it?.imdb_rating ?? it?.imdb, { imdb: true });
                     return (n === null || n === undefined) ? null : Number(n);
@@ -2381,6 +2413,13 @@
             };
 
             return filtered.sort(cmp);
+        }
+
+        // The typeahead index for the OPEN list's search popup. It's rebuilt from the
+        // list's rows each time the detail loads (see loadListsPage), so this just hands
+        // back whatever was last built (parallel to ensureLibrarySearchIndex in 05).
+        async function ensureListsSearchIndex() {
+            return listsSearchIndex || { movies: [], actors: [] };
         }
 
         async function ensureBucketListForUser({ user_id }) {
@@ -3040,11 +3079,18 @@
                     return;
                 }
 
+                if (action === 'open_search') {
+                    // Reuse the shared My Movies search popup, scoped to the active list.
+                    if (typeof openPageSearch === 'function') openPageSearch('lists');
+                    return;
+                }
+
                 if (action === 'clear') {
-                    // Reset ALL filters + sort for the active list back to default.
+                    // Reset ALL filters + sort + the title/actor search back to default.
                     ensureListsSortFilterStateInitialized();
                     listsSortFilterState = getDefaultListsSortFilterStateForActiveList();
                     listsSortFilterDraft = null;
+                    listsSearchQuery = '';
                     loadListsPage({ reset: false }).catch(() => null);
                     return;
                 }
@@ -3693,6 +3739,7 @@
 
         // Show the overview grid (hide the single-list detail panel).
         function showListsOverview() {
+            listsSearchQuery = '';   // a search is per-list; don't carry it out of the list
             listsViewMode = 'overview';
             const ov = document.getElementById('lists-overview');
             const dt = document.getElementById('lists-detail');
@@ -3707,6 +3754,7 @@
         function openListFromOverview(listId, listName) {
             const id = String(listId || '').trim();
             if (!id) return;
+            if (id !== String(listsActiveListId || '').trim()) listsSearchQuery = ''; // fresh list = fresh search
             listsActiveListId = id;
             if (listName) listsActiveListName = String(listName);
             listsViewMode = 'detail';
@@ -3912,6 +3960,12 @@
                 }
 
                 const rows = Array.isArray(viewRows) ? viewRows : [];
+                // Rebuild this list's search typeahead index (movies + actors) from its rows.
+                try {
+                    listsSearchIndex = (typeof buildSearchIndexFromRows === 'function')
+                        ? buildSearchIndexFromRows(rows)
+                        : { movies: [], actors: [] };
+                } catch (_) { listsSearchIndex = { movies: [], actors: [] }; }
                 const movieIds = rows.map(r => r?.movie_id).filter(Boolean).map(String);
                 if (movieIds.length === 0) {
                     elItems.innerHTML = `<div class="text-gray">No movies in this list yet.</div>`;
@@ -4131,6 +4185,7 @@
                         added_at: addedAtByMovieId.get(String(id)) || null,
                         title: String(movie?.title || '').trim() || 'Untitled',
                         release_year: movie?.release_year ?? null,
+                        runtime_minutes: movie?.runtime_minutes ?? movie?.runtime ?? null,
                         director: normalizeMovieFieldValue(movie?.director ?? movie?.director_name),
                         actor: normalizeMovieFieldValue((libraryByMovieId.get(String(id)) || {})?.actors),
                         mpa_rating: normalizeMovieFieldValue(movie?.mpa_rating ?? movie?.mpa),

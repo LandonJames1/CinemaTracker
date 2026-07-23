@@ -916,25 +916,42 @@
 
                             <!-- DETAIL: one list's movies (opened from the grid). -->
                             <div id="lists-detail" class="glass-panel lists-panel" style="padding: 1rem; border-radius: 1rem; display:none;">
-                                    <!-- One control row: Back + Filter + Sort + Edit. -->
-                                    <div class="flex items-center lists-detail-toprow" style="gap: 8px; flex-wrap: wrap;">
-                                        <button type="button" class="btn btn-outline lists-back-btn" onclick="showListsOverview()" style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.7rem; font-size: 0.85rem; display:inline-flex; align-items:center; gap:0.35rem;">${icons.arrowLeft} All Lists</button>
+                                    <!-- One control row: a far-left Back arrow, then the RIGHT-ALIGNED
+                                         controls (like the My Movies row): Filter + Sort + Clear + Edit +
+                                         Search + (desktop) Add Movie — all the same seamless dark outline
+                                         icon buttons. -->
+                                    <div class="flex items-center lists-detail-toprow" style="gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
+                                        <!-- Back to the all-lists overview (icon only). margin-right:auto
+                                             keeps it on the far left while the controls stay on the right. -->
+                                        <button
+                                            id="lists-back-btn"
+                                            type="button"
+                                            class="btn btn-outline controls-icon-btn"
+                                            onclick="showListsOverview()"
+                                            title="All lists"
+                                            aria-label="All lists"
+                                            style="border-radius: 0.85rem; margin-right: auto;"
+                                        >${icons.arrowLeft}</button>
                                         <button
                                             id="lists-filter-btn"
                                             type="button"
-                                            class="btn btn-outline"
+                                            class="btn btn-outline controls-icon-btn"
                                             data-lists-action="open_filters"
-                                            style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.65rem; font-size: 0.85rem;"
+                                            title="Filters"
+                                            aria-label="Filters"
+                                            style="border-radius: 0.85rem;"
                                             disabled
-                                        >Filter</button>
+                                        >${icons.filter}</button>
                                         <button
                                             id="lists-sort-btn"
                                             type="button"
-                                            class="btn btn-outline"
+                                            class="btn btn-outline controls-icon-btn"
                                             data-lists-action="open_sort"
-                                            style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.65rem; font-size: 0.85rem;"
+                                            title="Sort"
+                                            aria-label="Sort"
+                                            style="border-radius: 0.85rem;"
                                             disabled
-                                        >Sort</button>
+                                        >${icons.sort}</button>
                                         <button
                                             id="lists-clear-btn"
                                             type="button"
@@ -942,25 +959,37 @@
                                             data-lists-action="clear"
                                             title="Clear all filters"
                                             aria-label="Clear all filters"
-                                            style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.65rem; font-size: 0.85rem;"
+                                            style="border-radius: 0.85rem;"
                                             disabled
                                         >${icons.clearX}</button>
                                         <button
                                             id="lists-edit-btn"
                                             type="button"
-                                            class="btn btn-outline"
+                                            class="btn btn-outline controls-icon-btn"
                                             data-lists-action="edit_list"
-                                            style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.65rem; font-size: 0.85rem;"
+                                            title="Edit list"
+                                            aria-label="Edit list"
+                                            style="border-radius: 0.85rem;"
                                             disabled
-                                        >Edit</button>
+                                        >${icons.edit3}</button>
+                                        <button
+                                            id="lists-search-btn"
+                                            type="button"
+                                            class="btn btn-outline page-search-btn"
+                                            data-lists-action="open_search"
+                                            title="Search this list"
+                                            aria-label="Search this list"
+                                            style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;"
+                                            disabled
+                                        >${icons.search}<span class="page-search-label">Search</span></button>
                                         <!-- DESKTOP: clearly-labelled "Add Movie" button (mobile uses the
                                              "+" FAB). Hidden on the auto-managed Recs list via updateListsFab(). -->
                                         <button
                                             id="lists-add-movie-btn"
                                             type="button"
-                                            class="btn btn-primary lists-desktop-action"
+                                            class="btn btn-outline lists-desktop-action"
                                             onclick="openListsAddModal()"
-                                            style="border-radius: 0.75rem; height: 34px; padding: 0.45rem 0.7rem; font-size: 0.85rem; display:inline-flex; align-items:center; gap:0.35rem;"
+                                            style="border-radius: 0.85rem; padding: 0.55rem 0.8rem; font-size: 0.85rem; display:inline-flex; align-items:center; gap:0.35rem;"
                                         >${icons.plus || '+'} Add Movie</button>
                                     </div>
 
@@ -1935,8 +1964,10 @@
                                         <div id="library-meta" class="text-xs text-gray" style="margin-top: 0.25rem;"></div>
                                     </div>
                                     <div class="library-controls-row" style="display:flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
-                                        <!-- One button that flips List/Grid (shows the view you'll switch TO). -->
-                                        <button id="library-view-toggle-btn" type="button" class="btn btn-outline" data-library-action="toggle_view" style="padding: 0.55rem 0.8rem; border-radius: 0.85rem;">Grid</button>
+                                        <!-- Icon-only button that flips List/Grid (shows the view you'll
+                                             switch TO; icon set by syncLibraryViewUI). margin-right:auto keeps
+                                             it left while the filter/sort/search controls stay right on mobile. -->
+                                        <button id="library-view-toggle-btn" type="button" class="btn btn-outline controls-icon-btn" data-library-action="toggle_view" title="Grid view" aria-label="Grid view" style="border-radius: 0.85rem; margin-right: auto;">${icons.grid}</button>
                                         <button id="library-open-filters" type="button" class="btn btn-outline controls-icon-btn" data-library-action="open_filters" title="Filters" aria-label="Filters" style="border-radius: 0.85rem;">${icons.filter}</button>
                                         <button id="library-open-sort" type="button" class="btn btn-outline controls-icon-btn" data-library-action="open_sort" title="Sort" aria-label="Sort" style="border-radius: 0.85rem;">${icons.sort}</button>
                                         <button id="library-clear-btn" type="button" class="btn btn-outline controls-icon-btn" data-library-action="clear" title="Clear all filters" aria-label="Clear all filters" style="border-radius: 0.85rem;">${icons.clearX}</button>

@@ -2126,6 +2126,88 @@
             flex: 0 0 auto;
         }
 
+        /* My Movies search typeahead dropdown (movies + actors from the user's library). */
+        .page-search-suggest {
+            margin-top: 0.5rem;
+            max-height: 46vh;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 0.7rem;
+            background: #202024;
+            border: 1px solid rgba(255,255,255,0.08);
+            padding: 0.25rem;
+        }
+        .page-search-suggest-head {
+            font-size: 0.66rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: rgba(255,255,255,0.45);
+            font-weight: 700;
+            padding: 0.45rem 0.55rem 0.25rem;
+        }
+        .page-search-suggest-loading,
+        .page-search-suggest-empty {
+            padding: 0.7rem 0.6rem;
+            font-size: 0.82rem;
+            color: rgba(255,255,255,0.55);
+        }
+        .page-search-suggest-row {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            width: 100%;
+            text-align: left;
+            background: transparent;
+            border: none;
+            border-radius: 0.6rem;
+            padding: 0.4rem 0.5rem;
+            cursor: pointer;
+            color: #fff;
+            transition: background 0.12s ease;
+        }
+        .page-search-suggest-row:hover,
+        .page-search-suggest-row:active {
+            background: rgba(255,255,255,0.08);
+        }
+        .page-search-suggest-thumb {
+            flex: 0 0 auto;
+            width: 34px;
+            height: 50px;
+            border-radius: 0.35rem;
+            overflow: hidden;
+            background: #35353b;
+            display: block;
+        }
+        .page-search-suggest-thumb.is-actor {
+            width: 42px;
+            height: 42px;
+            border-radius: 999px;
+        }
+        .page-search-suggest-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .page-search-suggest-text {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            gap: 0.1rem;
+        }
+        .page-search-suggest-text .pss-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            line-height: 1.2;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .page-search-suggest-text .pss-sub {
+            font-size: 0.72rem;
+            color: rgba(255,255,255,0.5);
+        }
+
         /* Compact icon-only control buttons (Filter / Sort on My Movies + Feed). */
         .controls-icon-btn {
             display: inline-flex;
@@ -3120,14 +3202,17 @@
                 0 6px 20px color-mix(in srgb, #ef4444 34%, transparent) !important;
         }
 
-        /* Detail-view top row (Back + Filter + Sort + Edit) stretches edge to edge on
-           phones so the buttons fill the width instead of clustering top-left. */
+        /* Detail-view top row (Filter + Sort + Clear + Edit icon buttons + Search) on
+           phones: the icon buttons stay compact and the Search bar fills the rest. */
         @media (max-width: 768px) {
             .lists-detail-toprow { flex-wrap: nowrap !important; }
             .lists-detail-toprow > button { flex: 1 1 0; min-width: 0; }
-            /* The icon-only Clear button stays compact instead of taking an equal
-               share, so the text buttons (All Lists / Filter / Sort / Edit) keep room. */
-            .lists-detail-toprow > button.controls-icon-btn { flex: 0 0 auto; }
+            /* All the icon buttons (Back/Filter/Sort/Clear/Edit) AND the Search button stay
+               compact — the same sizing as the My Movies controls row — instead of the
+               Search button stretching to fill the row. The Back button's margin-right:auto
+               (set inline) keeps it on the far left with the controls on the right. */
+            .lists-detail-toprow > button.controls-icon-btn,
+            .lists-detail-toprow > button#lists-search-btn { flex: 0 0 auto; padding-left: 0.7rem; padding-right: 0.7rem; }
         }
 
         .lists-grid {
@@ -8720,9 +8805,6 @@
         @keyframes posterReveal { 0% { transform: scale(0.96); } 55% { transform: scale(1.02); } 100% { transform: scale(1); } }
         .poster-img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.06);
             transition: filter 0.7s cubic-bezier(0.22,1,0.36,1); }
-        /* Subtle mystery vignette while the poster is still blurred */
-        .poster-scrim { position: absolute; inset: 0; pointer-events: none;
-            background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.5) 100%); }
         .poster-missing { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.4); }
         /* Wrong/right guess feed */
         .poster-guesses { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 460px; margin-top: 16px; }
