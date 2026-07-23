@@ -885,6 +885,18 @@
 
         // The "Edit" button on a list → the combined edit modal: change cover photo
         // (all lists) + rename + delete (non-special lists only).
+        // Open the Edit modal for a list picked from the OVERVIEW cover grid (the pencil
+        // on each card). Sets the active-list context the modal reads, then opens it —
+        // listsViewMode stays 'overview', so the mutation handlers refresh the grid.
+        function openListsEditFromOverview(id) {
+            const lid = String(id || '').trim();
+            if (!lid) return;
+            const row = getCachedListRow(lid);
+            listsActiveListId = lid;
+            listsActiveListName = String(row?.list_name || '').trim();
+            openListsEditModal();
+        }
+
         function openListsEditModal() {
             const lid = String(listsActiveListId || '').trim();
             if (!lid) { showToast('Select a list first.', { level: 'warn' }); return; }
@@ -1332,16 +1344,14 @@
             const filterBtn = document.getElementById('lists-filter-btn');
             const sortBtn = document.getElementById('lists-sort-btn');
             const clearBtn = document.getElementById('lists-clear-btn');
-            const editBtn = document.getElementById('lists-edit-btn');
             const searchBtn = document.getElementById('lists-search-btn');
             const lid = String(listsActiveListId || '').trim();
 
-            // Filter / Sort / Edit / Search all work for every list (Edit = cover for special
-            // lists, full rename/delete for the rest — gated inside the Edit modal).
+            // Filter / Sort / Search all work for every list (editing moved to the pencil on
+            // each cover card on the Lists overview).
             const ready = Boolean(lid) && !listsLoading;
             if (sortBtn) sortBtn.disabled = !ready;
             if (clearBtn) clearBtn.disabled = !ready;
-            if (editBtn) editBtn.disabled = !Boolean(lid);
 
             // Title/actor search button (opens the shared My Movies search popup scoped here).
             const searchActive = !!String(listsSearchQuery || '').trim();
@@ -3489,7 +3499,10 @@
                         listsActiveListName = String(data?.list_name || name).trim();
 
                         closeListsRenameModal();
-                        await loadListsPage({ reset: true });
+                        // Editing now happens from the overview grid; refresh whichever
+                        // view is showing (overview cover grid vs an open list's detail).
+                        if (listsViewMode === 'overview') await loadListsOverview();
+                        else await loadListsPage({ reset: true });
                         showToast('List renamed!', { level: 'success' });
                     } catch (err) {
                         const msg = String(err?.message || err);
@@ -3626,12 +3639,20 @@
                     const sharedChip = l?.shared
                         ? `<span class="lists-cover-shared" title="Shared list">${icons.users || '👥'}</span>`
                         : '';
+                    // Red pencil in the top-right corner → the Edit modal (rename / cover /
+                    // members / delete). Hidden on the auto-managed Recs / Bucket List (nothing
+                    // to edit there). It's a <span> (not a nested <button>) with stopPropagation
+                    // so it doesn't also open the list.
+                    const editBtn = isSpecialAutoList(id, name)
+                        ? ''
+                        : `<span class="lists-cover-edit" title="Edit list" aria-label="Edit list" onclick="event.stopPropagation(); openListsEditFromOverview('${escapeHtml(id)}')">${icons.edit3}</span>`;
                     return `
                         <button type="button" class="lists-cover-card" onclick="openListFromOverview('${escapeHtml(id)}')">
                             <span class="lists-cover-art">
                                 ${renderListCoverArt(l, info)}
                                 ${recsBadge}
                                 ${sharedChip}
+                                ${editBtn}
                             </span>
                             <span class="lists-cover-name">${escapeHtml(name)}</span>
                             <span class="lists-cover-count">${escapeHtml(countLabel)}</span>

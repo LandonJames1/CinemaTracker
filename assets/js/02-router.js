@@ -917,12 +917,14 @@
                             <!-- DETAIL: one list's movies (opened from the grid). -->
                             <div id="lists-detail" class="glass-panel lists-panel" style="padding: 1rem; border-radius: 1rem; display:none;">
                                     <!-- One control row: a far-left Back arrow, then the RIGHT-ALIGNED
-                                         controls (like the My Movies row): Filter + Sort + Clear + Edit +
-                                         Search + (desktop) Add Movie — all the same seamless dark outline
-                                         icon buttons. -->
+                                         controls (like the My Movies row): Filter + Sort + Clear + Search +
+                                         (desktop) Add Movie — all the same seamless dark outline icon
+                                         buttons. (Editing a list now happens from the pencil on each cover
+                                         card on the Lists overview, not from here.) -->
                                     <div class="flex items-center lists-detail-toprow" style="gap: 8px; flex-wrap: wrap; justify-content: flex-end;">
-                                        <!-- Back to the all-lists overview (icon only). margin-right:auto
-                                             keeps it on the far left while the controls stay on the right. -->
+                                        <!-- Back to the all-lists overview (icon only). On DESKTOP a
+                                             margin-right:auto (CSS) pushes it to the far left; on mobile
+                                             it's an equal-width button like the rest of the row. -->
                                         <button
                                             id="lists-back-btn"
                                             type="button"
@@ -930,7 +932,7 @@
                                             onclick="showListsOverview()"
                                             title="All lists"
                                             aria-label="All lists"
-                                            style="border-radius: 0.85rem; margin-right: auto;"
+                                            style="border-radius: 0.85rem;"
                                         >${icons.arrowLeft}</button>
                                         <button
                                             id="lists-filter-btn"
@@ -962,16 +964,6 @@
                                             style="border-radius: 0.85rem;"
                                             disabled
                                         >${icons.clearX}</button>
-                                        <button
-                                            id="lists-edit-btn"
-                                            type="button"
-                                            class="btn btn-outline controls-icon-btn"
-                                            data-lists-action="edit_list"
-                                            title="Edit list"
-                                            aria-label="Edit list"
-                                            style="border-radius: 0.85rem;"
-                                            disabled
-                                        >${icons.edit3}</button>
                                         <button
                                             id="lists-search-btn"
                                             type="button"
@@ -1965,9 +1957,8 @@
                                     </div>
                                     <div class="library-controls-row" style="display:flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
                                         <!-- Icon-only button that flips List/Grid (shows the view you'll
-                                             switch TO; icon set by syncLibraryViewUI). margin-right:auto keeps
-                                             it left while the filter/sort/search controls stay right on mobile. -->
-                                        <button id="library-view-toggle-btn" type="button" class="btn btn-outline controls-icon-btn" data-library-action="toggle_view" title="Grid view" aria-label="Grid view" style="border-radius: 0.85rem; margin-right: auto;">${icons.grid}</button>
+                                             switch TO; icon set by syncLibraryViewUI). -->
+                                        <button id="library-view-toggle-btn" type="button" class="btn btn-outline controls-icon-btn" data-library-action="toggle_view" title="Grid view" aria-label="Grid view" style="border-radius: 0.85rem;">${icons.grid}</button>
                                         <button id="library-open-filters" type="button" class="btn btn-outline controls-icon-btn" data-library-action="open_filters" title="Filters" aria-label="Filters" style="border-radius: 0.85rem;">${icons.filter}</button>
                                         <button id="library-open-sort" type="button" class="btn btn-outline controls-icon-btn" data-library-action="open_sort" title="Sort" aria-label="Sort" style="border-radius: 0.85rem;">${icons.sort}</button>
                                         <button id="library-clear-btn" type="button" class="btn btn-outline controls-icon-btn" data-library-action="clear" title="Clear all filters" aria-label="Clear all filters" style="border-radius: 0.85rem;">${icons.clearX}</button>

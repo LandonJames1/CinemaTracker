@@ -2916,22 +2916,25 @@
         }
         .lists-cover-fallback-icon { width: 40%; max-width: 70px; color: rgba(255,255,255,0.88); display: flex; }
         .lists-cover-fallback-icon svg { width: 100%; height: auto; }
+        /* Red pencil in the top-right corner of a cover card → opens the Edit modal.
+           Always visible (works on touch, no hover needed). */
         .lists-cover-edit {
             position: absolute;
-            right: 6px; bottom: 6px;
+            top: 8px; right: 8px;
+            z-index: 4;
             width: 30px; height: 30px;
             border-radius: 999px;
-            background: rgba(0,0,0,0.62);
-            border: 1px solid rgba(255,255,255,0.22);
+            background: rgba(0,0,0,0.55);
+            border: 1px solid rgba(239,68,68,0.65);
             display: flex; align-items: center; justify-content: center;
-            color: #fff;
+            color: #ef4444;
             cursor: pointer;
-            opacity: 0;
-            transition: opacity 0.15s ease, background 0.15s ease;
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.28);
+            transition: background 0.15s ease, transform 0.1s ease;
         }
-        .lists-cover-edit:hover { background: rgba(0,0,0,0.8); }
-        .lists-cover-edit svg { width: 16px; height: 16px; }
-        .lists-cover-card:hover .lists-cover-edit { opacity: 1; }
+        .lists-cover-edit:hover { background: rgba(0,0,0,0.78); }
+        .lists-cover-edit:active { transform: scale(0.9); }
+        .lists-cover-edit svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
         .lists-cover-name {
             color: #fff; font-weight: 700; font-size: 0.95rem; line-height: 1.2;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -3202,17 +3205,16 @@
                 0 6px 20px color-mix(in srgb, #ef4444 34%, transparent) !important;
         }
 
-        /* Detail-view top row (Filter + Sort + Clear + Edit icon buttons + Search) on
-           phones: the icon buttons stay compact and the Search bar fills the rest. */
+        /* Detail-view top row (Back + Filter + Sort + Clear + Edit + Search) on phones:
+           every button is equal-width so they evenly fill the screen (matching the My
+           Movies controls row) — no splits, no oversized Search. */
         @media (max-width: 768px) {
             .lists-detail-toprow { flex-wrap: nowrap !important; }
             .lists-detail-toprow > button { flex: 1 1 0; min-width: 0; }
-            /* All the icon buttons (Back/Filter/Sort/Clear/Edit) AND the Search button stay
-               compact — the same sizing as the My Movies controls row — instead of the
-               Search button stretching to fill the row. The Back button's margin-right:auto
-               (set inline) keeps it on the far left with the controls on the right. */
-            .lists-detail-toprow > button.controls-icon-btn,
-            .lists-detail-toprow > button#lists-search-btn { flex: 0 0 auto; padding-left: 0.7rem; padding-right: 0.7rem; }
+        }
+        /* Desktop only: push the Back button to the far left, controls stay right. */
+        @media (min-width: 769px) {
+            .lists-detail-toprow > button#lists-back-btn { margin-right: auto; }
         }
 
         .lists-grid {
@@ -3785,15 +3787,11 @@
                 background: #2b2b31;
             }
 
-            /* Search button stays a compact icon-only magnifier on mobile (the user wants
-               an "additional small button", not a full-width search bar). It opts out of
-               the equal-width stretch above and drops its text label. */
+            /* Search button drops its text label on mobile (icon-only magnifier). On My
+               Movies it's now an EQUAL-WIDTH button like the rest of the row (fills the
+               screen); Feed keeps its buttons compact. */
             .page-search-label { display: none; }
-            /* `button#id` keeps specificity on par with the `> button:not(#x)` stretch
-               rule above; being later in source order, this wins → compact magnifier. */
-            .library-controls-row > button#library-search-btn,
             .feed-controls-actions > button#feed-search-btn,
-            .library-controls-row > button.controls-icon-btn,
             .feed-controls-actions > button.controls-icon-btn {
                 flex: 0 0 auto;
                 padding-left: 0.7rem;
