@@ -3635,9 +3635,10 @@
                     const recsBadge = isRecs
                         ? `<span id="lists-cover-badge-recs" class="lists-cover-badge${recsUnseen > 0 ? ' show' : ''}">${recsUnseen > 99 ? '99+' : recsUnseen}</span>`
                         : '';
-                    // A small "people" chip marks shared (group) lists.
+                    // A small "people" icon marks shared (group) lists — shown INLINE at the
+                    // start of the list name (e.g. "👥 Wovie Wednesday"), not on the cover.
                     const sharedChip = l?.shared
-                        ? `<span class="lists-cover-shared" title="Shared list">${icons.users || '👥'}</span>`
+                        ? `<span class="lists-cover-shared" title="Shared list" aria-label="Shared list">${icons.users || '👥'}</span>`
                         : '';
                     // Red pencil in the top-right corner → the Edit modal (rename / cover /
                     // members / delete). Hidden on the auto-managed Recs / Bucket List (nothing
@@ -3651,10 +3652,9 @@
                             <span class="lists-cover-art">
                                 ${renderListCoverArt(l, info)}
                                 ${recsBadge}
-                                ${sharedChip}
                                 ${editBtn}
                             </span>
-                            <span class="lists-cover-name">${escapeHtml(name)}</span>
+                            <span class="lists-cover-name">${sharedChip}${escapeHtml(name)}</span>
                             <span class="lists-cover-count">${escapeHtml(countLabel)}</span>
                         </button>
                     `;

@@ -1001,6 +1001,10 @@
            grey subtitle are redundant. The data panel is flattened so the movie cards
            aren't a container-in-a-container. (Top controls New List / list picker stay.) */
         @media (max-width: 768px) {
+            /* Hide the WHOLE header row (not just the title card) so its leftover margin
+               doesn't add a gap above the button row — matches how My Movies hides
+               .library-title-row. The hidden #lists-select inside is still readable by JS. */
+            body[data-page="lists"] .lists-header-row { display: none !important; }
             body[data-page="lists"] .page-title-card { display: none !important; }
             body[data-page="lists"] .lists-active-heading { display: none !important; }
             body[data-page="lists"] .lists-panel {
@@ -2887,22 +2891,14 @@
             pointer-events: none;
         }
         .lists-cover-badge.show { display: inline-block; }
-        /* "Shared list" chip on an overview cover card (top-left). */
+        /* "Shared list" people icon — shown INLINE at the start of the list name. */
         .lists-cover-shared {
-            position: absolute;
-            top: 8px;
-            left: 8px;
-            z-index: 3;
-            width: 26px;
-            height: 26px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            border-radius: 999px;
-            background: rgba(0,0,0,0.55);
-            color: #fff;
-            box-shadow: 0 0 0 2px rgba(0,0,0,0.3);
-            pointer-events: none;
+            vertical-align: -0.16em;
+            margin-right: 5px;
+            color: rgba(255,255,255,0.9);
         }
         .lists-cover-shared svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; }
         .lists-cover-img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -2917,24 +2913,25 @@
         .lists-cover-fallback-icon { width: 40%; max-width: 70px; color: rgba(255,255,255,0.88); display: flex; }
         .lists-cover-fallback-icon svg { width: 100%; height: auto; }
         /* Red pencil in the top-right corner of a cover card → opens the Edit modal.
-           Always visible (works on touch, no hover needed). */
+           Solid red circle + white pencil, matching the red remove-X. Always visible. */
         .lists-cover-edit {
             position: absolute;
             top: 8px; right: 8px;
             z-index: 4;
             width: 30px; height: 30px;
             border-radius: 999px;
-            background: rgba(0,0,0,0.55);
-            border: 1px solid rgba(239,68,68,0.65);
+            background: #b71c1c;
+            border: none;
             display: flex; align-items: center; justify-content: center;
-            color: #ef4444;
+            color: #fff;
             cursor: pointer;
-            box-shadow: 0 0 0 2px rgba(0,0,0,0.28);
-            transition: background 0.15s ease, transform 0.1s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+            opacity: 0.95;
+            transition: background 0.18s ease, transform 0.1s ease, opacity 0.18s ease;
         }
-        .lists-cover-edit:hover { background: rgba(0,0,0,0.78); }
+        .lists-cover-edit:hover { background: #e53935; opacity: 1; }
         .lists-cover-edit:active { transform: scale(0.9); }
-        .lists-cover-edit svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .lists-cover-edit svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
         .lists-cover-name {
             color: #fff; font-weight: 700; font-size: 0.95rem; line-height: 1.2;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
