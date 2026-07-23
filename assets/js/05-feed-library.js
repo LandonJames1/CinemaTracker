@@ -67,9 +67,10 @@
         }
 
         // Apply the My Movies magnifier search to a library query. Loose/"fuzzy" match by
-        // TITLE **or** ACTOR: every query word must appear (as a substring) in the title,
-        // OR every word must appear in the actors list — so "Jake Gyl" finds every movie
-        // where Jake Gyllenhaal appears, and word order doesn't matter. Empty query = no-op.
+        // TITLE **or** ACTOR **or** DIRECTOR: every query word must appear (as a substring)
+        // in the title, OR every word in the actors list, OR every word in the director —
+        // so "Jake Gyl" finds Jake Gyllenhaal movies and "Nolan" finds Christopher Nolan's;
+        // word order doesn't matter. Empty query = no-op.
         function applyLibrarySearchFilter(q) {
             const searchNeedle = String(librarySearchQuery || '').trim();
             if (!searchNeedle) return q;
@@ -80,7 +81,8 @@
             if (!words.length) return q;
             const titleAnd = 'and(' + words.map((w) => `title.ilike.*${w}*`).join(',') + ')';
             const actorAnd = 'and(' + words.map((w) => `actors.ilike.*${w}*`).join(',') + ')';
-            return q.or(`${titleAnd},${actorAnd}`);
+            const directorAnd = 'and(' + words.map((w) => `director.ilike.*${w}*`).join(',') + ')';
+            return q.or(`${titleAnd},${actorAnd},${directorAnd}`);
         }
 
         // ===== My Movies search typeahead (movies + actors from the user's library) =====
@@ -100,13 +102,27 @@
             librarySearchIndexInflight = null;
         }
 
-        // Build a { movies, actors } typeahead index from `user_library_items_*` view rows
-        // (each row has title/poster_path/tmdb_id/actors/release_year). Shared by My Movies
-        // (whole library) AND the Lists detail search (one list's rows, see 04-lists.js).
+        // Build a { movies, actors, directors } typeahead index from `user_library_items_*`
+        // view rows (each row has title/poster_path/tmdb_id/actors/director/release_year).
+        // Shared by My Movies (whole library) AND the Lists detail search (one list's rows).
         function buildSearchIndexFromRows(rows) {
             const list = Array.isArray(rows) ? rows : [];
             const movies = [];
-            const actorMap = new Map(); // norm-name → { name, norm, count, poster_path, tmdb_id }
+            const actorMap = new Map();    // norm-name → { name, norm, count, poster_path, tmdb_id }
+            const directorMap = new Map(); // same shape (a movie usually has one director)
+            const addPerson = (map, rawName, r) => {
+                const name = String(rawName || '').trim();
+                if (!name) return;
+                const norm = normalizeSearchText(name);
+                if (!norm) return;
+                const existing = map.get(norm);
+                if (existing) {
+                    existing.count += 1;
+                    if (!existing.poster_path && r?.poster_path) existing.poster_path = r.poster_path;
+                } else {
+                    map.set(norm, { name, norm, count: 1, poster_path: r?.poster_path || null, tmdb_id: r?.tmdb_id ?? null });
+                }
+            };
             for (const r of list) {
                 const title = String(r?.title || '').trim();
                 if (title) {
@@ -120,37 +136,20 @@
                     });
                 }
                 const actorsStr = String(r?.actors || '').trim();
-                if (actorsStr) {
-                    actorsStr.split(',').forEach((raw) => {
-                        const name = String(raw || '').trim();
-                        if (!name) return;
-                        const norm = normalizeSearchText(name);
-                        if (!norm) return;
-                        const existing = actorMap.get(norm);
-                        if (existing) {
-                            existing.count += 1;
-                            if (!existing.poster_path && r?.poster_path) existing.poster_path = r.poster_path;
-                        } else {
-                            actorMap.set(norm, {
-                                name,
-                                norm,
-                                count: 1,
-                                poster_path: r?.poster_path || null,
-                                tmdb_id: r?.tmdb_id ?? null,
-                            });
-                        }
-                    });
-                }
+                if (actorsStr) actorsStr.split(',').forEach((raw) => addPerson(actorMap, raw, r));
+                // Director is usually a single name, but split on commas for co-directors.
+                const directorStr = String(r?.director || '').trim();
+                if (directorStr) directorStr.split(',').forEach((raw) => addPerson(directorMap, raw, r));
             }
-            return { movies, actors: Array.from(actorMap.values()) };
+            return { movies, actors: Array.from(actorMap.values()), directors: Array.from(directorMap.values()) };
         }
 
         async function buildLibrarySearchIndex(userId) {
             const uid = String(userId || '').trim();
-            if (!uid || !supabaseClient) return { movies: [], actors: [] };
+            if (!uid || !supabaseClient) return { movies: [], actors: [], directors: [] };
             const { data, error } = await supabaseClient
                 .from(LIBRARY_ITEMS_VIEW)
-                .select('movie_id, title, tmdb_id, poster_path, actors, release_year')
+                .select('movie_id, title, tmdb_id, poster_path, actors, director, release_year')
                 .eq('user_id', uid)
                 .limit(3000);
             if (error) throw error;
@@ -230,8 +229,12 @@
                 .filter((a) => librarySuggestMatches(a.norm, words))
                 .sort((a, b) => b.count - a.count)
                 .slice(0, MAX_EACH);
+            const directors = (index.directors || [])
+                .filter((d) => librarySuggestMatches(d.norm, words))
+                .sort((a, b) => b.count - a.count)
+                .slice(0, MAX_EACH);
 
-            if (!movies.length && !actors.length) {
+            if (!movies.length && !actors.length && !directors.length) {
                 box.style.display = 'block';
                 box.innerHTML = `<div class="page-search-suggest-empty">No matches in ${scopeLabel} — press Enter to search anyway.</div>`;
                 return;
@@ -262,16 +265,29 @@
                         + `<span class="pss-sub">Actor · ${a.count} movie${a.count === 1 ? '' : 's'}</span></span></button>`
                     );
                     // Lazy-load the real headshot (cached across the app via dashPersonAvatarCache).
-                    loadSuggestActorHeadshot(a.name, thumbId, token);
+                    loadSuggestActorHeadshot(a.name, thumbId, token, 'Acting');
+                });
+            }
+            if (directors.length) {
+                parts.push(`<div class="page-search-suggest-head">Directors</div>`);
+                directors.forEach((d, i) => {
+                    const thumbId = `pss-director-${token}-${i}`;
+                    parts.push(
+                        `<button type="button" class="page-search-suggest-row" data-suggest-kind="director" data-suggest-value="${escapeHtml(d.name)}">`
+                        + `<span class="page-search-suggest-thumb is-actor" id="${thumbId}"></span>`
+                        + `<span class="page-search-suggest-text"><span class="pss-title">${escapeHtml(d.name)}</span>`
+                        + `<span class="pss-sub">Director · ${d.count} movie${d.count === 1 ? '' : 's'}</span></span></button>`
+                    );
+                    loadSuggestActorHeadshot(d.name, thumbId, token, 'Directing');
                 });
             }
             box.style.display = 'block';
             box.innerHTML = parts.join('');
         }
 
-        async function loadSuggestActorHeadshot(name, thumbId, token) {
+        async function loadSuggestActorHeadshot(name, thumbId, token, department = 'Acting') {
             let path = null;
-            try { path = await dashFetchPersonProfile({ name, department: 'Acting' }); } catch (_) { path = null; }
+            try { path = await dashFetchPersonProfile({ name, department }); } catch (_) { path = null; }
             if (token !== librarySuggestToken) return; // a newer render superseded this one
             const el = document.getElementById(thumbId);
             if (!el || !path) return;
@@ -324,7 +340,7 @@
             btn.classList.toggle('filter-active', active);
             btn.title = active
                 ? `Searching: "${query}" — tap to change`
-                : (context === 'feed' ? 'Search by title' : 'Search by title or actor');
+                : (context === 'feed' ? 'Search by title' : 'Search by title, actor, or director');
             // Keep the RED Clear highlight in sync — a title search also counts as
             // something to clear.
             if (context === 'feed') syncFeedClearButton();
@@ -358,8 +374,8 @@
             ensurePageSearchSuggestListener();
             hideLibrarySuggestions();
             if (titleEl) titleEl.textContent = isFeed ? 'Search Feed' : (isLists ? 'Search This List' : 'Search My Movies');
-            if (labelEl) labelEl.textContent = isFeed ? 'Movie title' : 'Movie or actor';
-            input.placeholder = isFeed ? 'e.g. Dune' : 'e.g. Dune or Jake Gyllenhaal';
+            if (labelEl) labelEl.textContent = isFeed ? 'Movie title' : 'Movie, actor, or director';
+            input.placeholder = isFeed ? 'e.g. Dune' : 'e.g. Dune, Gyllenhaal, or Nolan';
             input.value = isFeed ? feedSearchQuery : (isLists ? listsSearchQuery : librarySearchQuery);
             overlay.style.display = 'flex';
             // Warm the index so the first keystroke shows suggestions instantly (Lists' index
@@ -1109,8 +1125,6 @@
                 sortDir: 'desc',
                 tier: '',
                 decade: '',
-                directorContains: '',
-                actorContains: '',
                 movieId: '',
                 movieTitle: '',
                 mpa: '',
@@ -1164,8 +1178,6 @@
                 sortDir: document.getElementById('library-modal-sort-dir'),
                 tier: document.getElementById('library-modal-filter-tier'),
                 decade: document.getElementById('library-modal-filter-decade'),
-                director: document.getElementById('library-modal-filter-director'),
-                actor: document.getElementById('library-modal-filter-actor'),
                 mpa: document.getElementById('library-modal-filter-mpa'),
                 genre: document.getElementById('library-modal-filter-genre'),
                 watchMethod: document.getElementById('library-modal-filter-watchmethod'),
@@ -1182,8 +1194,6 @@
             sfSegSetValue(els.tier, String(state?.tier || ''));
             sfSegSetValue(els.watchMethod, String(state?.watchMethod || ''));
             if (els.decade) els.decade.value = String(state?.decade || '');
-            if (els.director) els.director.value = String(state?.directorContains || '');
-            if (els.actor) els.actor.value = String(state?.actorContains || '');
             if (els.mpa) els.mpa.value = String(state?.mpa || '');
             if (els.genre) els.genre.value = String(state?.genre || '');
             if (els.timeframe) els.timeframe.value = String(state?.timeframe || 'all_time');
@@ -1206,8 +1216,6 @@
                 sortDir: (sfSegGetValue(els.sortDir) === 'asc') ? 'asc' : 'desc',
                 tier: sfSegGetValue(els.tier),
                 decade: getVal(els.decade),
-                directorContains: getVal(els.director),
-                actorContains: getVal(els.actor),
                 movieId: '',
                 movieTitle: '',
                 mpa: getVal(els.mpa),
@@ -1932,16 +1940,6 @@
                 }
             }
 
-            const directorNeedle = String(state?.directorContains || '').trim();
-            if (directorNeedle) {
-                q = q.ilike('director', `%${directorNeedle}%`);
-            }
-
-            const actorNeedle = String(state?.actorContains || '').trim();
-            if (actorNeedle) {
-                q = q.ilike('actors', `%${actorNeedle}%`);
-            }
-
             const movieId = String(state?.movieId || '').trim();
             if (movieId) {
                 q = q.eq('movie_id', movieId);
@@ -2111,10 +2109,6 @@
                             const d = Number(decadeWanted);
                             if (Number.isFinite(d)) q = q.gte('release_year', d).lte('release_year', d + 9);
                         }
-                        const directorNeedle = String(state?.directorContains || '').trim();
-                        if (directorNeedle) q = q.ilike('director', `%${directorNeedle}%`);
-                        const actorNeedle = String(state?.actorContains || '').trim();
-                        if (actorNeedle) q = q.ilike('actors', `%${actorNeedle}%`);
 
                         const watchMethod = String(state?.watchMethod || '').trim();
                         if (watchMethod) {

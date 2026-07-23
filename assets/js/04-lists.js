@@ -1433,8 +1433,6 @@
 
             pushFilter('tier', st.tier, { label: 'Tier' });
             pushFilter('decade', st.decade, { label: 'Decade' });
-            pushFilter('directorContains', st.directorContains, { label: 'Director' });
-            pushFilter('actorContains', st.actorContains, { label: 'Actor' });
             pushFilter('movieId', st.movieTitle || st.movieId, { label: 'Movie' });
             pushFilter('mpa', st.mpa, { label: 'MPA' });
             pushFilter('genre', st.genre, { label: 'Genre' });
@@ -1463,8 +1461,6 @@
             const sortPart = `Sort: ${sortLabel} ${dirArrow}`;
 
             const formatFilter = (p) => {
-                if (p.k === 'directorContains') return `${p.label} contains “${p.v}”`;
-                if (p.k === 'actorContains') return `${p.label} contains “${p.v}”`;
                 if (p.k === 'watchCount') return `${p.label}: ${p.v}`;
                 if (p.k === 'watchMethod') return `${p.label}: ${p.v}`;
                 if (p.k === 'tier' && p.v === 'UNRANKED') return `${p.label}: Unranked`;
@@ -1512,12 +1508,6 @@
 
             const decade = String(st.decade || '').trim();
             if (decade) addFilterChip('decade', `Decade: ${decade}`);
-
-            const director = String(st.directorContains || '').trim();
-            if (director) addFilterChip('directorContains', `Director contains “${director}”`);
-
-            const actor = String(st.actorContains || '').trim();
-            if (actor) addFilterChip('actorContains', `Actor contains “${actor}”`);
 
             const movieLabel = String(st.movieTitle || st.movieId || '').trim();
             if (movieLabel) addFilterChip('movieId', `Movie: ${movieLabel}`);
@@ -1589,8 +1579,6 @@
                 sortDir: 'desc',
                 tier: '',
                 decade: '',
-                directorContains: '',
-                actorContains: '',
                 mpa: '',
                 genre: '',
                 watchMethod: '',
@@ -1914,8 +1902,6 @@
                 sortDir: document.getElementById('lists-modal-sort-dir'),
                 tier: document.getElementById('lists-modal-filter-tier'),
                 decade: document.getElementById('lists-modal-filter-decade'),
-                director: document.getElementById('lists-modal-filter-director'),
-                actor: document.getElementById('lists-modal-filter-actor'),
                 mpa: document.getElementById('lists-modal-filter-mpa'),
                 genre: document.getElementById('lists-modal-filter-genre'),
                 watchMethod: document.getElementById('lists-modal-filter-watchmethod'),
@@ -2112,8 +2098,6 @@
             if (els.recBy) sfSegSetValue(els.recBy, String(state?.recommendedBy || ''));
             if (els.watchOptions) listsWatchOptionsSet(els.watchOptions, Array.isArray(state?.watchOptions) ? state.watchOptions : []);
             if (els.decade) els.decade.value = String(state?.decade || '');
-            if (els.director) els.director.value = String(state?.directorContains || '');
-            if (els.actor) els.actor.value = String(state?.actorContains || '');
             if (els.mpa) els.mpa.value = String(state?.mpa || '');
             if (els.genre) els.genre.value = String(state?.genre || '');
             if (els.timeframe) els.timeframe.value = String(state?.timeframe || 'all_time');
@@ -2135,8 +2119,6 @@
                 sortDir: (sfSegGetValue(els.sortDir) === 'asc') ? 'asc' : 'desc',
                 tier: sfSegGetValue(els.tier),
                 decade: getVal(els.decade),
-                directorContains: getVal(els.director),
-                actorContains: getVal(els.actor),
                 mpa: getVal(els.mpa),
                 genre: getVal(els.genre),
                 watchMethod: sfSegGetValue(els.watchMethod),
@@ -2253,8 +2235,6 @@
             const st = state || getDefaultListsSortFilterStateForActiveList();
             const wantedTier = String(st.tier || '').trim();
             const wantedDecade = String(st.decade || '').trim();
-            const wantedDirector = String(st.directorContains || '').trim().toLowerCase();
-            const wantedActor = String(st.actorContains || '').trim().toLowerCase();
             const wantedMpa = String(st.mpa || '').trim().toLowerCase();
             const wantedGenre = String(st.genre || '').trim().toLowerCase();
             const wantedWatchMethod = String(st.watchMethod || '').trim();
@@ -2267,8 +2247,9 @@
                 .map((s) => String(s || '').trim().toLowerCase())
                 .filter(Boolean);
             const timeframeRange = libraryComputeTimeframeRange(st?.timeframe);
-            // Title/actor search (the shared search popup, scoped to this list). Loose match:
-            // every query word must appear in the title, OR every word in the actor list.
+            // Title / actor / director search (the shared search popup, scoped to this list).
+            // Loose match: every query word must appear in the title, OR every word in the
+            // actor list, OR every word in the director.
             const searchWords = (typeof normalizeSearchText === 'function' ? normalizeSearchText(listsSearchQuery) : String(listsSearchQuery || '').toLowerCase())
                 .split(' ').filter(Boolean);
 
@@ -2278,9 +2259,11 @@
                 if (searchWords.length) {
                     const hayTitle = normalizeSearchText(it?.title);
                     const hayActor = normalizeSearchText(it?.actor);
+                    const hayDirector = normalizeSearchText(it?.director);
                     const titleOk = searchWords.every((w) => hayTitle.includes(w));
                     const actorOk = searchWords.every((w) => hayActor.includes(w));
-                    if (!titleOk && !actorOk) return false;
+                    const directorOk = searchWords.every((w) => hayDirector.includes(w));
+                    if (!titleOk && !actorOk && !directorOk) return false;
                 }
 
                 if (wantedRecBy) {
@@ -2308,16 +2291,6 @@
                 if (wantedDecade) {
                     const decade = listsDecadeLabelFromYear(it?.release_year);
                     if (decade !== wantedDecade) return false;
-                }
-
-                if (wantedDirector) {
-                    const dir = String(it?.director || '').toLowerCase();
-                    if (!dir.includes(wantedDirector)) return false;
-                }
-
-                if (wantedActor) {
-                    const actor = String(it?.actor || '').toLowerCase();
-                    if (!actor.includes(wantedActor)) return false;
                 }
 
                 if (wantedMpa) {
@@ -2429,7 +2402,7 @@
         // list's rows each time the detail loads (see loadListsPage), so this just hands
         // back whatever was last built (parallel to ensureLibrarySearchIndex in 05).
         async function ensureListsSearchIndex() {
-            return listsSearchIndex || { movies: [], actors: [] };
+            return listsSearchIndex || { movies: [], actors: [], directors: [] };
         }
 
         async function ensureBucketListForUser({ user_id }) {
@@ -3985,8 +3958,8 @@
                 try {
                     listsSearchIndex = (typeof buildSearchIndexFromRows === 'function')
                         ? buildSearchIndexFromRows(rows)
-                        : { movies: [], actors: [] };
-                } catch (_) { listsSearchIndex = { movies: [], actors: [] }; }
+                        : { movies: [], actors: [], directors: [] };
+                } catch (_) { listsSearchIndex = { movies: [], actors: [], directors: [] }; }
                 const movieIds = rows.map(r => r?.movie_id).filter(Boolean).map(String);
                 if (movieIds.length === 0) {
                     elItems.innerHTML = `<div class="text-gray">No movies in this list yet.</div>`;
