@@ -1285,13 +1285,42 @@ function pickBestSearchResult(
 }
 
 function normalizeTitleForMatch(s) {
-  return String(s ?? "")
+  let out = String(s ?? "")
     .toLowerCase()
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/&/g, "and")
-    .replace(/[^a-z0-9]+/g, "")
-    .trim();
+    .replace(/&/g, "and");
+  // Drop a leading article ("the"/"a"/"an") so a user who omits it still matches
+  // (e.g. "matrix" -> "The Matrix"). Only strip when real content follows.
+  const stripped = out.replace(/^\s*(?:the|an|a)\s+/, "");
+  if (stripped.trim()) out = stripped;
+  return out.replace(/[^a-z0-9]+/g, "").trim();
+}
+
+// Bounded edit distance: returns the Levenshtein distance between a and b, or
+// max+1 as soon as it's provably greater than `max` (cheap early-out so we never
+// do full DP on obviously-far strings).
+function boundedLevenshtein(a, b, max) {
+  const al = a.length, bl = b.length;
+  if (al === 0) return bl;
+  if (bl === 0) return al;
+  if (Math.abs(al - bl) > max) return max + 1;
+  let prev = new Array(bl + 1);
+  for (let j = 0; j <= bl; j++) prev[j] = j;
+  for (let i = 1; i <= al; i++) {
+    const cur = new Array(bl + 1);
+    cur[0] = i;
+    let rowMin = cur[0];
+    const ca = a.charCodeAt(i - 1);
+    for (let j = 1; j <= bl; j++) {
+      const cost = ca === b.charCodeAt(j - 1) ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      if (cur[j] < rowMin) rowMin = cur[j];
+    }
+    if (rowMin > max) return max + 1; // whole row already over budget — bail
+    prev = cur;
+  }
+  return prev[bl];
 }
 
 function titleMatchScore({ query, title }) {
@@ -1301,6 +1330,21 @@ function titleMatchScore({ query, title }) {
   if (nt === nq) return 100;
   if (nt.startsWith(nq)) return 70;
   if (nt.includes(nq)) return 40;
+  // Fuzzy/typo tolerance: only for queries long enough that a near-miss is meaningful
+  // (a 1-char slip on a 3-char query is noise). Allow more edits on longer queries.
+  if (nq.length < 4) return 0;
+  const allowed = nq.length <= 6 ? 1 : nq.length <= 10 ? 2 : 3;
+  // Compare against BOTH the title's same-length prefix (a misspelled partial like
+  // "gaurdians" -> "Guardians of the Galaxy") and the whole title when the lengths are
+  // close (a fully misspelled title like "gladiaor" -> "Gladiator").
+  const dPrefix = boundedLevenshtein(nq, nt.slice(0, nq.length), allowed);
+  const dFull = Math.abs(nt.length - nq.length) <= allowed
+    ? boundedLevenshtein(nq, nt, allowed)
+    : allowed + 1;
+  const d = Math.min(dPrefix, dFull);
+  // Kept strictly below the "includes" tier (40) so a clean substring match always wins;
+  // 28 / 18 / 12 for 1 / 2 / 3 edits. The popularity boost still applies on top.
+  if (d <= allowed) return Math.max(12, 38 - d * 10);
   return 0;
 }
 
@@ -4562,8 +4606,16 @@ Deno.serve(async (req) => {
 
       const scored = cleaned
         .map(({ r, idx }) => {
-          const score = titleMatchScore({ query, title: r?.title });
+          const relevance = titleMatchScore({ query, title: r?.title });
+          // Fold a BOUNDED popularity boost into the score (not just a tiebreaker) so a
+          // hugely-known film outranks an obscure exact-title match ("matrix" -> The Matrix,
+          // not a no-name "Matrix"). vote_count is a steadier "is this a real, well-known
+          // movie" signal than `popularity` (which spikes on whatever's trending). Capped at
+          // 30 so relevance still leads — a popular film can't hijack an unrelated query.
+          const votes = Number(r?.vote_count ?? 0) || 0;
+          const popBoost = Math.min(30, Math.log10(votes + 1) * 8);
           const pop = Number(r?.popularity ?? 0) || 0;
+          const score = relevance + popBoost;
           return { r, idx, score, pop };
         })
         .sort((a, b) => (b.score - a.score) || (b.pop - a.pop) || (a.idx - b.idx));
