@@ -988,7 +988,8 @@
 
                     const { field: metricField, label: metricLabel } = metricFieldForFavorites(dashboardFavoritesMetric);
                     const metricValue = ratingRow ? ratingRow?.[metricField] : null;
-                    const metricText = dashFormatScore(metricValue);
+                    // One movie's own score — whole number. Decimals are for averages.
+                    const metricText = dashFormatScoreWhole(metricValue);
                     const tierLabel = dashNormalizeTierLabel(ratingRow ? ratingRow.tier : '');
                     const tmdb_id = Number(r?.tmdb_id);
                     const ensured = ensuredPosterPaths[idx] || '';

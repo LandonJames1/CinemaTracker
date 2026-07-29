@@ -145,7 +145,8 @@
                 const cardsHtml = filtered.map((r, i) => {
                     const quote = String(r?.fav_quote ?? '').trim();
                     const movie_id = String(r?.movie_id ?? '').trim();
-                    const overall = dashFormatScore(r?.overall_rating);
+                    // One movie's own score — whole number. Decimals are for averages.
+                    const overall = dashFormatScoreWhole(r?.overall_rating);
                     const tierLabel = dashNormalizeTierLabel(r?.tier);
 
                     const movie = moviesById.get(r?.movie_id) || null;
@@ -359,7 +360,8 @@
                 const renderTierPosterCard = (r) => {
                     const title = String(r?.title ?? '').trim() || 'Untitled';
                     const year = (r?.release_year === null || r?.release_year === undefined) ? '' : String(r.release_year);
-                    const overall = dashFormatScore(r?.overall_rating);
+                    // One movie's own score — whole number. Decimals are for averages.
+                    const overall = dashFormatScoreWhole(r?.overall_rating);
 
                     const dashMovieId = String(r?.movie_id ?? '').trim();
                     const dashTmdbId = (r?.tmdb_id === null || r?.tmdb_id === undefined) ? '' : String(r.tmdb_id);

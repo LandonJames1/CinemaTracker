@@ -1472,7 +1472,8 @@
                 const tierLabel = dashNormalizeTierLabel(it?.tier);
 
                 if (isGrid) {
-                    const overallGrid = dashFormatScore(it?.overall_rating);
+                    // One movie's own score — whole number. Decimals are for averages.
+                    const overallGrid = dashFormatScoreWhole(it?.overall_rating);
                     const watchCountRaw = Number(it?.watch_count ?? 0);
                     const watchCount = Number.isFinite(watchCountRaw) ? watchCountRaw : 0;
                     const metaParts = [];
@@ -1836,12 +1837,16 @@
             return n;
         }
 
+        // Used for IMDb ratings (a crowd average, so a real decimal is meaningful and
+        // is kept) — but every value we store is a whole number, so drop a trailing
+        // ".0" rather than printing "79.0%" on every card. Same trim as the charts'
+        // formatPct in 07-dashboard-charts.js.
         function formatPctForDisplay(pct) {
             const n = Number(pct);
             if (!Number.isFinite(n)) return '';
-            const v = String(dashFormatScore(n) || '').trim();
-            if (!v) return '';
-            return /%\s*$/.test(v) ? v : `${v}%`;
+            const fixed = (Math.round(n * 10) / 10).toFixed(1);
+            const trimmed = fixed.endsWith('.0') ? fixed.slice(0, -2) : fixed;
+            return `${trimmed}%`;
         }
 
         function renderLibraryInfoChips(obj, opts = {}) {
@@ -3225,6 +3230,50 @@
             return m ? m.label : 'Overall';
         }
 
+        // Tie-breaking for the Top Rated grid. Sorting on the selected metric alone
+        // left every tie resolved by the order Postgres happened to return the
+        // unordered `Movie Ratings` select — arbitrary, and liable to reshuffle
+        // between loads. Ties are common (round-number scores cluster hard), so this
+        // was reordering most of a typical top 10.
+        //
+        // Tie-break = the average of the OTHER six ratings, i.e. all seven rating
+        // columns minus whichever one is being sorted by. Ranking by Overall breaks
+        // ties on the six sub-ratings; ranking by Sound breaks ties on Overall plus
+        // the other five. Two movies that tie on the headline number are separated by
+        // which one is stronger everywhere else.
+        const PROFILE_RATING_KEYS = [
+            'overall_rating', 'acting_rating', 'imagery_rating',
+            'plot_rating', 'pacing_rating', 'dialogue_rating', 'sound_rating',
+        ];
+
+        // Mean of every rating EXCEPT the one being sorted by. All seven are required
+        // by the log form, but the columns are nullable, so average over what's really
+        // there rather than letting a null read as a 0 and sink the movie.
+        function profileOtherRatingsMean(it, metricKey) {
+            const vals = PROFILE_RATING_KEYS
+                .filter(k => k !== metricKey)
+                .map(k => Number(it?.[k]))
+                .filter(n => Number.isFinite(n));
+            return vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+        }
+
+        function compareProfileTopRated(a, b, metricKey) {
+            const key = metricKey || 'overall_rating';
+
+            // The selected metric — the actual ranking signal.
+            const byMetric = Number(b?.[key]) - Number(a?.[key]);
+            if (byMetric) return byMetric;
+
+            // Tied: rank by the average of everything else. A movie with no other
+            // ratings at all has nothing to compare on, so it sorts last of its group.
+            const aMean = profileOtherRatingsMean(a, key);
+            const bMean = profileOtherRatingsMean(b, key);
+            if (aMean === null && bMean === null) return 0;
+            if (aMean === null) return 1;
+            if (bMean === null) return -1;
+            return bMean - aMean;
+        }
+
         function renderProfileMovieCard(it, metricKey) {
             const key = metricKey || 'overall_rating';
             const title = String(it?.title || '').trim() || 'Untitled';
@@ -3232,7 +3281,8 @@
             const tmdb_id = Number(it?.tmdb_id);
             const poster_path = dashNormalizePosterPath(String(it?.poster_path || '').trim() || (Number.isFinite(tmdb_id) ? (dashPosterCacheByTmdbId.get(tmdb_id) || '') : ''));
             const posterUrl = dashBuildPosterUrl(poster_path, 'w342');
-            const metricText = dashFormatScore(it?.[key]);
+            // One movie's own score — whole number. Decimals are for averages.
+            const metricText = dashFormatScoreWhole(it?.[key]);
             const metricLabel = profileMetricLabel(key);
             const tierLabel = dashNormalizeTierLabel(it?.tier);
             const titleLine = `${escapeHtml(title)}${year ? ` (${escapeHtml(year)})` : ''}`;
@@ -3278,7 +3328,7 @@
             const items = isTop
                 ? profileRatedItems
                     .filter(it => Number.isFinite(Number(it?.[metricKey])))
-                    .sort((a, b) => Number(b[metricKey]) - Number(a[metricKey]))
+                    .sort((a, b) => compareProfileTopRated(a, b, metricKey))
                     .slice(0, 10)
                 : profileRecent10;
             grid.innerHTML = items.length

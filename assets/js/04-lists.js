@@ -1145,7 +1145,8 @@
                         const username = String(u.username || '').trim();
                         const isMe = uid === meId;
                         const name = isMe ? 'You' : (String(u.display_name || '').trim() || (username ? `@${username}` : 'User'));
-                        const scoreText = dashFormatScore(r.overall_rating);
+                        // One movie's own score — whole number. Decimals are for averages.
+                        const scoreText = dashFormatScoreWhole(r.overall_rating);
                         const tier = dashNormalizeTierLabel(r.tier);
                         const meta = dashJoinHelpParts([
                             scoreText ? `${dashRenderHelpScore(scoreText)} Overall` : '',
