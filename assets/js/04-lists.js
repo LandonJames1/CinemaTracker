@@ -3655,6 +3655,9 @@
                 if (ov) ov.style.display = 'none';
                 if (dt) dt.style.display = '';
                 updateListsFab();
+                // Deep-linked straight into a list (e.g. from a push). Back should still
+                // land on the all-lists grid, same as if the user had tapped in.
+                try { pushBackState('list:deeplink', showListsOverview); } catch (_) {}
                 await loadListsPage({ reset: true }).catch(() => null); // resolves the pending name/id
                 return;
             }
@@ -3734,6 +3737,9 @@
 
         // Show the overview grid (hide the single-list detail panel).
         function showListsOverview() {
+            // Clear the open-list Back step however we got back here (swipe, the ←
+            // button, the Lists tab, or a list being deleted out from under us).
+            try { dropBackState('list:'); } catch (_) {}
             listsSearchQuery = '';   // a search is per-list; don't carry it out of the list
             listsViewMode = 'overview';
             const ov = document.getElementById('lists-overview');
@@ -3750,6 +3756,8 @@
             const id = String(listId || '').trim();
             if (!id) return;
             if (id !== String(listsActiveListId || '').trim()) listsSearchQuery = ''; // fresh list = fresh search
+            // The all-lists grid is where Back belongs from inside a list.
+            if (listsViewMode !== 'detail') { try { pushBackState('list:' + id, showListsOverview); } catch (_) {} }
             listsActiveListId = id;
             if (listName) listsActiveListName = String(listName);
             listsViewMode = 'detail';

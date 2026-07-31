@@ -10,6 +10,16 @@
                     const state = e?.state || {};
                     const page = String(state.page || 'home').trim() || 'home';
                     const mode = String(state.mode || 'new').trim() || 'new';
+                    // OS/browser back out of an IN-PAGE sub-state (inside a game, inside
+                    // one list, a non-default tab). Those push their own history entry
+                    // via pushBackState (26-back-nav.js), so the entry we just consumed
+                    // belongs to the sub-state — unwind it and STAY on the page rather
+                    // than re-rendering the whole route.
+                    const top = this.navStack[this.navStack.length - 1];
+                    if (top?.subState && top.page === this.currentPage && page === this.currentPage) {
+                        this.navStack.pop();
+                        if (this.runBackSubState(top)) return;
+                    }
                     this.navigate(page, mode, 'pop');
                 });
 
@@ -53,7 +63,44 @@
                 return true;
             },
 
+            // Is there anywhere to go back TO? Drives whether the swipe-left gesture
+            // engages at all (26-back-nav.js) — a swipe with an empty stack should do
+            // nothing rather than silently bounce the user to Home.
+            canGoBack() {
+                return this.navStack.length > 0;
+            },
+
+            // Run a recorded IN-PAGE sub-state entry (Games hub↔game, Lists
+            // overview↔detail, Account/results tabs). These aren't router pages, so
+            // Back restores them by callback. If we've since left the page the entry
+            // belongs to, go to that page instead — its own render is the right
+            // destination and the callback would be applying state to the wrong view.
+            runBackSubState(entry) {
+                if (!entry || !entry.subState) return false;
+                if (entry.page && entry.page !== this.currentPage) {
+                    this.navigate(entry.page, entry.mode || 'new', 'replace');
+                    return true;
+                }
+                try { entry.restore(); } catch (_) { return false; }
+                // Sub-state restores skip navigate(), so replay the page-enter
+                // transition here — otherwise the view snaps back with no motion after
+                // the swipe has just slid it off-screen.
+                try { animatePageEnter(document.getElementById('app-root')); } catch (_) {}
+                return true;
+            },
+
             goBack() {
+                // In-page sub-state on top of the stack. It pushed a real history entry,
+                // so unwind through history.back() and let the popstate handler above do
+                // the restore — that keeps the browser's stack depth in sync with ours.
+                const top = this.navStack[this.navStack.length - 1];
+                if (top?.subState) {
+                    if (history.state?.sub) { try { history.back(); return; } catch (_) {} }
+                    this.navStack.pop();
+                    if (this.runBackSubState(top)) return;
+                    return this.goBack();   // entry was unusable; stack shrank, so this terminates
+                }
+
                 const prev = this.navStack.pop();
                 if (prev?.snapshot && this.restoreSnapshot(prev.snapshot)) return;
                 if (prev?.page) {
@@ -123,6 +170,15 @@
                     try { flushDiaryDraft(); } catch (_) {}
                 }
                 if (navMode === 'push' && page !== prevPage) {
+                    // Drop any in-page sub-states belonging to the page we're leaving.
+                    // Back should return to the PREVIOUS PAGE, not replay that page's
+                    // internal tab/detail history one step at a time after re-rendering
+                    // it fresh (which would have reset those states anyway).
+                    while (this.navStack.length
+                           && this.navStack[this.navStack.length - 1]?.subState
+                           && this.navStack[this.navStack.length - 1].page === prevPage) {
+                        this.navStack.pop();
+                    }
                     const entry = {
                         page: prevPage,
                         mode: prevMode,

@@ -205,9 +205,18 @@
 
         // Switch between the Profile and Achievements tabs (self-only; viewing
         // someone else is forced to the Profile panel — see setAccountHomeViewMode).
-        function setAccountHomeTab(tab) {
+        function setAccountHomeTab(tab, opts) {
             const valid = ['profile', 'torate', 'achievements'];
             const t = valid.includes(tab) ? tab : 'profile';
+            const prev = accountHomeActiveTab;
+            // Leaving the default (Profile) tab is a Back step, so a swipe returns to
+            // the tab you came from before it leaves the Account page.
+            if (!opts?.fromBack && t !== prev) {
+                try {
+                    if (t !== 'profile') pushBackState('acct-tab:' + prev, () => setAccountHomeTab(prev, { fromBack: true }));
+                    else dropBackState('acct-tab:');
+                } catch (_) {}
+            }
             accountHomeActiveTab = t;
             const profilePanel = document.getElementById('account-panel-profile');
             const toratePanel = document.getElementById('account-panel-torate');

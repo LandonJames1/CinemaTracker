@@ -216,6 +216,9 @@
             const hub = document.getElementById('games-hub');
             const play = document.getElementById('games-play');
             if (!hub || !play) return;
+            // The hub is where Back belongs from inside a game — record it so the
+            // swipe-left gesture / OS back return to the hub instead of leaving Games.
+            try { pushBackState('game:' + game, closeGame); } catch (_) {}
             hub.hidden = true;
             play.hidden = false;
             setGamesMobileHeader((GAME_META[game] || {}).title || 'Games');
@@ -237,6 +240,9 @@
         }
 
         function closeGame() {
+            // Clear this game's Back steps whichever way we got here (swipe, the ‹
+            // button, or a tab tap) so no stale step is left to eat the next swipe.
+            try { dropBackState('rtab:'); dropBackState('game:'); } catch (_) {}
             gamesActiveGame = null;
             if (gamesResultTimer) { clearTimeout(gamesResultTimer); gamesResultTimer = null; }
             const hub = document.getElementById('games-hub');
@@ -881,11 +887,24 @@
             loadGameLifetimeStats(game);
         }
 
-        function setGameResultsTab(game, tab) {
+        function setGameResultsTab(game, tab, opts) {
             if (!(game in gamesResultsTab)) return;
             const d = gamesTodayData?.games?.[game];
             if (!d || !d.done) return;
-            gamesResultsTab[game] = (tab === 'guesses') ? 'guesses' : 'leaderboard';
+            const prev = gamesResultsTab[game];
+            const next = (tab === 'guesses') ? 'guesses' : 'leaderboard';
+            // Leaving the default (Leaderboard) tab is a Back step, so a swipe returns
+            // to it rather than jumping all the way out to the hub.
+            if (!opts?.fromBack && next !== prev) {
+                try {
+                    if (next !== 'leaderboard') {
+                        pushBackState('rtab:' + game, () => setGameResultsTab(game, prev, { fromBack: true }));
+                    } else {
+                        dropBackState('rtab:' + game);
+                    }
+                } catch (_) {}
+            }
+            gamesResultsTab[game] = next;
             const panel = document.getElementById('games-rpanel');
             if (!panel) { renderGameResults(game); return; }
             // Repaint ONLY the panel + the tab active states, so switching tabs doesn't
@@ -1830,7 +1849,24 @@
             if (!t || !t.closest) return;
             const openBtn = t.closest('[data-game-open]');
             if (openBtn) { e.preventDefault(); openGame(openBtn.getAttribute('data-game-open')); return; }
-            if (t.closest('[data-game-back]')) { e.preventDefault(); closeGame(); return; }
+            // Route the ‹ button through goBack so it unwinds the SAME stack as the
+            // swipe gesture (and keeps browser history in step); closeGame is the
+            // fallback if there's nothing recorded to go back to.
+            if (t.closest('[data-game-back]')) {
+                e.preventDefault();
+                try {
+                    const top = router.navStack[router.navStack.length - 1];
+                    // Only when the top step really is one of THIS surface's own — a
+                    // page entry underneath means nothing was recorded and goBack would
+                    // leave Games entirely instead of returning to the hub.
+                    if (top?.subState && /^(game|rtab):/.test(String(top.label || ''))) {
+                        router.goBack();
+                        return;
+                    }
+                } catch (_) {}
+                closeGame();
+                return;
+            }
             // (The old "‹ Review your guesses" button is gone — every game now reaches
             // its board through the results frame's Guesses tab.)
             const resultsBtn = t.closest('[data-game-results]');

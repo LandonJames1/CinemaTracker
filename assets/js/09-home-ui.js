@@ -504,6 +504,14 @@
 
             document.addEventListener('touchmove', (e) => {
                 if (!pulling || refreshing) return;
+                // A diagonal drag must not run two gestures at once: once the back-swipe
+                // (26-back-nav.js) has locked onto the horizontal axis it owns the
+                // #app-root transform, so bail out rather than fight it for the element.
+                try {
+                    if (typeof isBackSwipeEngaged === 'function' && isBackSwipeEngaged()) {
+                        pulling = false; release(false); return;
+                    }
+                } catch (_) {}
                 if (window.scrollY > 0) { pulling = false; release(false); return; }
                 const dy = e.touches[0].clientY - startY;
                 if (dy <= 0) { dragTo(0); armed = false; return; }
@@ -749,47 +757,10 @@
             }, { passive: true });
         })();
 
-        // ===== Swipe-left-to-go-back on another user's Account page ================
-        // When viewing SOMEONE ELSE's account (opened from a feed/leaderboard avatar),
-        // a whole-screen left swipe returns to the exact previous page (router.goBack
-        // restores the snapshot). Scoped to that page only, so it never fights the
-        // Discover deck / Data Dash horizontal swipes or the vertical sheet gestures.
-        (function initAccountBackSwipe() {
-            const H_THRESHOLD = 70;
-            let startX = 0, startY = 0, tracking = false;
-
-            function onOtherAccount() {
-                try {
-                    if (!isMobileViewport() || document.body.dataset.page !== 'account') return false;
-                    const me = (typeof getActiveUserId === 'function') ? getActiveUserId() : '';
-                    return !!accountHomeViewUserId && accountHomeViewUserId !== me;
-                } catch (_) { return false; }
-            }
-
-            document.addEventListener('touchstart', (e) => {
-                tracking = false;
-                if (!onOtherAccount() || e.touches.length !== 1) return;
-                const t = e.target;
-                if (t && t.closest && t.closest('input, textarea, select, [contenteditable="true"], .auth-overlay, .more-sheet-overlay')) return;
-                startX = e.touches[0].clientX;
-                startY = e.touches[0].clientY;
-                tracking = true;
-            }, { passive: true });
-
-            document.addEventListener('touchend', (e) => {
-                if (!tracking) return;
-                tracking = false;
-                if (!onOtherAccount()) return;
-                const touch = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0] : null;
-                if (!touch) return;
-                const dx = touch.clientX - startX;
-                const dy = touch.clientY - startY;
-                if (dx >= 0 || Math.abs(dx) < H_THRESHOLD) return;     // only a leftward swipe
-                if (Math.abs(dx) < Math.abs(dy) * 1.3) return;          // mostly vertical → let it scroll
-                try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
-                try { router.goBack(); } catch (_) {}
-            }, { passive: true });
-        })();
+        // NOTE: the old account-only "swipe left to go back" gesture that lived here
+        // (initAccountBackSwipe) was replaced by the app-wide back-swipe in
+        // 26-back-nav.js, which works on every page and also unwinds IN-PAGE states
+        // (inside a game, inside a list, a non-default tab) via pushBackState.
 
         // Close the Lists-only movie search dropdown when clicking outside it.
         // (This is separate from the Home page search UI.)
