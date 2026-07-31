@@ -643,6 +643,9 @@
                     watch_date: String(details.watch_date || '').trim() || null,
                     watch_method: String(details.watch_method || '').trim() || null,
                 });
+                // The Account page's Drafts tab just changed — don't let a stored copy
+                // of it (Back or the forward page cache) show the old queue.
+                try { invalidatePageSnapshots('account'); } catch (_) {}
                 showToast('Saved to your Drafts.');
             } catch (e) {
                 showToast(`Couldn’t save for later: ${String(e?.message || e)}`, { level: 'warn' });

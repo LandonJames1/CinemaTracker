@@ -1317,9 +1317,10 @@
                     recomputeMyTasteProfile().catch(() => null);
                     // Drop the "You Might Like" cache so this now-watched movie can't linger.
                     try { invalidateHomeForYouCache(); } catch (_) {}
-                    // Back must not restore a snapshot of these pages taken BEFORE this
-                    // save — they'd show the library/feed without the rating just made.
-                    try { invalidatePageSnapshots(['library', 'feed', 'home', 'lists']); } catch (_) {}
+                    // No stored copy of these pages taken BEFORE this save may be
+                    // restored (by Back OR by the forward page cache) — they'd show the
+                    // library/feed/account without the rating just made.
+                    try { invalidatePageSnapshots(['library', 'feed', 'home', 'lists', 'account', 'leaderboard']); } catch (_) {}
 
                     openRatingsSuccessModal('updated');
                     return;
@@ -1395,9 +1396,10 @@
                 recomputeMyTasteProfile().catch(() => null);
                 // Drop the "You Might Like" cache so this now-watched movie can't linger.
                 try { invalidateHomeForYouCache(); } catch (_) {}
-                // Back must not restore a snapshot of these pages taken BEFORE this
-                // save — they'd show the library/feed without the rating just made.
-                try { invalidatePageSnapshots(['library', 'feed', 'home', 'lists']); } catch (_) {}
+                // No stored copy of these pages taken BEFORE this save may be restored
+                // (by Back OR by the forward page cache) — they'd show the
+                // library/feed/account without the rating just made.
+                try { invalidatePageSnapshots(['library', 'feed', 'home', 'lists', 'account', 'leaderboard']); } catch (_) {}
 
                 // Saved successfully → drop the autosaved draft for this movie.
                 try { clearDiaryDraftForCurrentForm(); } catch (_) {}

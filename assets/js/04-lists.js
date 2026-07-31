@@ -427,13 +427,15 @@
         }
 
         // ===== Movie poster viewer (opens the full Movie Spotlight modal) =====
-        // Tapping a poster on a non-shared list (Recs / Bucket List / custom) opens the
+        // Tapping a poster on ANY list (Recs / Bucket List / custom / SHARED) opens the
         // FULL Movie Spotlight modal directly — it already carries the Details / Synopsis /
-        // Cast / Where-to-Watch tabs AND the action footer (Log as New Entry / Rate Later /
-        // Update Ratings / Add to List / Recommend), so the old intermediate choice popup
-        // is no longer needed. Builds a spotlight-compatible movie object from the cached
-        // list prefill and seeds `watch_providers` from the list's known platforms so
-        // "Where to Watch" populates instantly, before the details fetch resolves.
+        // Cast / Where-to-Watch / User Reviews tabs AND the action footer (Log as New Entry /
+        // Rate Later / Update Ratings / Add to List / Recommend), so the old intermediate
+        // choice popups are no longer needed. Builds a spotlight-compatible movie object
+        // from the cached list prefill and seeds `watch_providers` from the list's known
+        // platforms so "Where to Watch" populates instantly, before the details fetch
+        // resolves. On a SHARED list it also tags the movie with `_sharedListId`, which
+        // makes the spotlight's User Reviews tab include the other MEMBERS' reviews.
         function openListMovieSpotlight(movieId) {
             const mid = String(movieId || '').trim();
             if (!mid) return;
@@ -454,6 +456,9 @@
                 genre: normalizeMovieFieldValue(m?.genre) || '',
                 imdb_rating_pct: (() => { const n = parsePercentLike(m?.imdb ?? m?.imdb_rating_pct ?? m?.imdb_pct ?? m?.imdb_rating, { imdb: true }); return (typeof n === 'number') ? n : undefined; })(),
                 watch_providers: Array.isArray(platforms) ? platforms : [],
+                // Shared list → the spotlight's User Reviews tab also pulls the other
+                // members' reviews (a co-owner isn't necessarily someone you follow).
+                _sharedListId: isSharedList(listsActiveListId) ? String(listsActiveListId || '').trim() : null,
             };
             try { openMovieSpotlight(movie); } catch (e) {
                 showToast(`Open details failed: ${String(e?.message || e)}`, { level: 'warn' });
@@ -849,6 +854,7 @@
                 .from('List Members')
                 .upsert(rows, { onConflict: 'list_id,user_id' });
             if (error) throw error;
+            try { listsSharedMemberIdsCache.delete(lid); } catch (_) {}
         }
 
         function closeListsRenameModal() {
@@ -1011,6 +1017,7 @@
                 const { error } = await supabaseClient
                     .from('List Members').delete().eq('list_id', lid).eq('user_id', uid);
                 if (error) throw error;
+                try { listsSharedMemberIdsCache.delete(lid); } catch (_) {}
                 listsEditMembers = listsEditMembers.filter(u => String(u.id) !== uid);
                 renderListsEditMembers();
                 cachedListsUserId = null;
@@ -1065,116 +1072,28 @@
             }
         }
 
-        // --- Shared-list movie reviews popup -----------------------------------
-        // Tapping a poster on a SHARED list opens this: a list of the members who
-        // have reviewed the movie. Pick one to read their full diary entry (only
-        // reviews that actually exist are shown). Mirrors the per-member model the
-        // user designed: a member with no review for the movie simply isn't listed.
-        async function openSharedListMovieModal(movieId) {
-            const mid = String(movieId || '').trim();
-            const lid = String(listsActiveListId || '').trim();
-            if (!mid || !lid) return;
-            if (!supabaseClient || !cachedIsAuthed) { openAuthModal(); return; }
+        // --- Shared-list member ids --------------------------------------------
+        // A poster on a SHARED list opens the same full Movie Spotlight as every other
+        // list; its "User Reviews" tab then shows the LIST MEMBERS' reviews alongside
+        // the viewer's follows, since a co-owner isn't necessarily someone you follow.
+        // Members = the owner + every List Members row. Cached per list; the cache
+        // entry is dropped whenever membership changes.
+        let listsSharedMemberIdsCache = new Map();   // list_id -> string[]
 
-            const overlay = document.getElementById('shared-movie-overlay');
-            const titleEl = document.getElementById('shared-movie-title');
-            const body = document.getElementById('shared-movie-body');
-            if (!overlay || !body) return;
-            body.innerHTML = `<div class="text-gray" style="padding:1rem;">Loading…</div>`;
-            overlay.style.display = 'flex';
-            overlay.style.zIndex = '200';
-            overlay.classList.add('open');
-
-            try {
-                const { user } = await requireAuthOrThrow();
-                const meId = String(user.id);
-                const ownerId = listOwnerId(lid, meId);
-
-                // Members = the owner + everyone in List Members.
-                const { data: memRows } = await supabaseClient
-                    .from('List Members').select('user_id').eq('list_id', lid);
-                const memberIds = Array.from(new Set([
-                    ownerId,
-                    ...((Array.isArray(memRows) ? memRows : []).map(r => String(r?.user_id || '').trim())),
-                ].filter(Boolean)));
-
-                // Names + icons.
-                const usersById = new Map();
-                if (memberIds.length) {
-                    let data = null;
-                    try {
-                        const r1 = await supabaseClient.from('Users').select('id, username, display_name, icon').in('id', memberIds);
-                        if (r1.error) throw r1.error; data = r1.data;
-                    } catch (e1) {
-                        const r2 = await supabaseClient.from('Users').select('id, username, display_name').in('id', memberIds);
-                        data = r2.data;
-                    }
-                    for (const u of (Array.isArray(data) ? data : [])) usersById.set(String(u.id), u);
-                }
-
-                // Which members have a review of this movie (+ their overall/tier).
-                const { data: viewRows } = await supabaseClient
-                    .from(LIBRARY_ITEMS_VIEW)
-                    .select('user_id, overall_rating, tier, title, release_year')
-                    .eq('movie_id', mid)
-                    .in('user_id', memberIds);
-                const reviews = (Array.isArray(viewRows) ? viewRows : [])
-                    .filter(r => r?.overall_rating !== null && r?.overall_rating !== undefined);
-
-                // Title (from any review row, else the cached list prefill).
-                const titleRow = reviews[0] || null;
-                let movieTitle = String(titleRow?.title || '').trim();
-                const movieYear = (titleRow?.release_year ?? '') === '' ? '' : String(titleRow.release_year);
-                if (!movieTitle) movieTitle = String(listsMoviePrefillById?.get(mid)?.title || 'Movie').trim();
-                if (titleEl) titleEl.textContent = movieTitle + (movieYear ? ` (${movieYear})` : '');
-
-                if (!reviews.length) {
-                    body.innerHTML = `<div class="text-gray" style="padding:1rem;">No one in this list has reviewed this movie yet.</div>`;
-                    return;
-                }
-
-                // Sort: me first (labeled "You"), then by overall desc.
-                reviews.sort((a, b) => {
-                    const am = String(a.user_id) === meId, bm = String(b.user_id) === meId;
-                    if (am !== bm) return am ? -1 : 1;
-                    return (Number(b.overall_rating) || 0) - (Number(a.overall_rating) || 0);
-                });
-
-                const rowStyle = 'display:flex; align-items:center; gap:12px; width:100%; box-sizing:border-box; padding:11px 12px; border-radius:12px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.09); cursor:pointer; text-align:left;';
-                body.innerHTML = `<div style="color:rgba(255,255,255,0.6); font-weight:600; font-size:0.84rem; margin-bottom:0.6rem;">Tap a member to read their review:</div>`
-                    + `<div style="display:grid; gap:8px;">` + reviews.map(r => {
-                        const uid = String(r.user_id);
-                        const u = usersById.get(uid) || {};
-                        const username = String(u.username || '').trim();
-                        const isMe = uid === meId;
-                        const name = isMe ? 'You' : (String(u.display_name || '').trim() || (username ? `@${username}` : 'User'));
-                        // One movie's own score — whole number. Decimals are for averages.
-                        const scoreText = dashFormatScoreWhole(r.overall_rating);
-                        const tier = dashNormalizeTierLabel(r.tier);
-                        const meta = dashJoinHelpParts([
-                            scoreText ? `${dashRenderHelpScore(scoreText)} Overall` : '',
-                            tier ? dashRenderHelpTier(tier) : '',
-                        ]);
-                        return `
-                            <button type="button" style="${rowStyle}" onclick="openProfileMovieReview('${escapeHtml(uid)}','${escapeHtml(mid)}')">
-                                ${renderUserIconHtml(String(u.icon || ''), 38)}
-                                <span style="flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:3px;">
-                                    <span style="color:#fff; font-weight:700; font-size:0.94rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(name)}${isMe && username ? ` <span style="color:rgba(255,255,255,0.45); font-weight:600;">@${escapeHtml(username)}</span>` : ''}</span>
-                                    <span style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">${meta}</span>
-                                </span>
-                                <span style="flex:0 0 auto; color:rgba(255,255,255,0.4); font-size:1.3rem; line-height:1;">›</span>
-                            </button>`;
-                    }).join('') + `</div>`;
-            } catch (err) {
-                body.innerHTML = `<div class="text-gray" style="padding:1rem;">Could not load reviews: ${escapeHtml(String(err?.message || err))}</div>`;
-            }
-        }
-
-        function closeSharedListMovieModal() {
-            const overlay = document.getElementById('shared-movie-overlay');
-            if (!overlay) return;
-            overlay.style.display = 'none';
-            overlay.classList.remove('open');
+        async function getSharedListMemberIds(listId) {
+            const lid = String(listId || '').trim();
+            if (!lid || !supabaseClient) return [];
+            const hit = listsSharedMemberIdsCache.get(lid);
+            if (hit) return hit;
+            const { data, error } = await supabaseClient
+                .from('List Members').select('user_id').eq('list_id', lid);
+            if (error) throw error;
+            const ids = Array.from(new Set([
+                listOwnerId(lid, ''),
+                ...((Array.isArray(data) ? data : []).map(r => String(r?.user_id || '').trim())),
+            ].filter(Boolean)));
+            listsSharedMemberIdsCache.set(lid, ids);
+            return ids;
         }
 
         // Render the current cover (or a placeholder) inside the Edit modal.
@@ -3193,17 +3112,11 @@
                     const mid = String(el.dataset.movieId || '').trim();
                     if (!mid) return;
 
-                    // On a SHARED list, a poster opens the member-reviews popup: pick
-                    // any member who has reviewed the movie to read their full review.
-                    if (isSharedList(listsActiveListId)) {
-                        openSharedListMovieModal(mid).catch((err) => showToast(`Open failed: ${String(err?.message || err)}`, { level: 'warn' }));
-                        return;
-                    }
-
-                    // On EVERY other list (Recs, Bucket List, custom lists), a poster opens
+                    // On EVERY list (Recs, Bucket List, custom AND shared), a poster opens
                     // the full Movie Spotlight modal directly (Details / Synopsis / Cast /
-                    // Where to Watch + the log/rate/list/recommend action footer) — no more
-                    // intermediate choice popup.
+                    // Where to Watch / User Reviews + the log/rate/list/recommend action
+                    // footer) — no more intermediate choice popup. On a shared list the
+                    // User Reviews tab picks up the other members' reviews too.
                     openListMovieSpotlight(mid);
                     return;
                 }

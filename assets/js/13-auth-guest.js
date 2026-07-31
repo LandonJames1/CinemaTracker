@@ -21,6 +21,9 @@
 
         /** Enter demo/guest mode — loads the demo user's data without auth. */
         function enterGuestMode() {
+            // Cached page copies belong to the previous identity — never restore one
+            // across a guest-mode switch.
+            try { router.clearPageCache(); router.invalidateSnapshots(); } catch (_) {}
             guestMode = true;
             cachedIsAuthed = true; // pretend authed so pages render
             cachedAuthUser = { id: DEMO_USER_ID, email: 'demo@cinematracker.app' };
@@ -53,6 +56,7 @@
 
         /** Exit guest mode and return to unauthenticated state. */
         function exitGuestMode() {
+            try { router.clearPageCache(); router.invalidateSnapshots(); } catch (_) {}
             guestMode = false;
             cachedIsAuthed = false;
             cachedAuthUser = null;

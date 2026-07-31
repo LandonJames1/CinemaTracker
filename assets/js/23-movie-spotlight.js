@@ -25,6 +25,7 @@
             token: 0,
             reviews: null,        // null = not loaded yet; [] = loaded, none found
             reviewsLoading: false,
+            sharedListId: null,   // set ONLY when opened from a SHARED list → its members' reviews join the User Reviews tab
             tasteScore: null,     // set ONLY when opened from the "You Might Like" home strip → drives the "% match" tile
         };
 
@@ -190,11 +191,13 @@
         }
 
         // ---- "User Reviews" tab -------------------------------------------------------
-        // Review cards for people the viewer FOLLOWS who have reviewed this movie. Mirrors
-        // the Feed card look/behavior (collapsed → tap to expand for sub-ratings/quote/notes)
-        // but WITHOUT the react + bucket-list buttons. Works no matter where the spotlight
-        // was opened from — it resolves the catalog movie id from the spotlight's movie
-        // (uuid id, or via tmdb_id), then reads the follows' Movie Ratings.
+        // Review cards for people the viewer FOLLOWS who have reviewed this movie — plus,
+        // when the spotlight was opened from a SHARED list, that list's MEMBERS (a co-owner
+        // isn't necessarily someone you follow, and their take is the whole point of a group
+        // list). Mirrors the Feed card look/behavior (collapsed → tap to expand for
+        // sub-ratings/quote/notes) but WITHOUT the react + bucket-list buttons. Works no
+        // matter where the spotlight was opened from — it resolves the catalog movie id from
+        // the spotlight's movie (uuid id, or via tmdb_id), then reads those users' Movie Ratings.
         async function loadSpotlightReviews(token) {
             movieSpotlightState.reviewsLoading = true;
             try {
@@ -207,11 +210,23 @@
                 if (token !== movieSpotlightState.token) return;
                 if (!movie_id) { finishSpotlightReviews(token, []); return; }
 
-                // People I follow (excluding myself).
+                // Whose reviews to show: people I follow + (on a shared list) its members,
+                // always excluding myself.
                 let followed = [];
                 try { await loadMyFollowingIds(); followed = Array.from(feedFollowingIds || []); } catch (_) {}
-                followed = followed.map(x => String(x || '').trim()).filter(x => x && x !== meId);
-                if (!followed.length) { finishSpotlightReviews(token, []); return; }
+
+                let memberIds = [];
+                const sharedListId = String(movieSpotlightState.sharedListId || '').trim();
+                if (sharedListId && typeof getSharedListMemberIds === 'function') {
+                    try { memberIds = await getSharedListMemberIds(sharedListId); } catch (_) {}
+                    if (token !== movieSpotlightState.token) return;
+                }
+                memberIds = Array.from(new Set(memberIds.map(x => String(x || '').trim())))
+                    .filter(x => x && x !== meId);
+
+                const reviewerIds = Array.from(new Set(followed.map(x => String(x || '').trim()).concat(memberIds)))
+                    .filter(x => x && x !== meId);
+                if (!reviewerIds.length) { finishSpotlightReviews(token, []); return; }
 
                 // Their reviews of this movie (only rows that actually carry a rating).
                 const cols = 'id, user_id, movie_id, overall_rating, tier, watch_date, fav_quote, notes, sound_rating, pacing_rating, imagery_rating, acting_rating, plot_rating, dialogue_rating';
@@ -219,12 +234,34 @@
                     .from('Movie Ratings')
                     .select(cols)
                     .eq('movie_id', movie_id)
-                    .in('user_id', followed);
+                    .in('user_id', reviewerIds);
                 if (rErr) throw rErr;
                 if (token !== movieSpotlightState.token) return;
 
-                const reviews = (Array.isArray(rrows) ? rrows : [])
-                    .filter(r => String(r?.overall_rating ?? '').trim() !== '' || dashNormalizeTierLabel(r?.tier));
+                const hasRating = (r) => String(r?.overall_rating ?? '').trim() !== '' || dashNormalizeTierLabel(r?.tier);
+                const reviews = (Array.isArray(rrows) ? rrows : []).filter(hasRating);
+
+                // Shared-list members aren't necessarily people the viewer follows, and
+                // "Movie Ratings" RLS only exposes own / followed / recommender rows — so
+                // any member the query above couldn't see is read through the owner-rights
+                // library view (the same source the old shared-list reviews popup used).
+                const seenUsers = new Set(reviews.map(r => String(r?.user_id || '').trim()));
+                const missingMembers = memberIds.filter(id => !seenUsers.has(id));
+                if (missingMembers.length) {
+                    try {
+                        const { data: vrows } = await supabaseClient
+                            .from(LIBRARY_ITEMS_VIEW)
+                            .select('user_id, movie_id, overall_rating, tier, latest_watch_date, fav_quote, notes, sound_rating, pacing_rating, imagery_rating, acting_rating, plot_rating, dialogue_rating')
+                            .eq('movie_id', movie_id)
+                            .in('user_id', missingMembers);
+                        if (token !== movieSpotlightState.token) return;
+                        for (const v of (Array.isArray(vrows) ? vrows : [])) {
+                            if (!hasRating(v)) continue;
+                            reviews.push({ ...v, watch_date: v?.latest_watch_date ?? null });
+                        }
+                    } catch (_) {}
+                }
+
                 if (!reviews.length) { finishSpotlightReviews(token, []); return; }
 
                 // Reviewer display info (username + icon).
@@ -278,7 +315,9 @@
         }
 
         // Standalone KPI at the top of the User Reviews tab: the combined AVERAGE overall
-        // rating across all of the viewer's follows who reviewed this movie.
+        // rating across everyone shown — the viewer's follows, plus the list members when
+        // the spotlight was opened from a shared list (which is why the sub-label drops the
+        // "you follow" qualifier in that case).
         function spotlightReviewsAvgHtml(reviews) {
             const nums = (Array.isArray(reviews) ? reviews : [])
                 .map(r => Number(r?.overall_rating))
@@ -286,12 +325,13 @@
             if (!nums.length) return '';
             const avg = Math.round(nums.reduce((a, b) => a + b, 0) / nums.length);
             const n = nums.length;
+            const who = movieSpotlightState.sharedListId ? '' : ' you follow';
             return `
                 <div class="ms-reviews-kpi">
                     <div class="ms-reviews-kpi-num">${avg}<span>%</span></div>
                     <div class="ms-reviews-kpi-meta">
                         <div class="ms-reviews-kpi-label">Avg overall rating</div>
-                        <div class="ms-reviews-kpi-sub">from ${n} ${n === 1 ? 'person' : 'people'} you follow</div>
+                        <div class="ms-reviews-kpi-sub">from ${n} ${n === 1 ? 'person' : 'people'}${who}</div>
                     </div>
                 </div>`;
         }
@@ -367,6 +407,9 @@
             movieSpotlightState.rated = false;
             movieSpotlightState.reviews = null;
             movieSpotlightState.reviewsLoading = false;
+            // Set ONLY by a poster tap on a SHARED list (openListMovieSpotlight) — makes the
+            // User Reviews tab include that list's members, not just the viewer's follows.
+            movieSpotlightState.sharedListId = String(movie?._sharedListId || '').trim() || null;
             // Only present when opened from the "You Might Like" home strip. Every
             // other opener (Search / Trending / Lists / Feed) passes no taste_score, so
             // the "% match" tile stays hidden there.
@@ -435,6 +478,7 @@
             if (overlay) { overlay.style.display = 'none'; overlay.classList.remove('open'); }
             movieSpotlightState.token++; // cancel any in-flight render/fetch callbacks
             movieSpotlightState.tasteScore = null; // don't leak the match tile into the next opener
+            movieSpotlightState.sharedListId = null; // nor the shared-list reviewer scope
         }
 
         async function refreshSpotlightRatedState(token) {
@@ -580,7 +624,9 @@
                     return `<div class="ms-loading"><div class="discover-spinner discover-spinner-sm"></div><span>Loading reviews…</span></div>`;
                 }
                 if (!reviews.length) {
-                    return `<p class="ms-empty">No reviews yet from people you follow.</p>`;
+                    return movieSpotlightState.sharedListId
+                        ? `<p class="ms-empty">No reviews yet from this list's members or people you follow.</p>`
+                        : `<p class="ms-empty">No reviews yet from people you follow.</p>`;
                 }
                 return `${spotlightReviewsAvgHtml(reviews)}<div class="ms-reviews-list">${reviews.map(spotlightReviewCardHtml).join('')}</div>`;
             }
@@ -612,8 +658,10 @@
         }
 
         // Builds the tab bar. The "User Reviews" tab is only included when at least one
-        // followed user has reviewed this movie (reviews eagerly loaded on open) — until
-        // then / when none, the button is omitted. Re-emitted by finishSpotlightReviews.
+        // relevant user — someone the viewer follows, or a member of the shared list the
+        // spotlight was opened from — has reviewed this movie (reviews eagerly loaded on
+        // open); until then / when none, the button is omitted. Re-emitted by
+        // finishSpotlightReviews.
         function spotlightTabsHtml(tab) {
             const reviews = movieSpotlightState.reviews;
             const showReviews = Array.isArray(reviews) && reviews.length > 0;

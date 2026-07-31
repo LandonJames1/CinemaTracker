@@ -48,6 +48,10 @@
             restoreSnapshot(snap) {
                 const root = document.getElementById('app-root');
                 if (!snap || !root) return false;
+                // Back is just another way to LEAVE the current page, and this path
+                // returns before navigate()'s own capture runs — so cache the outgoing
+                // page here too, or a page exited by swipe/OS-back would reload next time.
+                if (this.currentPage !== snap.page) this.pageCachePut(this.currentPage, this.formMode);
                 this.currentPage = snap.page;
                 this.formMode = snap.mode || 'new';
                 document.body.dataset.page = snap.page;
@@ -106,6 +110,152 @@
                     if (e?.snapshot && (!set || set.has(e.snapshot.page))) e.snapshot = null;
                 }
                 if (this.osBackSnapshot && (!set || set.has(this.osBackSnapshot.page))) this.osBackSnapshot = null;
+                // The forward-navigation page cache stores the same kind of copy, so a
+                // mutation that invalidates one has to invalidate the other.
+                for (const [key, entry] of this.pageCache) {
+                    if (!set || set.has(entry?.page)) this.pageCache.delete(key);
+                }
+            },
+
+            // ================= Page cache (FORWARD navigation) =====================
+            // The navStack snapshots above only answer "go BACK to where I was". This
+            // does the same for going FORWARD to a page you've already visited: leaving
+            // a cacheable page stores its rendered DOM + scroll keyed by page|mode, and
+            // navigating to it again restores that copy instead of re-rendering and
+            // re-running its loaders. So Lists → Games → Lists no longer refetches the
+            // lists (or flashes every poster) — it's the same DOM you left.
+            //
+            // Same three safety rules as the Back snapshots, for the same reasons:
+            //   • only pages whose listeners are DOCUMENT-DELEGATED and idempotent can be
+            //     restored (an element-bound listener does not survive innerHTML), which
+            //     is what `pageCachePages` encodes;
+            //   • anything with live state the DOM can't carry is excluded — `dashboard`
+            //     (canvas bitmaps don't survive serialization), `discover`/`games` (live
+            //     deck / timers), `submit` (a live form), `theme_creator`. `home` is out
+            //     too: its actions key off `router.selectedMovie`, which navigate() resets,
+            //     so a restored search dropdown would point at nothing;
+            //   • a restored copy must never be able to show pre-mutation data — see
+            //     invalidateSnapshots() above and the TTL below.
+            pageCache: new Map(),           // "page|mode" -> {page, mode, html, scrollY, ts}
+            pageCachePages: new Set(['feed', 'library', 'lists', 'account', 'leaderboard', 'settings']),
+            // Belt-and-braces against data that changed with no invalidation hook (someone
+            // else's new review, a rec that arrived): past this, the page re-renders.
+            pageCacheTtlMs: 5 * 60 * 1000,
+            // Each entry is a full page of HTML; cap how many we hold at once.
+            pageCacheMax: 6,
+
+            pageCacheKey(page, mode) {
+                return `${page}|${String(mode ?? 'new') || 'new'}`;
+            },
+
+            clearPageCache() { try { this.pageCache.clear(); } catch (_) {} },
+
+            // Store the page we're leaving. Skipped while it's still LOADING: a page
+            // captured mid-load would restore its skeletons forever, because the loader
+            // that was going to replace them resolves into a DOM we've since detached.
+            pageCachePut(page, mode) {
+                try {
+                    if (!this.pageCachePages.has(page)) return;
+                    const root = document.getElementById('app-root');
+                    if (!root || !root.innerHTML.trim()) return;
+                    if (root.querySelector('.skel, .skel-card, .skel-cover')) return;
+                    const key = this.pageCacheKey(page, mode);
+                    this.pageCache.delete(key);   // re-insert so the Map stays in LRU order
+                    this.pageCache.set(key, {
+                        page, mode,
+                        html: root.innerHTML,
+                        scrollY: window.scrollY || window.pageYOffset || 0,
+                        ts: Date.now(),
+                    });
+                    while (this.pageCache.size > this.pageCacheMax) {
+                        this.pageCache.delete(this.pageCache.keys().next().value);
+                    }
+                } catch (_) {}
+            },
+
+            // Consume the cached copy (single use — leaving the page writes a fresh one),
+            // so a stale entry can never outlive the visit it was made for.
+            pageCacheTake(page, mode) {
+                const key = this.pageCacheKey(page, mode);
+                const entry = this.pageCache.get(key);
+                if (!entry) return null;
+                this.pageCache.delete(key);
+                if (Date.now() - Number(entry.ts || 0) > this.pageCacheTtlMs) return null;
+                return entry;
+            },
+
+            // A pending deep link (a push notification opening one list / the To Rate tab)
+            // needs the page's real loader to run — restoring the last view would silently
+            // drop where the user was actually being sent.
+            pageCacheBlocked(page) {
+                try {
+                    if (page === 'lists' && (listsPendingSelectId || listsPendingSelectName)) return true;
+                    if (page === 'account' && accountHomePendingTab) return true;
+                } catch (_) {}
+                // Unread badge lit = activity arrived while we were away. Restoring a copy
+                // that predates it would hide the new items AND leave the badge lit (the
+                // "seen" marks are set by the loaders we'd be skipping), so load fresh.
+                if (page === 'feed' && this.navBadgeLit('nav-badge-feed')) return true;
+                if (page === 'lists' && this.navBadgeLit('nav-badge-lists')) return true;
+                return false;
+            },
+
+            navBadgeLit(id) {
+                const el = document.getElementById(id);
+                return Boolean(el && el.classList.contains('show'));
+            },
+
+            // Swap a cached page back in. Called from navigate() AFTER it has done all the
+            // page chrome (history, body[data-page], nav links, header title, enter
+            // animation), so this only has to restore the body + whatever innerHTML alone
+            // can't carry: delegated bindings, the infinite-scroll sentinel, the in-page
+            // Back step for a sub-state the restored DOM is sitting in, and scroll.
+            tryRestorePageCache(page, mode) {
+                if (!this.pageCachePages.has(page)) return false;
+                if (this.pageCacheBlocked(page)) return false;
+                const root = document.getElementById('app-root');
+                if (!root) return false;
+                const entry = this.pageCacheTake(page, mode);
+                if (!entry) return false;
+
+                root.innerHTML = entry.html;
+                try { refreshAuthStateAndUI(); } catch (_) {}
+                try { this.applyMobilePageTitle(page, { restoring: true }); } catch (_) {}
+
+                if (page === 'feed') {
+                    try { initFeedPage(); } catch (_) {}
+                } else if (page === 'library') {
+                    try { initLibraryPage(); } catch (_) {}
+                } else if (page === 'lists') {
+                    try { initListsPage(); } catch (_) {}
+                    // The FAB / desktop action buttons are toggled by inline styles that
+                    // the restored markup doesn't carry.
+                    try { updateListsFab(); } catch (_) {}
+                    // Restored INSIDE a list: re-register the Back step navigate() stripped
+                    // when we left, so a swipe-back returns to the overview, not off Lists.
+                    try {
+                        if (listsViewMode === 'detail' && listsActiveListId) {
+                            pushBackState('list:' + listsActiveListId, showListsOverview);
+                        }
+                    } catch (_) {}
+                } else if (page === 'account') {
+                    try { accountHomeViewUserId = (mode && mode !== 'new') ? mode : getActiveUserId(); } catch (_) {}
+                    try { initAccountHome(); } catch (_) {}
+                    try { initAccountPage(); } catch (_) {}
+                    try {
+                        if (accountHomeActiveTab && accountHomeActiveTab !== 'profile') {
+                            pushBackState('acct-tab:profile', () => setAccountHomeTab('profile', { fromBack: true }));
+                        }
+                    } catch (_) {}
+                } else if (page === 'settings') {
+                    try { initAccountPage(); } catch (_) {}
+                } else if (page === 'leaderboard') {
+                    try { initLeaderboardPage(); } catch (_) {}
+                }
+
+                try { reattachInfiniteScrollForPage(page); } catch (_) {}
+                try { window.scrollTo(0, Number(entry.scrollY) || 0); } catch (_) {}
+                return true;
             },
 
             // The mobile header bar's page name. Shared by navigate() and
@@ -249,6 +399,11 @@
                 if (prevPage === 'submit' && page !== 'submit') {
                     try { flushDiaryDraft(); } catch (_) {}
                 }
+                // Store the OUTGOING page so coming back to it later (by ANY route — nav
+                // link, tab bar, deep link) restores it instead of reloading. Independent
+                // of the Back stack's own snapshot, and independent of navMode: leaving a
+                // page is leaving a page.
+                if (page !== prevPage || mode !== prevMode) this.pageCachePut(prevPage, prevMode);
                 if (navMode === 'push' && page !== prevPage) {
                     // Drop any in-page sub-states belonging to the page we're leaving.
                     // Back should return to the PREVIOUS PAGE, not replay that page's
@@ -333,6 +488,11 @@
 
                 // Refresh unread-notification badges on every navigation.
                 try { refreshNavBadges(); } catch (_) {}
+
+                // Already visited this page? Put the exact DOM we left back on screen —
+                // no re-render, no loaders, no refetch. Everything above this line is page
+                // chrome that has to run either way; everything below is the fresh render.
+                if (this.tryRestorePageCache(page, mode)) return;
 
                 if (page === 'home') {
                     root.innerHTML = this.renderHome();

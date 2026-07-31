@@ -289,7 +289,14 @@
 
         // Keep auth UI synced with session changes.
         if (supabaseClient?.auth?.onAuthStateChange) {
-            supabaseClient.auth.onAuthStateChange(() => {
+            supabaseClient.auth.onAuthStateChange((event) => {
+                // Every cached page copy belongs to whoever was signed in when it was
+                // captured — a sign-in/out must never restore one. TOKEN_REFRESHED fires
+                // on a timer for the SAME user, so it's excluded (it would otherwise drop
+                // the cache mid-session for no reason).
+                if (String(event || '') !== 'TOKEN_REFRESHED') {
+                    try { router.clearPageCache(); router.invalidateSnapshots(); } catch (_) {}
+                }
                 refreshAuthStateAndUI();
                 loadThemeOptions().catch(() => null);
             });

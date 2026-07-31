@@ -666,18 +666,6 @@
         </div>
     </div>
 
-    <!-- Shared-list movie reviews: pick a member who has reviewed this movie to
-         read their full review. Opened by tapping a poster on a SHARED list. -->
-    <div id="shared-movie-overlay" class="auth-overlay" onclick="if(event.target === this) closeSharedListMovieModal();" style="display:none;">
-        <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="shared-movie-title" style="max-width: 480px;">
-            <div class="auth-modal-header">
-                <div class="auth-modal-title" id="shared-movie-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Movie</div>
-                <button class="auth-modal-close" type="button" onclick="closeSharedListMovieModal()">Close</button>
-            </div>
-            <div id="shared-movie-body" style="margin-top: 0.6rem;"></div>
-        </div>
-    </div>
-
     <!-- "Recommended by" list modal (Recs list "+" button) -->
     <div id="rec-by-overlay" class="auth-overlay" onclick="if(event.target === this) closeRecByModal();" style="display:none;">
         <div class="auth-modal" role="dialog" aria-modal="true" aria-labelledby="rec-by-title" style="max-width: 420px;">

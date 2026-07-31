@@ -765,6 +765,10 @@
                         showToast('Unfollowed.', { level: 'success' });
                     }
 
+                    // Who I follow drives the feed, the account follow counts and the
+                    // leaderboard, so no stored copy of those pages is valid any more.
+                    try { invalidatePageSnapshots(['feed', 'account', 'leaderboard']); } catch (_) {}
+
                     await loadMyFollowingIds();
                     await loadFeedFollowingList();
                     await loadFeedItems();
@@ -3426,6 +3430,9 @@
             }
             const prevLabel = btn ? btn.textContent : '';
             if (btn) { btn.disabled = true; btn.textContent = '…'; }
+            // Follow state drives the feed, the account follow counts and the leaderboard,
+            // so no stored copy of those pages survives this.
+            try { invalidatePageSnapshots(['feed', 'account', 'leaderboard']); } catch (_) {}
             try {
                 if (isFollowing) {
                     const { error } = await supabaseClient
