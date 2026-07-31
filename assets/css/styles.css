@@ -8058,6 +8058,16 @@
            Overview/Cast/Details tabs, and the Home action row. Surfaces are
            OPAQUE per the codebase convention (no see-through panels).
            ===================================================================== */
+        /* The spotlight is a BASE modal: "Add to List" / "Recommend" open their own
+           modal ON TOP of it and leave it open, so closing that modal returns you to
+           the spotlight (see movieSpotlightAction in 23-movie-spotlight.js). Every
+           shared .auth-overlay is z-index 200, which would leave stacking to DOM order
+           — and #rec-modal-overlay is declared BEFORE #movie-spotlight-overlay in
+           index.html, so it would render underneath. Sitting one layer down makes every
+           child modal stack above it while preserving their order among themselves.
+           Still well above the navbar (z-100/110/120) and the Lists FAB (z-120). */
+        #movie-spotlight-overlay { z-index: 190; }
+
         .movie-spotlight-modal {
             max-width: 760px;
             padding: 0 !important;          /* hero is full-bleed; sections pad themselves */
@@ -8626,7 +8636,11 @@
         }
 
         /* Play surface shell — centered column on all widths */
-        .games-play { margin: 4px auto 0; max-width: 680px; }
+        /* ONE knob for the whole play surface. Every game panel below reads the same
+           inherited var, so widening the working area is a single edit — don't
+           re-hardcode a pixel width in a child. (The old 680px cramped every game into
+           a narrow strip on desktop; this is +25%.) */
+        .games-play { --games-w: 850px; margin: 4px auto 0; max-width: var(--games-w); }
         .games-play-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
         .games-back {
             display: inline-flex; align-items: center; gap: 4px; background: #202024;
@@ -8635,9 +8649,16 @@
         }
         .games-back:hover { border-color: var(--brand, #14b8a6); }
         .games-back-caret { font-size: 1.1em; line-height: 1; }
+        /* Icon-only Back: a small square so the results hero can sit beside it in one
+           row instead of below a full-width "‹ All games" bar. */
+        .games-back-ico {
+            flex: 0 0 auto; justify-content: center; gap: 0; padding: 0;
+            width: 38px; height: 38px; border-radius: 11px; font-size: 1.05rem;
+        }
+        .games-back-ico .games-back-caret { font-size: 1.5rem; margin-top: -2px; }
 
         /* Guess box (spottle + poster) */
-        .games-guess { position: relative; margin-top: 16px; max-width: 680px; }
+        .games-guess { position: relative; margin-top: 16px; max-width: var(--games-w, 680px); }
         .games-guess-input {
             width: 100%; padding: 13px 42px 13px 16px; border-radius: 12px; background: #101826;
             border: 1px solid #24344a; color: #fff; font-size: 0.95rem;
@@ -8671,7 +8692,7 @@
         /* Spottle — top control bar: Hint · Guess N of M · Give Up */
         .spottle-topbar {
             display: flex; align-items: center; justify-content: space-between; gap: 12px;
-            max-width: 680px; margin: 4px 0 14px;
+            max-width: var(--games-w, 680px); margin: 4px 0 14px;
         }
         .spottle-topbtn {
             display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px;
@@ -8689,7 +8710,7 @@
         .spottle-counter { font-size: 0.95rem; font-weight: 600; color: #dbe5f0; text-align: center; }
         .spottle-counter-num { color: #f5a623; font-weight: 800; }
         .spottle-hint-reveal {
-            max-width: 680px; margin: -6px 0 12px; padding: 10px 14px; border-radius: 12px;
+            max-width: var(--games-w, 680px); margin: -6px 0 12px; padding: 10px 14px; border-radius: 12px;
             background: color-mix(in srgb, #f5a623 14%, #101826); border: 1px solid #4a3a1a;
             color: #fde68a; font-size: 0.9rem;
         }
@@ -8711,7 +8732,7 @@
         /* Spottle guess card (poster + details on top, people underneath) */
         .spottle-board { display: flex; flex-direction: column; gap: 14px; align-items: center; margin-top: 16px; }
         .spottle-guess-card {
-            display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 680px; padding: 16px;
+            display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: var(--games-w, 680px); padding: 16px;
             background: #0e1622; border: 1px solid #1e2a3a; border-radius: 16px;
         }
         .spottle-guess-card.is-correct { border-color: #22c55e; box-shadow: 0 0 0 1px #22c55e inset; }
@@ -8775,7 +8796,7 @@
         /* ============================================================
            Poster Blur — cinematic reveal + animated wrong-guess feed
            ============================================================ */
-        .poster-play { display: flex; flex-direction: column; align-items: center; max-width: 680px; margin: 0 auto; }
+        .poster-play { display: flex; flex-direction: column; align-items: center; max-width: var(--games-w, 680px); margin: 0 auto; }
         /* The guess box is a centered flex child here — force it full-width (it otherwise
            shrinks to its placeholder text). On mobile it also floats to the top (below). */
         .poster-play > .games-guess { width: 100%; }
@@ -8797,6 +8818,13 @@
             box-shadow: 0 22px 50px rgba(0,0,0,0.55);
         }
         .poster-frame.is-revealed { border-color: #22c55e; box-shadow: 0 0 0 2px #22c55e, 0 22px 50px rgba(0,0,0,0.55); animation: posterReveal 0.6s ease; }
+        /* Results "Guesses" tab: a small thumbnail frozen at the blur the player solved
+           at (see gamePosterSolveBlur). If this width changes, update
+           POSTER_THUMB_BLUR_SCALE in 25-games.js — the blur is scaled to match. */
+        .poster-frame.is-thumb {
+            width: 92px; max-width: 92px; border-radius: 12px;
+            box-shadow: 0 10px 24px rgba(0,0,0,0.5);
+        }
         @keyframes posterReveal { 0% { transform: scale(0.96); } 55% { transform: scale(1.02); } 100% { transform: scale(1); } }
         .poster-img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.06);
             transition: filter 0.7s cubic-bezier(0.22,1,0.36,1); }
@@ -8828,19 +8856,32 @@
         /* ============================================================
            Starring (cast reveal) — headshots reveal one per wrong guess
            ============================================================ */
-        .cast-play { display: flex; flex-direction: column; align-items: center; max-width: 680px; margin: 0 auto; }
+        .cast-play { display: flex; flex-direction: column; align-items: center; max-width: var(--games-w, 680px); margin: 0 auto; }
         .cast-play > .games-guess { width: 100%; }
         .cast-reveal-head {
             font-size: 0.82rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
             color: rgba(255,255,255,0.6); margin: 2px 0 14px;
         }
         .cast-grid {
-            /* Fixed-max columns (NOT 1fr) so a lone revealed face doesn't stretch to the
-               full container width — tiles stay a consistent size and the row centers. */
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 124px)); gap: 14px;
-            width: 100%; max-width: 560px; margin: 0 0 18px; justify-content: center;
+            /* ALWAYS 3-up, so the full 6-face reveal lands as 2 rows of 3 (not 3 of 2).
+               Flex + wrap rather than grid, deliberately:
+                 - `auto-fit` picks its repetition count from the track MAX (124px), so
+                   it can't shrink to keep 3 columns — on a phone (~374px available)
+                   3x124 + 2x14 = 400px overflows and it silently drops to 2 columns.
+                 - 3 explicit grid tracks would fix the count but left-align a partial
+                   reveal (a lone face would sit in column 1, not centered).
+               Flex basis pins 3 per row at any width while `justify-content: center`
+               keeps 1/2/4/5 revealed faces centered as they come in. Tiles shrink
+               below 124px on narrow screens instead of re-flowing. */
+            display: flex; flex-wrap: wrap; justify-content: center; gap: 14px;
+            width: 100%; max-width: 410px;  /* 3*124 + 2*14 = 400 — caps tiles at full size */
+            margin: 0 auto 18px;
         }
-        .cast-face { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+        .cast-face {
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
+            /* Three tiles + two 14px gaps == one full row. */
+            flex: 0 0 calc((100% - 28px) / 3); max-width: 124px;
+        }
         .cast-face.is-new { animation: castFaceIn 0.5s cubic-bezier(0.22,1,0.36,1); }
         @keyframes castFaceIn { 0% { opacity: 0; transform: translateY(-10px) scale(0.9); } 100% { opacity: 1; transform: none; } }
         .cast-face-photo {
@@ -8848,6 +8889,13 @@
             border: 1px solid rgba(255,255,255,0.09); box-shadow: 0 14px 30px rgba(0,0,0,0.45);
         }
         .cast-face.is-new .cast-face-photo { border-color: #2dd4bf; box-shadow: 0 0 0 2px #2dd4bf, 0 14px 30px rgba(0,0,0,0.45); }
+        /* Faces the player never needed (never revealed before their last guess) —
+           desaturated + faded on the results Guesses tab, so how few faces it took to
+           solve reads at a glance. */
+        .cast-face.is-unseen .cast-face-photo {
+            filter: grayscale(1) brightness(0.55); opacity: 0.45; box-shadow: none;
+        }
+        .cast-face.is-unseen .cast-face-name { color: rgba(255,255,255,0.35); font-weight: 500; }
         .cast-face-img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .cast-face-missing { display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.28); }
         .cast-face-missing svg { width: 46%; height: 46%; }
@@ -8972,6 +9020,7 @@
         .games-results--spottle { --g: #f59e0b; --g2: #f97316; }
         .games-results--rank    { --g: #8b5cf6; --g2: #6366f1; }
         .games-results--poster  { --g: #ec4899; --g2: #f43f5e; }
+        .games-results--cast    { --g: #14b8a6; --g2: #10b981; }
         @keyframes gamesResultsIn { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
         .games-results-hero {
             display: flex; flex-direction: column; align-items: center; gap: 6px;
@@ -9003,6 +9052,90 @@
         .games-results-hero.is-win .games-results-score-num { background: none; -webkit-text-fill-color: initial; color: #86efac; }
         .games-results-score-lbl { font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
             letter-spacing: 0.04em; color: rgba(255,255,255,0.6); }
+        /* ---- Unified closing frame (all four games) ---- */
+        /* Back button + hero share one row, so the whole screen shifts up a row. */
+        .games-results-top { display: flex; align-items: stretch; gap: 10px; }
+        .games-results-top .games-back-ico { height: auto; align-self: stretch; }
+        .games-results-top .games-results-hero { flex: 1 1 auto; min-width: 0; }
+        /* COMPACT hero: one row (icon | puzzle # + headline | score) instead of the
+           tall centered column, so the answer card and the tabs sit above the fold. */
+        .games-results-hero.is-compact {
+            flex-direction: row; align-items: center; text-align: left;
+            gap: 12px; padding: 13px 15px; border-radius: 16px;
+        }
+        .games-results-hero.is-compact .games-results-ico {
+            flex: 0 0 auto; width: 40px; height: 40px; margin-bottom: 0; border-radius: 12px;
+        }
+        .games-results-hero.is-compact .games-results-ico svg { width: 21px; height: 21px; }
+        .games-results-heroline { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .games-results-hero.is-compact .games-results-num { font-size: 1rem; line-height: 1.2; }
+        .games-results-hero.is-compact .games-results-headline { font-size: 0.8rem; line-height: 1.25; }
+        .games-results-hero.is-compact .games-results-score {
+            flex: 0 0 auto; margin-top: 0; gap: 4px; padding: 6px 12px;
+        }
+        .games-results-hero.is-compact .games-results-score-num { font-size: 1.1rem; }
+        .games-results-hero.is-compact .games-results-score-lbl { font-size: 0.62rem; }
+
+        /* "Today's answer" — tapping opens the full Movie Spotlight. */
+        .games-answer { display: flex; flex-direction: column; gap: 8px; }
+        .games-answer-head {
+            font-size: 0.75rem; font-weight: 800; text-transform: uppercase;
+            letter-spacing: 0.05em; color: rgba(255,255,255,0.5);
+        }
+        .games-answer-card {
+            display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+            padding: 10px; border-radius: 16px; background: #1d1d22; cursor: pointer;
+            border: 1px solid rgba(255,255,255,0.09);
+            transition: border-color 0.18s ease, transform 0.12s ease;
+        }
+        .games-answer-card:hover {
+            border-color: color-mix(in srgb, var(--g, var(--brand, #14b8a6)) 45%, rgba(255,255,255,0.09));
+        }
+        .games-answer-card:active { transform: scale(0.99); }
+        .games-answer-poster {
+            flex: 0 0 auto; display: block; width: 56px; aspect-ratio: 2/3;
+            object-fit: cover; border-radius: 10px; background: #16161a;
+        }
+        .games-answer-poster.is-missing { border: 1px solid rgba(255,255,255,0.08); }
+        .games-answer-info { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+        .games-answer-title { font-size: 1rem; font-weight: 800; color: #fff; line-height: 1.25; }
+        .games-answer-dir { font-size: 0.82rem; color: rgba(255,255,255,0.62); }
+        .games-answer-meta { display: flex; gap: 6px; margin-top: 2px; }
+        .games-answer-imdb {
+            font-size: 0.72rem; font-weight: 800; padding: 3px 8px; border-radius: 999px;
+            color: #f5c518; background: rgba(245,197,24,0.12);
+            border: 1px solid rgba(245,197,24,0.28);
+        }
+        .games-answer-caret {
+            flex: 0 0 auto; padding-right: 4px; font-size: 1.4rem; line-height: 1;
+            color: rgba(255,255,255,0.35);
+        }
+
+        /* Closing-frame tabs: Leaderboard (default) | Guesses */
+        .games-rtabs {
+            display: flex; gap: 6px; padding: 4px; border-radius: 14px;
+            background: #1d1d22; border: 1px solid rgba(255,255,255,0.09);
+        }
+        .games-rtab {
+            flex: 1 1 0; padding: 10px 12px; border: 0; border-radius: 10px;
+            background: transparent; color: rgba(255,255,255,0.62);
+            font-size: 0.9rem; font-weight: 800; cursor: pointer;
+            transition: background 0.18s ease, color 0.18s ease;
+        }
+        .games-rtab:hover { color: #ececee; }
+        .games-rtab.is-active {
+            color: #fff;
+            background: linear-gradient(135deg, var(--g, var(--brand, #14b8a6)), var(--g2, var(--brand-2, #6366f1)));
+            box-shadow: 0 6px 16px color-mix(in srgb, var(--g, var(--brand)) 34%, transparent);
+        }
+        .games-rpanel {
+            display: flex; flex-direction: column; gap: 18px;
+            animation: gamesResultsIn 0.3s cubic-bezier(0.22,1,0.36,1);
+        }
+        /* The Guesses panel reuses each game's own board markup, which brings its own
+           top margins — strip the leading one so it sits flush under the tabs. */
+        .games-rpanel > *:first-child { margin-top: 0; }
+
         /* results-page tweaks to the reused compare card */
         .games-results .games-compare { margin-top: 0; }
 
@@ -9018,8 +9151,93 @@
             letter-spacing: 0.02em; color: rgba(255,255,255,0.5); line-height: 1.2; }
         .games-stat.is-loading { opacity: 0.5; }
 
-        /* "Review your guesses" sits in the top head row, opposite "All games". */
-        .games-review-top { margin-left: auto; }
+        /* ---- Rank It: guess-vs-answer poster comparison (Guesses tab) ---- */
+        /* Two poster columns joined by connector lines. The columns deliberately use
+           per-cell padding rather than `gap` so every row is exactly 100/n of the
+           column height — that's what lets the SVG connectors be plain percentages
+           (see rankCompareHtml). Don't swap it back to `gap` or the lines will drift. */
+        /* The poster columns are FIXED at --rc-w and the posters fill them edge to
+           edge, so the flexible middle column starts exactly at the left poster's right
+           edge and ends at the right poster's left edge. That's what makes the
+           connectors physically TOUCH both posters — with `1fr` poster columns the
+           posters centred themselves and left dead space the lines never crossed. */
+        .rank-compare {
+            --rc-w: 64px;   /* poster column */
+            --rc-n: 22px;   /* position-number column */
+            display: flex; flex-direction: column; gap: 8px;
+            padding: 2px 14px;   /* keep the posters off the screen edge */
+        }
+        .rank-compare-heads,
+        .rank-compare-body {
+            display: grid; gap: 0;
+            grid-template-columns: var(--rc-n) var(--rc-w) 1fr var(--rc-w) var(--rc-n);
+        }
+        .rank-compare-heads { align-items: center; }
+        .rank-compare-head {
+            font-size: 0.68rem; font-weight: 800; text-transform: uppercase;
+            letter-spacing: 0.04em; color: rgba(255,255,255,0.5);
+            text-align: center; white-space: nowrap; overflow: visible;
+        }
+        /* Each head spans its number + poster columns. */
+        .rank-compare-head-l { grid-column: 1 / 3; }
+        .rank-compare-head-r { grid-column: 4 / 6; }
+        /* Numbers live in their OWN outer columns (not inside the poster cells) so the
+           posters stay flush against the connector gutter and the lines still touch.
+           Equal flex children match the poster rows exactly, since the grid stretches
+           this column to the same height and every poster row is identical. */
+        .rank-compare-nums { display: flex; flex-direction: column; }
+        .rank-compare-nums > span {
+            flex: 1 1 0; display: flex; align-items: center; justify-content: center;
+            font-size: 0.78rem; font-weight: 800; color: rgba(255,255,255,0.45);
+            font-variant-numeric: tabular-nums;
+        }
+        .rank-compare-col { display: flex; flex-direction: column; min-width: 0; }
+        .rank-compare-cell { padding: 5px 0; display: flex; align-items: center; }
+        .rank-compare-poster {
+            display: block; width: 100%; aspect-ratio: 2/3;
+            object-fit: cover; border-radius: 8px; background: #16161a;
+            border: 2px solid rgba(255,255,255,0.12);
+        }
+        .rank-compare-poster.is-correct { border-color: #22c55e; }
+        .rank-compare-links { position: relative; min-width: 0; }
+        .rank-compare-links svg {
+            width: 100%; height: 100%; display: block; overflow: visible;
+            filter: drop-shadow(0 0 3px rgba(0,0,0,0.55));
+        }
+        /* Bold + saturated: these lines ARE the read on this panel. Colored by how far
+           off the slot was — green exact, yellow one spot out, red further. */
+        /* linejoin:round keeps the curve joins crisp; the stroke is non-scaling (see the
+           JS) so it renders evenly despite the stretched SVG. */
+        .rank-link { stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+        .rank-link.is-exact { stroke: #22c55e; }
+        .rank-link.is-near  { stroke: #eab308; }
+        .rank-link.is-far   { stroke: #ef4444; }
+        /* Page-colored casing painted just under each line — a later line's casing cuts
+           a gap through earlier lines, so a crossing reads as one passing OVER the
+           other rather than two identical strokes merging. */
+        .rank-link-casing {
+            stroke: var(--bg-dark, #09090b); stroke-width: 9;
+            stroke-linecap: round; stroke-linejoin: round;
+        }
+        /* Hover (desktop) / tap (mobile) a poster to isolate that film's connector. */
+        .rank-compare-cell { cursor: pointer; }
+        .rank-compare .rank-link,
+        .rank-compare .rank-link-casing,
+        .rank-compare .rank-compare-poster,
+        .rank-compare .rank-compare-nums > span { transition: opacity 0.15s ease; }
+        .rank-compare.is-focusing .rank-link:not(.is-active),
+        .rank-compare.is-focusing .rank-link-casing:not(.is-active) { opacity: 0.09; }
+        .rank-compare.is-focusing .rank-compare-cell:not(.is-active) .rank-compare-poster { opacity: 0.22; }
+        .rank-compare.is-focusing .rank-link.is-active { stroke-width: 4.5; }
+        .rank-compare.is-focusing .rank-compare-cell.is-active .rank-compare-poster {
+            border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.18);
+        }
+        @media (max-width: 768px) {
+            .rank-compare { --rc-w: 48px; --rc-n: 18px; padding: 2px 10px; }
+            .rank-compare-head { font-size: 0.62rem; }
+            .rank-compare-nums > span { font-size: 0.72rem; }
+            .rank-link { stroke-width: 3; }
+        }
 
         /* "See full leaderboard" button under the top-3 preview */
         .games-seefull-btn {
@@ -9152,4 +9370,38 @@
             }
             .rank-moves { gap: 4px; }
             .rank-move { width: 30px; height: 24px; }
+        }
+
+        /* ============================================================
+           Games — DESKTOP scale-up
+           The play surface widened from 680px to 850px (--games-w), so the pieces
+           inside it scale to match; without this every game kept its old sizing and
+           just floated in more empty space. Scoped to >=769px so mobile is untouched.
+           ============================================================ */
+        @media (min-width: 769px) {
+            /* Guess autocomplete */
+            .games-guess-item img { width: 36px; height: 54px; }
+
+            /* Filmle guess cards */
+            .spottle-row { gap: 16px; padding: 20px; }
+            .spottle-guess-poster { width: 128px; flex: 0 0 128px; height: 192px; }
+            .spottle-person { width: 70px; }
+            .spottle-person-img { width: 58px; height: 58px; }
+            .spottle-studio-logo { max-height: 42px; }
+
+            /* Poster Blur. The full poster and the results thumbnail scale by the SAME
+               factor, so POSTER_THUMB_BLUR_SCALE in 25-games.js (92/216 == 115/270)
+               still reproduces the right blur — keep them proportional. */
+            .poster-frame { width: 270px; }
+            .poster-frame.is-thumb { width: 115px; max-width: 115px; }
+            .poster-guesses { max-width: 575px; }
+
+            /* Starring. 3*155 + 2*14 = 493, so the grid cap stays just above it and
+               the row still holds exactly three faces. */
+            .cast-grid { max-width: 500px; }
+            .cast-face { max-width: 155px; }
+
+            /* Rank It board */
+            .rank-poster { width: 58px; height: 87px; flex: 0 0 58px; }
+            .rank-title { font-size: 1.05rem; }
         }

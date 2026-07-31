@@ -476,12 +476,20 @@
                 </div>`;
         }
 
-        // The action buttons reuse the existing Home flow. Modal-opening actions close
-        // the spotlight first so they don't stack. The two that navigate to the log form
-        // (`new`/`update`) may still need a details/diary fetch, so they keep the
-        // spotlight OPEN with a spinner on the clicked button until the form is ready —
-        // closing first left the user staring at the old page with no feedback, which
-        // read as the app crashing.
+        // The action buttons reuse the existing Home flow.
+        //
+        // `list`/`recommend` keep the spotlight OPEN underneath their modal, so closing
+        // that modal (backdrop tap, swipe-dismiss, or a successful save) drops the user
+        // straight back onto the spotlight instead of the page behind it. They stack
+        // correctly because #movie-spotlight-overlay sits at a LOWER z-index than the
+        // shared .auth-overlay modals — see the rule in styles.css.
+        //
+        // The two that navigate to the log form (`new`/`update`) also keep the spotlight
+        // open, but only until the fetch resolves — they need a spinner on the clicked
+        // button, since closing first left the user staring at the old page with no
+        // feedback, which read as the app crashing.
+        //
+        // `later`/`quick` still close it outright: they finish the interaction.
         function movieSpotlightAction(kind, btnEl) {
             const movie = movieSpotlightState.movie;
             try { if (movie) { router.selectedMovie = movie; router.pendingTitle = movie?.title || ''; } } catch (_) {}
@@ -517,7 +525,7 @@
                 return;
             }
 
-            closeMovieSpotlight();
+            if (kind !== 'list' && kind !== 'recommend') closeMovieSpotlight();
             try {
                 if (kind === 'later') saveMovieForLater(movie);
                 else if (kind === 'quick') router.quickIncrement();

@@ -34,6 +34,7 @@
         let gameSearchTimer = null;     // debounce for the autocomplete
         let rankOrderIds = [];          // current rank ordering (tmdb_id[])
         let posterPrevBlur = null;      // last-rendered blur px, so a new guess ANIMATES the sharpen
+        let posterPendingBlur = null;   // blur px to transition TO once the board is in the DOM
 
         const GAME_META = {
             spottle: { title: 'Filmle', tag: 'Guess the movie', icon: 'search',
@@ -99,6 +100,14 @@
         const gamesFinishedView = { spottle: 'results', rank: 'results', poster: 'results', cast: 'results' };
         let gamesResultTimer = null;
 
+        // ALL FOUR games end on ONE unified closing frame (Back + compact hero row,
+        // the answer-movie card where there is one, then two tabs). This map holds
+        // which tab that frame is showing, per game — and doubles as the "is this a
+        // real game key" guard. Defaults to 'leaderboard': the board reveal has just
+        // shown the guesses, so the circle results are the more interesting landing.
+        // Reset per openGame.
+        const gamesResultsTab = { spottle: 'leaderboard', rank: 'leaderboard', poster: 'leaderboard', cast: 'leaderboard' };
+
         // ---- API helpers ---------------------------------------------------------
         async function gamesAuthToken() {
             try {
@@ -129,6 +138,7 @@
             // (their target elements don't exist elsewhere).
             document.addEventListener('click', gamesDelegatedClick);
             document.addEventListener('input', gamesDelegatedInput);
+            document.addEventListener('pointerover', rankComparePointerOver);
             // Hide the bottom tab bar while the guess box is focused. On iOS the fixed
             // bottom bar floats UP over the keyboard, on top of the guess dropdown — and a
             // z-index bump can't fix it because the dropdown is trapped in the .fade-in
@@ -209,13 +219,15 @@
             hub.hidden = true;
             play.hidden = false;
             setGamesMobileHeader((GAME_META[game] || {}).title || 'Games');
-            // Reset the shared hint/give-up state for a fresh play surface.
-            gameHintShown.spottle = 0; gameHintShown.poster = 0; gameHintShown.cast = 0;
+            // Hints you already revealed stay revealed (they cost a point) — restore
+            // them rather than resetting. Give-up arming is transient, so it resets.
+            restoreGameHintCounts();
             gameGiveUpArmed.spottle = false; gameGiveUpArmed.poster = false; gameGiveUpArmed.rank = false; gameGiveUpArmed.cast = false;
             if (gameGiveUpTimer) { clearTimeout(gameGiveUpTimer); gameGiveUpTimer = null; }
             // Opening a game (incl. an already-finished one from the hub) lands on the
             // results page; a fresh finish overrides this to flash the board first.
             gamesFinishedView[game] = 'results';
+            if (game in gamesResultsTab) gamesResultsTab[game] = 'leaderboard';
             if (gamesResultTimer) { clearTimeout(gamesResultTimer); gamesResultTimer = null; }
             if (game === 'spottle') renderSpottle();
             else if (game === 'rank') { rankOrderIds = []; renderRank(); }
@@ -235,15 +247,20 @@
             renderGamesHub();   // reflect any freshly-finished game on the cards
         }
 
-        function gamePlayHeadHtml(game) {
-            // No in-page game title — the top header bar shows the game name (set in
-            // openGame/closeGame via setGamesMobileHeader). Just the Back control here.
+        // Icon-only Back control. No in-page game title — the top header bar shows the
+        // game name (set in openGame/closeGame via setGamesMobileHeader) — and no
+        // "All games" label, so the button stays small and the results hero can sit
+        // beside it instead of below it.
+        function gameBackBtnHtml() {
             return `
-                <div class="games-play-head">
-                    <button class="games-back" type="button" data-game-back>
-                        <span class="games-back-caret">‹</span> All games
-                    </button>
-                </div>`;
+                <button class="games-back games-back-ico" type="button" data-game-back
+                        aria-label="All games" title="All games">
+                    <span class="games-back-caret">‹</span>
+                </button>`;
+        }
+
+        function gamePlayHeadHtml(game) {
+            return `<div class="games-play-head">${gameBackBtnHtml()}</div>`;
         }
 
         // Point the shared top header bar at the current game (or back to "Games" on
@@ -637,6 +654,249 @@
             ].join(''));
         }
 
+        // ---- Unified closing frame (spottle / poster / cast) ---------------------
+        // All three guess games end on ONE layout, so finishing any of them feels the
+        // same: a COMPACT hero, the answer-movie card, then two tabs — Leaderboard
+        // (circle results + lifetime stats) and Guesses (that game's own board). The
+        // only thing that differs per game is the Guesses panel's contents, which is
+        // inherent. Rank keeps its own single-column results page.
+
+        // The answer movie, above the tabs. Tapping it opens the full Movie Spotlight
+        // (details / cast / where to watch / log / add-to-list / recommend), so a
+        // puzzle ends on something explorable rather than just a score. Every field
+        // here already ships in the finished payload (gameAnswerLite in EdgeFunc), so
+        // rendering the card costs no fetch.
+        function gameAnswerCardHtml(game, d) {
+            const a = d?.answer || null;
+            const tmdb = Number(a?.tmdb_id);
+            if (!a || !Number.isFinite(tmdb) || tmdb <= 0) return '';
+            const url = gamesPosterUrl(a.poster_path, 'w185');
+            const poster = url
+                ? `<img class="games-answer-poster" src="${url}" alt="" draggable="false">`
+                : '<span class="games-answer-poster is-missing"></span>';
+            const year = a.release_year ? ` <span class="games-dim">(${a.release_year})</span>` : '';
+            const dir = a.director ? `<span class="games-answer-dir">${escapeHtml(a.director)}</span>` : '';
+            const imdb = Number(a.imdb_rating) > 0
+                ? `<span class="games-answer-meta"><span class="games-answer-imdb">IMDb ${Math.round(Number(a.imdb_rating))}%</span></span>`
+                : '';
+            return `
+                <div class="games-answer">
+                    <div class="games-answer-head">Today's answer</div>
+                    <button class="games-answer-card" type="button" data-game-answer="${game}">
+                        ${poster}
+                        <span class="games-answer-info">
+                            <span class="games-answer-title">${escapeHtml(a.title || 'Unknown')}${year}</span>
+                            ${dir}
+                            ${imdb}
+                        </span>
+                        <span class="games-answer-caret" aria-hidden="true">›</span>
+                    </button>
+                </div>`;
+        }
+
+        // Warm the spotlight's details cache so tapping the answer card opens with no
+        // spinner (same trick Home/Feed/Lists use on their posters).
+        function prefetchGameAnswerDetails(d) {
+            const tmdb = Number(d?.answer?.tmdb_id);
+            if (!Number.isFinite(tmdb) || tmdb <= 0) return;
+            try { if (typeof prefetchMovieDetails === 'function') prefetchMovieDetails(tmdb); } catch (_) {}
+        }
+
+        function openGameAnswerSpotlight(game) {
+            const a = gamesTodayData?.games?.[game]?.answer;
+            const tmdb = Number(a?.tmdb_id);
+            if (!Number.isFinite(tmdb) || tmdb <= 0) return;
+            if (typeof openMovieSpotlight !== 'function') return;
+            openMovieSpotlight({
+                tmdb_id: tmdb,
+                title: a.title || '',
+                year: a.release_year || null,
+                release_year: a.release_year || null,
+                poster_path: a.poster_path || null,
+                genres: Array.isArray(a.genres) ? a.genres : [],
+            });
+        }
+
+        // Rank's "Guesses" tab: two poster columns — the user's submitted order on the
+        // left, the correct order on the right — with a line joining each movie's two
+        // positions, so you can see at a glance which films moved and how far.
+        // POSTERS ONLY (no titles); correctness reads off the poster ring + line color.
+        //
+        // The connectors are pure percentage geometry inside one `preserveAspectRatio
+        // ="none"` SVG, so nothing has to be measured in JS and it stays correct at any
+        // width. That only works while every row is exactly 100/n of the column height,
+        // which is why the columns use per-cell padding instead of `gap` — a gap would
+        // make row centers (i*(h+g) + h/2) / (n*h + (n-1)*g), not (i + 0.5)/n.
+        function rankCompareHtml(d) {
+            const truth = Array.isArray(d?.result) ? d.result : [];
+            const n = truth.length;
+            if (!n) return '<div class="games-empty">No ranking to compare.</div>';
+
+            const byId = new Map(truth.map((m) => [Number(m.tmdb_id), m]));
+            const truthIndex = new Map(truth.map((m, i) => [Number(m.tmdb_id), i]));
+            const submitted = Array.isArray(d.submitted_order) ? d.submitted_order.map(Number) : [];
+            // A give-up records no submitted order — fall back to the true order so the
+            // panel still renders (every line then reads as "in place").
+            const mine = submitted.length
+                ? submitted.map((id) => byId.get(Number(id))).filter(Boolean)
+                : truth.slice();
+
+            // `rk` = the movie's LEFT row index, stamped on BOTH its posters and its
+            // connector. It's the key that lets hovering/tapping either poster isolate
+            // that one film's line (see setRankCompareFocus).
+            const rkOf = new Map(mine.map((m, i) => [Number(m.tmdb_id), i]));
+            const cell = (m, correct) => `
+                <div class="rank-compare-cell" data-rk="${rkOf.get(Number(m.tmdb_id))}">
+                    <img class="rank-compare-poster ${correct ? 'is-correct' : ''}"
+                         src="${gamesPosterUrl(m.poster_path, 'w185')}" alt="" draggable="false">
+                </div>`;
+
+            const leftCol = mine.map((m, i) => cell(m, truthIndex.get(Number(m.tmdb_id)) === i)).join('');
+            const rightCol = truth.map((m, i) => cell(m, Number(submitted[i]) === Number(m.tmdb_id))).join('');
+            // Position numbers, in their own outer columns so the posters stay flush
+            // against the connector gutter (see the CSS note).
+            const numsCol = Array.from({ length: n }, (_, i) => `<span>${i + 1}</span>`).join('');
+
+            const y = (i) => ((i + 0.5) * 100) / n;
+            const paths = mine.map((m, i) => {
+                const j = truthIndex.get(Number(m.tmdb_id));
+                if (j == null) return '';
+                const y1 = y(i).toFixed(3), y2 = y(j).toFixed(3);
+                // Each connector runs HORIZONTALLY out of its left poster, then eases
+                // through one S-curve into the right poster's row (down if the film
+                // belongs lower, up if it belongs higher) and runs flat again. Both
+                // control points sit at `mid`, so the curve leaves and arrives level
+                // with each poster and the bend is centred on `mid`.
+                //
+                // ⚠️ `mid` is STAGGERED by the left row index. If every connector bent
+                // at the same x, each swapped pair would cross at exactly x=50 and the
+                // whole fan would pile through one mid-gutter point — the thing that
+                // made them impossible to follow. Staggering moves those crossings
+                // apart and lets each curve be traced back to its own poster.
+                //
+                // ⚠️ The bands (mid ∓ half) must OVERLAP between adjacent rows. Fully
+                // separated bands make a swapped pair finish its descent before the
+                // other starts climbing, so the two run COLLINEAR along the shared row
+                // for a stretch instead of crossing — they'd look like one line.
+                const t = n > 1 ? i / (n - 1) : 0.5;
+                const mid = 24 + t * 52;                        // bend centre: 24 → 76
+                const half = 16;
+                const s = Math.max(3, mid - half).toFixed(2);   // leave the left poster
+                const e = Math.min(97, mid + half).toFixed(2);  // settle into the right row
+                const mx = mid.toFixed(2);   // NOT `m` — that's the movie in the outer map()
+                const d3 = (y1 === y2)
+                    ? `M 0,${y1} L 100,${y2}`                   // already in place: one straight run
+                    : `M 0,${y1} L ${s},${y1} C ${mx},${y1} ${mx},${y2} ${e},${y2} L 100,${y2}`;
+                // How far off the slot was: exact = green, one spot out = yellow,
+                // further = red.
+                const off = Math.abs(j - i);
+                const cls = off === 0 ? 'is-exact' : (off === 1 ? 'is-near' : 'is-far');
+                // Each connector is drawn TWICE: a wide page-colored "casing" first,
+                // then the colored stroke. Because they're emitted per line and painted
+                // in order, a later line's casing punches a clean gap through every
+                // earlier line it crosses — so a crossing reads as one line passing OVER
+                // the other instead of two identical strokes merging into an X. Without
+                // this there is nothing at a crossing to tell the two lines apart.
+                // vector-effect keeps both strokes even despite the non-uniform scale.
+                return `<path class="rank-link-casing" data-rk="${i}" fill="none"
+                              vector-effect="non-scaling-stroke" d="${d3}"></path>
+                        <path class="rank-link ${cls}" data-rk="${i}" fill="none"
+                              vector-effect="non-scaling-stroke" d="${d3}"></path>`;
+            }).join('');
+
+            return `
+                <div class="rank-compare">
+                    <div class="rank-compare-heads">
+                        <span class="rank-compare-head rank-compare-head-l">Yours</span>
+                        <span></span>
+                        <span class="rank-compare-head rank-compare-head-r">Answer</span>
+                    </div>
+                    <div class="rank-compare-body">
+                        <div class="rank-compare-nums">${numsCol}</div>
+                        <div class="rank-compare-col">${leftCol}</div>
+                        <div class="rank-compare-links">
+                            <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${paths}</svg>
+                        </div>
+                        <div class="rank-compare-col">${rightCol}</div>
+                        <div class="rank-compare-nums">${numsCol}</div>
+                    </div>
+                </div>`;
+        }
+
+        // Isolate ONE film's connector: hover a poster on desktop, tap one on mobile.
+        // Crossings are unavoidable (they're a permutation), and a casing only tells you
+        // which line is on top — this is what actually lets you follow a single film
+        // across a busy board. Pass null to clear.
+        function setRankCompareFocus(rk) {
+            const wrap = document.querySelector('#games-play .rank-compare');
+            if (!wrap) return;
+            const key = (rk === null || rk === undefined) ? null : String(rk);
+            if (wrap.dataset.rkActive === (key || '')) return;   // no-op: same target
+            wrap.dataset.rkActive = key || '';
+            wrap.classList.toggle('is-focusing', !!key);
+            wrap.querySelectorAll('[data-rk]').forEach((el) => {
+                el.classList.toggle('is-active', !!key && el.getAttribute('data-rk') === key);
+            });
+        }
+
+        // Bound once from initGamesPage. Mouse only — on touch, `pointerover` fires just
+        // before `click`, so letting it through would focus the row and then the click
+        // handler would immediately toggle it back off.
+        function rankComparePointerOver(e) {
+            if (e.pointerType === 'touch') return;
+            const t = e.target;
+            if (!t || !t.closest) return;
+            if (!t.closest('#games-play .rank-compare')) { setRankCompareFocus(null); return; }
+            const hit = t.closest('[data-rk]');
+            setRankCompareFocus(hit ? hit.getAttribute('data-rk') : null);
+        }
+
+        // The board body for a finished game's "Guesses" tab.
+        function gameGuessesBoardHtml(game, d) {
+            if (game === 'spottle') return spottleBoardHtml(d, true);
+            if (game === 'poster') return posterBoardHtml(d, true);
+            if (game === 'cast') return castBoardHtml(d, true);
+            if (game === 'rank') return rankCompareHtml(d);
+            return '';
+        }
+
+        function gameResultsPanelHtml(game, d) {
+            if (gamesResultsTab[game] === 'guesses') return gameGuessesBoardHtml(game, d);
+            const meta = GAME_META[game] || {};
+            return `
+                ${gamesCompareSlotHtml(game)}
+                <div class="games-stats-card">
+                    <div class="games-stats-head">Your ${escapeHtml(meta.title || 'game')} stats</div>
+                    <div id="games-stats" class="games-stats-grid" data-stats-game="${game}">${gamesStatsLoadingHtml()}</div>
+                </div>`;
+        }
+
+        // Kick whatever the freshly-painted panel needs (async loads / animations).
+        function afterGameResultsPanel(game) {
+            if (gamesResultsTab[game] === 'guesses') {
+                if (game === 'poster') applyPosterBlurTransition();
+                return;
+            }
+            loadGameDayLeaderboard(game);
+            loadGameLifetimeStats(game);
+        }
+
+        function setGameResultsTab(game, tab) {
+            if (!(game in gamesResultsTab)) return;
+            const d = gamesTodayData?.games?.[game];
+            if (!d || !d.done) return;
+            gamesResultsTab[game] = (tab === 'guesses') ? 'guesses' : 'leaderboard';
+            const panel = document.getElementById('games-rpanel');
+            if (!panel) { renderGameResults(game); return; }
+            // Repaint ONLY the panel + the tab active states, so switching tabs doesn't
+            // replay the frame's entrance animation or jump the scroll position.
+            panel.innerHTML = gameResultsPanelHtml(game, d);
+            document.querySelectorAll('#games-play [data-game-rtab]').forEach((b) => {
+                b.classList.toggle('is-active', b.getAttribute('data-game-rtab') === gamesResultsTab[game]);
+            });
+            afterGameResultsPanel(game);
+        }
+
         function renderGameResults(game) {
             const play = document.getElementById('games-play');
             const d = gamesTodayData?.games?.[game];
@@ -647,33 +907,37 @@
             const numLabel = num ? `${escapeHtml(meta.title || 'Game')} #${num}` : escapeHtml(meta.title || 'Game');
             const win = !!d.solved;
             const score = Math.max(0, Number(d.score) || 0);
+
+            const tab = gamesResultsTab[game] === 'guesses' ? 'guesses' : 'leaderboard';
+            // The Back control sits INSIDE the hero row (not on its own line above it),
+            // so the whole screen shifts up by one row.
             play.innerHTML = `
-                <div class="games-play-head">
-                    <button class="games-back" type="button" data-game-back>
-                        <span class="games-back-caret">‹</span> All games
-                    </button>
-                    <button class="games-back games-review-top" type="button" data-game-review="${game}">
-                        Review your guesses <span class="games-back-caret">›</span>
-                    </button>
-                </div>
                 <div class="games-results games-results--${game}">
-                    <div class="games-results-hero ${win ? 'is-win' : ''}">
-                        <span class="games-results-ico">${gameIconHtml(game)}</span>
-                        <span class="games-results-num">${numLabel}</span>
-                        <span class="games-results-headline">${escapeHtml(gameResultHeadline(game, d))}</span>
-                        <span class="games-results-score">
-                            <span class="games-results-score-num">+${score}</span>
-                            <span class="games-results-score-lbl">points today</span>
-                        </span>
+                    <div class="games-results-top">
+                        ${gameBackBtnHtml()}
+                        <div class="games-results-hero is-compact ${win ? 'is-win' : ''}">
+                            <span class="games-results-ico">${gameIconHtml(game)}</span>
+                            <span class="games-results-heroline">
+                                <span class="games-results-num">${numLabel}</span>
+                                <span class="games-results-headline">${escapeHtml(gameResultHeadline(game, d))}</span>
+                            </span>
+                            <span class="games-results-score">
+                                <span class="games-results-score-num">+${score}</span>
+                                <span class="games-results-score-lbl">pts</span>
+                            </span>
+                        </div>
                     </div>
-                    ${gamesCompareSlotHtml(game)}
-                    <div class="games-stats-card">
-                        <div class="games-stats-head">Your ${escapeHtml(meta.title || 'game')} stats</div>
-                        <div id="games-stats" class="games-stats-grid" data-stats-game="${game}">${gamesStatsLoadingHtml()}</div>
+                    ${gameAnswerCardHtml(game, d)}
+                    <div class="games-rtabs" role="tablist">
+                        <button class="games-rtab ${tab === 'leaderboard' ? 'is-active' : ''}" type="button" role="tab"
+                                data-game-rtab="leaderboard" data-rtab-game="${game}">Leaderboard</button>
+                        <button class="games-rtab ${tab === 'guesses' ? 'is-active' : ''}" type="button" role="tab"
+                                data-game-rtab="guesses" data-rtab-game="${game}">${game === 'rank' ? 'Guess' : 'Guesses'}</button>
                     </div>
+                    <div id="games-rpanel" class="games-rpanel">${gameResultsPanelHtml(game, d)}</div>
                 </div>`;
-            loadGameDayLeaderboard(game);
-            loadGameLifetimeStats(game);
+            afterGameResultsPanel(game);
+            prefetchGameAnswerDetails(d);
         }
 
         // ---- Spottle -------------------------------------------------------------
@@ -686,6 +950,46 @@
         // How many progressive hint tiers the player has chosen to reveal, per game.
         // (Hints unlock by guess count server-side; this counts the ones they've opened.)
         const gameHintShown = { spottle: 0, poster: 0, cast: 0 };
+
+        // Revealed hints PERSIST across leaving and reopening a game — you already paid
+        // a point for them, so re-clicking to get them back is pure friction. Stored per
+        // puzzle DAY, and a stored day that isn't today is ignored (and overwritten on
+        // the next reveal), so the counts reset themselves when the puzzle rolls over.
+        const GAME_HINTS_KEY = 'ct_game_hints_v1';
+
+        function readGameHintCounts() {
+            try {
+                const day = gamesTodayData?.date || '';
+                if (!day) return null;
+                const obj = JSON.parse(localStorage.getItem(GAME_HINTS_KEY) || 'null');
+                if (!obj || obj.date !== day || !obj.shown || typeof obj.shown !== 'object') return null;
+                return obj.shown;
+            } catch (_) { return null; }
+        }
+
+        function writeGameHintCounts() {
+            try {
+                const day = gamesTodayData?.date || '';
+                if (!day) return;
+                localStorage.setItem(GAME_HINTS_KEY, JSON.stringify({
+                    date: day,
+                    shown: {
+                        spottle: Number(gameHintShown.spottle) || 0,
+                        poster: Number(gameHintShown.poster) || 0,
+                        cast: Number(gameHintShown.cast) || 0,
+                    },
+                }));
+            } catch (_) {}
+        }
+
+        // Seed the in-memory counts for a fresh play surface. `gameHintsHtml` clamps to
+        // the number of currently-unlocked tiers, so a stale/high stored count is safe.
+        function restoreGameHintCounts() {
+            const saved = readGameHintCounts() || {};
+            gameHintShown.spottle = Number(saved.spottle) || 0;
+            gameHintShown.poster = Number(saved.poster) || 0;
+            gameHintShown.cast = Number(saved.cast) || 0;
+        }
         const gameGiveUpArmed = { spottle: false, poster: false, rank: false, cast: false };  // two-tap arm
         let gameGiveUpTimer = null;
         // (Rank has no hint — ordering the films IS the puzzle — so it has no hint state.)
@@ -841,23 +1145,30 @@
             else if (game === 'cast') renderCast();
         }
 
+        // The guess-board body, WITHOUT the page head. Shared by three callers: the
+        // live play surface, the post-finish reveal flash, and the "Guesses" tab of
+        // the unified closing frame. `inResults` drops the reveal banner + the
+        // "See results" button — those belong to the flash, not the tab.
+        function spottleBoardHtml(d, inResults) {
+            const realGuesses = (d.guesses || []).filter((g) => g && !g.gave_up);
+            // Newest guess on top, right under the search bar.
+            const rows = realGuesses.slice().reverse().map(spottleRowHtml).join('');
+            const board = rows || '<div class="games-empty">Make your first guess to see how close you are.</div>';
+            const head = d.done
+                ? (inResults ? '' : `${gameResultBanner('spottle', d)}${gameSeeResultsBtnHtml('spottle')}`)
+                : `${guessTopbarHtml('spottle', d)}${gameHintsHtml('spottle', d)}${gameGuessInputHtml('spottle')}`;
+            return `${head}<div class="spottle-board">${board}</div>`;
+        }
+
         function renderSpottle() {
             const play = document.getElementById('games-play');
             const d = gamesTodayData?.games?.spottle;
             if (!play) return;
             if (!d) { play.innerHTML = gamePlayHeadHtml('spottle') + '<div class="games-error">No puzzle available today.</div>'; return; }
             if (d.done && gamesFinishedView.spottle === 'results') { renderGameResults('spottle'); return; }
-            const realGuesses = (d.guesses || []).filter((g) => g && !g.gave_up);
-            // Newest guess on top, right under the search bar.
-            const rows = realGuesses.slice().reverse().map(spottleRowHtml).join('');
-            const board = rows || '<div class="games-empty">Make your first guess to see how close you are.</div>';
-            const footer = d.done
-                ? `${gameResultBanner('spottle', d)}${gameSeeResultsBtnHtml('spottle')}`
-                : `${guessTopbarHtml('spottle', d)}${gameHintsHtml('spottle', d)}${gameGuessInputHtml('spottle')}`;
             play.innerHTML = `
                 ${gamePlayHeadHtml('spottle')}
-                ${footer}
-                <div class="spottle-board">${board}</div>`;
+                ${spottleBoardHtml(d, false)}`;
         }
 
         // Reveal the NEXT progressive hint tier for a guess game (spottle/poster).
@@ -870,6 +1181,7 @@
             const cur = gameHintShown[game] || 0;
             if (cur >= unlocked.length) return;   // nothing new to reveal
             gameHintShown[game] = cur + 1;
+            writeGameHintCounts();   // survive leaving + reopening the game
             rerenderGuessGame(game);
         }
 
@@ -908,23 +1220,57 @@
         }
 
         // ---- Poster --------------------------------------------------------------
-        function renderPoster() {
-            const play = document.getElementById('games-play');
-            const d = gamesTodayData?.games?.poster;
-            if (!play) return;
-            if (!d) { play.innerHTML = gamePlayHeadHtml('poster') + '<div class="games-error">No puzzle available today.</div>'; return; }
-            if (d.done && gamesFinishedView.poster === 'results') { renderGameResults('poster'); return; }
+        // ⚠️ MUST MIRROR `GAME_POSTER_BLUR_STEPS` in EdgeFunc — the server indexes this
+        // same list by `attempts` to decide how blurred the live poster is. It's only
+        // duplicated here to reconstruct the blur level a FINISHED game was solved at,
+        // which the server has no reason to send back (`d.blur` is 0 once done).
+        const GAME_POSTER_BLUR_STEPS = [50, 33, 24, 17, 12, 7];
+
+        // The results thumbnail's width as a fraction of the full board poster
+        // (.poster-frame.is-thumb 92px / .poster-frame 216px in styles.css). Blur radius
+        // is an absolute px length, so it does NOT shrink with the image — replaying a
+        // 50px blur on a 92px thumb is uniform grey mush. Scaling by the same factor
+        // reproduces how blurred the poster LOOKED, which is the point of showing it.
+        // Keep in sync if either width changes.
+        const POSTER_THUMB_BLUR_SCALE = 92 / 216;
+
+        // How blurred the poster still was at the moment the player named it: they made
+        // guess N with `attempts` sitting at N-1, so that guess saw steps[N-1].
+        function gamePosterSolveBlur(d) {
+            const steps = GAME_POSTER_BLUR_STEPS;
+            if (!steps.length) return 0;
+            const i = Math.max(0, Math.min((Number(d?.attempts) || 1) - 1, steps.length - 1));
+            return Math.round(steps[i] * POSTER_THUMB_BLUR_SCALE * 10) / 10;
+        }
+
+        // Board body only (no page head) — see spottleBoardHtml for why this is split
+        // out. The blur→sharp transition can't run until the markup is in the DOM, so
+        // the target is stashed here and applied by applyPosterBlurTransition().
+        function posterBoardHtml(d, inResults) {
             const url = gamesPosterUrl(d.poster_path, 'w500');
             const max = d.max_guesses || 6;
             const attempts = d.attempts || 0;
             const left = Math.max(0, max - attempts);
             const guesses = Array.isArray(d.guesses) ? d.guesses : [];
 
-            // Sharpen ANIMATION: render at the previously-shown blur, then transition to
-            // the new (lower) blur one frame later so the CSS `filter` transition runs.
-            const targetBlur = d.done ? 0 : Number(d.blur) || 0;
-            const startBlur = (posterPrevBlur == null) ? targetBlur : posterPrevBlur;
-            posterPrevBlur = targetBlur;
+            // In the results Guesses tab the poster is a small thumbnail. If the player
+            // SOLVED it, freeze it at the blur it still had when they named it — that's
+            // the record of how well they did, where a clean poster says nothing. If
+            // they did NOT solve it, blur records nothing worth keeping, so just reveal
+            // the poster fully. Everywhere else it's the live board: render at the
+            // previously-shown blur, then transition to the new (lower) one a frame
+            // later so the CSS `filter` transition runs.
+            const targetBlur = inResults
+                ? (d.solved ? gamePosterSolveBlur(d) : 0)
+                : (d.done ? 0 : Number(d.blur) || 0);
+            let startBlur = targetBlur;
+            if (!inResults) {
+                // Only the live board drives the sharpen animation — the results tab
+                // must not touch this state or it would desync the board's next render.
+                startBlur = (posterPrevBlur == null) ? targetBlur : posterPrevBlur;
+                posterPrevBlur = targetBlur;
+                posterPendingBlur = (url && startBlur !== targetBlur) ? targetBlur : null;
+            }
 
             // One pip per guess slot — filled red as guesses are spent (green if solved).
             const pips = Array.from({ length: max }, (_, i) => {
@@ -933,10 +1279,13 @@
                 return `<span class="poster-pip ${cls}"></span>`;
             }).join('');
 
-            // Wrong/right guess feed, newest on top; the newest animates in (+ shakes if wrong).
+            // Wrong/right guess feed, newest on top. On the LIVE board the newest row
+            // animates in (+ shakes if wrong) — but in the results Guesses tab nothing
+            // is "new", so re-opening a finished game doesn't replay the shake on every
+            // single view.
             const rows = guesses.slice().reverse().map((g, ri) => {
                 const correct = !!g.correct;
-                const isNew = ri === 0;
+                const isNew = !inResults && ri === 0;
                 return `
                     <div class="poster-guess-row ${correct ? 'is-correct' : 'is-wrong'} ${isNew ? 'is-new' : ''}">
                         <span class="poster-guess-mark">${correct ? '✓' : '✕'}</span>
@@ -947,10 +1296,9 @@
 
             const topbar = d.done ? '' : `${guessTopbarHtml('poster', d)}${gameHintsHtml('poster', d)}`;
             const footer = d.done
-                ? `${gameResultBanner('poster', d)}${gameSeeResultsBtnHtml('poster')}`
+                ? (inResults ? '' : `${gameResultBanner('poster', d)}${gameSeeResultsBtnHtml('poster')}`)
                 : gameGuessInputHtml('poster', left);
-            play.innerHTML = `
-                ${gamePlayHeadHtml('poster')}
+            return `
                 ${topbar}
                 <div class="poster-play">
                     <div class="poster-progress">
@@ -958,7 +1306,7 @@
                         ${d.done ? '' : `<div class="poster-left-label">${left} ${left === 1 ? 'guess' : 'guesses'} left</div>`}
                     </div>
                     <div class="poster-stage">
-                        <div class="poster-frame ${d.done ? 'is-revealed' : ''}">
+                        <div class="poster-frame ${(d.done && !inResults) ? 'is-revealed' : ''} ${inResults ? 'is-thumb' : ''}">
                             ${url
                                 ? `<img class="poster-img" style="filter: blur(${startBlur}px);" src="${url}" alt="Mystery movie poster">`
                                 : '<div class="poster-missing">No image</div>'}
@@ -967,13 +1315,30 @@
                     ${footer}
                     ${rows ? `<div class="poster-guesses">${rows}</div>` : ''}
                 </div>`;
+        }
 
-            if (url && startBlur !== targetBlur) {
-                requestAnimationFrame(() => {
-                    const img = play.querySelector('.poster-img');
-                    if (img) img.style.filter = `blur(${targetBlur}px)`;
-                });
-            }
+        // Kick the blur→sharp CSS transition one frame after the poster board lands in
+        // the DOM. No-op unless posterBoardHtml staged a change.
+        function applyPosterBlurTransition() {
+            if (posterPendingBlur == null) return;
+            const target = posterPendingBlur;
+            posterPendingBlur = null;
+            requestAnimationFrame(() => {
+                const img = document.querySelector('#games-play .poster-img');
+                if (img) img.style.filter = `blur(${target}px)`;
+            });
+        }
+
+        function renderPoster() {
+            const play = document.getElementById('games-play');
+            const d = gamesTodayData?.games?.poster;
+            if (!play) return;
+            if (!d) { play.innerHTML = gamePlayHeadHtml('poster') + '<div class="games-error">No puzzle available today.</div>'; return; }
+            if (d.done && gamesFinishedView.poster === 'results') { renderGameResults('poster'); return; }
+            play.innerHTML = `
+                ${gamePlayHeadHtml('poster')}
+                ${posterBoardHtml(d, false)}`;
+            applyPosterBlurTransition();
         }
 
         // ---- Cast ("Starring") ---------------------------------------------------
@@ -984,25 +1349,30 @@
         // (all six once done).
         const CAST_SILHOUETTE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
 
-        function castFaceHtml(c, isNew) {
+        function castFaceHtml(c, isNew, isUnseen) {
             const url = gamesPosterUrl(c && c.profile_path, 'w185');
             const name = escapeHtml((c && c.name) || '');
             const img = url
                 ? `<img class="cast-face-img" src="${url}" alt="" draggable="false">`
                 : `<div class="cast-face-img cast-face-missing">${CAST_SILHOUETTE}</div>`;
             return `
-                <div class="cast-face ${isNew ? 'is-new' : ''}">
+                <div class="cast-face ${isNew ? 'is-new' : ''} ${isUnseen ? 'is-unseen' : ''}">
                     <div class="cast-face-photo">${img}</div>
                     <div class="cast-face-name">${name}</div>
                 </div>`;
         }
 
-        function renderCast() {
-            const play = document.getElementById('games-play');
-            const d = gamesTodayData?.games?.cast;
-            if (!play) return;
-            if (!d) { play.innerHTML = gamePlayHeadHtml('cast') + '<div class="games-error">No puzzle available today.</div>'; return; }
-            if (d.done && gamesFinishedView.cast === 'results') { renderGameResults('cast'); return; }
+        // How many of the six faces the player had actually SEEN when they made their
+        // last guess. The server reveals `attempts + 1` faces (gameCastReveal), so
+        // before guess N they were looking at N — i.e. `attempts` faces at the moment
+        // of the guess that ended the game. Used to dim the ones they never needed.
+        function castSeenCount(d, total) {
+            const n = Math.max(1, Number(d?.attempts) || 1);
+            return Math.max(1, Math.min(total, n));
+        }
+
+        // Board body only (no page head) — see spottleBoardHtml.
+        function castBoardHtml(d, inResults) {
             const max = d.max_guesses || 6;
             const attempts = d.attempts || 0;
             const left = Math.max(0, max - attempts);
@@ -1018,14 +1388,30 @@
 
             // The server prepends each newly-revealed face at index 0, so it glows in
             // on a fresh guess. Once done the whole cast shows (no glow).
+            //
+            // In the results Guesses tab, DIM the faces the player never needed. The
+            // reveal walks UP the billing order (least-billed first, lead last), and
+            // the done payload is the full list in billing order — so the ones they
+            // actually saw are the LAST `castSeenCount` entries, and anything before
+            // that index was never on screen while they were guessing.
+            const unseenBefore = (inResults && d.done)
+                ? revealed.length - castSeenCount(d, revealed.length)
+                : 0;
             const faces = revealed.length
-                ? revealed.map((c, i) => castFaceHtml(c, !d.done && attempts > 0 && i === 0)).join('')
+                ? revealed.map((c, i) => castFaceHtml(
+                    c,
+                    !d.done && attempts > 0 && i === 0,
+                    i < unseenBefore,
+                  )).join('')
                 : '<div class="games-empty">No cast available for this film.</div>';
 
-            // Wrong/right guess feed, newest on top; the newest animates in (+ shakes if wrong).
+            // Wrong/right guess feed, newest on top. On the LIVE board the newest row
+            // animates in (+ shakes if wrong) — but in the results Guesses tab nothing
+            // is "new", so re-opening a finished game doesn't replay the shake on every
+            // single view.
             const rows = guesses.slice().reverse().map((g, ri) => {
                 const correct = !!g.correct;
-                const isNew = ri === 0;
+                const isNew = !inResults && ri === 0;
                 return `
                     <div class="poster-guess-row ${correct ? 'is-correct' : 'is-wrong'} ${isNew ? 'is-new' : ''}">
                         <span class="poster-guess-mark">${correct ? '✓' : '✕'}</span>
@@ -1038,10 +1424,9 @@
             // When done, the answer reveal (banner + "See results") takes the search bar's
             // spot at the TOP of the column; when still playing, the guess box lives there
             // (floated to the top on mobile via .cast-play > .games-guess { order:-1 }).
-            const doneReveal = d.done ? `${gameResultBanner('cast', d)}${gameSeeResultsBtnHtml('cast')}` : '';
+            const doneReveal = (d.done && !inResults) ? `${gameResultBanner('cast', d)}${gameSeeResultsBtnHtml('cast')}` : '';
             const guessBox = d.done ? '' : gameGuessInputHtml('cast', left);
-            play.innerHTML = `
-                ${gamePlayHeadHtml('cast')}
+            return `
                 ${topbar}
                 <div class="cast-play">
                     ${doneReveal}
@@ -1054,6 +1439,17 @@
                     ${guessBox}
                     ${rows ? `<div class="poster-guesses">${rows}</div>` : ''}
                 </div>`;
+        }
+
+        function renderCast() {
+            const play = document.getElementById('games-play');
+            const d = gamesTodayData?.games?.cast;
+            if (!play) return;
+            if (!d) { play.innerHTML = gamePlayHeadHtml('cast') + '<div class="games-error">No puzzle available today.</div>'; return; }
+            if (d.done && gamesFinishedView.cast === 'results') { renderGameResults('cast'); return; }
+            play.innerHTML = `
+                ${gamePlayHeadHtml('cast')}
+                ${castBoardHtml(d, false)}`;
         }
 
         // ---- Rank ----------------------------------------------------------------
@@ -1435,16 +1831,8 @@
             const openBtn = t.closest('[data-game-open]');
             if (openBtn) { e.preventDefault(); openGame(openBtn.getAttribute('data-game-open')); return; }
             if (t.closest('[data-game-back]')) { e.preventDefault(); closeGame(); return; }
-            const reviewBtn = t.closest('[data-game-review]');
-            if (reviewBtn) {
-                e.preventDefault();
-                const g = reviewBtn.getAttribute('data-game-review');
-                if (gamesResultTimer) { clearTimeout(gamesResultTimer); gamesResultTimer = null; }
-                gamesFinishedView[g] = 'board';
-                rerenderGame(g);
-                try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
-                return;
-            }
+            // (The old "‹ Review your guesses" button is gone — every game now reaches
+            // its board through the results frame's Guesses tab.)
             const resultsBtn = t.closest('[data-game-results]');
             if (resultsBtn) {
                 e.preventDefault();
@@ -1455,6 +1843,29 @@
                 try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (_) {}
                 return;
             }
+            // Rank compare: tap a poster to isolate its connector, tap again (or tap
+            // off) to clear. This is the touch equivalent of the desktop hover.
+            const rkCell = t.closest('#games-play .rank-compare [data-rk]');
+            if (rkCell) {
+                e.preventDefault();
+                const wrap = rkCell.closest('.rank-compare');
+                const cur = wrap ? (wrap.dataset.rkActive || '') : '';
+                const next = rkCell.getAttribute('data-rk');
+                setRankCompareFocus(cur === next ? null : next);
+                return;
+            }
+            // Any other click clears an active isolate. Cheap no-op when none is set,
+            // and deliberately does NOT return — other handlers still get the event.
+            setRankCompareFocus(null);
+
+            const rtabBtn = t.closest('[data-game-rtab]');
+            if (rtabBtn) {
+                e.preventDefault();
+                setGameResultsTab(rtabBtn.getAttribute('data-rtab-game'), rtabBtn.getAttribute('data-game-rtab'));
+                return;
+            }
+            const answerBtn = t.closest('[data-game-answer]');
+            if (answerBtn) { e.preventDefault(); openGameAnswerSpotlight(answerBtn.getAttribute('data-game-answer')); return; }
             const fullLbBtn = t.closest('[data-game-fulllb]');
             if (fullLbBtn) { e.preventDefault(); openGameFullLeaderboard(fullLbBtn.getAttribute('data-game-fulllb')); return; }
             const nudgeBtn = t.closest('[data-nudge-user]');
