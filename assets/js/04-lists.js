@@ -41,6 +41,9 @@
             listsDetailCache = new Map();
             listsDetailCacheAt = 0;
             listsDetailPrefetchToken++;
+            // A list's contents changed, so a stored Lists page snapshot is now wrong —
+            // make Back re-render that page instead of restoring the pre-change copy.
+            try { invalidatePageSnapshots('lists'); } catch (_) {}
         }
 
         function listsDetailCacheTake(listId) {

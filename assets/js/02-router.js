@@ -20,6 +20,7 @@
                         this.navStack.pop();
                         if (this.runBackSubState(top)) return;
                     }
+                    this.pendingBackTransition = true;
                     this.navigate(page, mode, 'pop');
                 });
 
@@ -56,11 +57,83 @@
                 // snapshot (mode carries the viewed user id) so Follow/back act on the
                 // right user after a profile→profile→back chain.
                 if (snap.page === 'account') { try { accountHomeViewUserId = snap.mode || ''; } catch (_) {} }
+                // The header bar is OUTSIDE #app-root, so restoring the body alone used
+                // to leave it reading the page we came FROM.
+                try { this.applyMobilePageTitle(snap.page, { restoring: true }); } catch (_) {}
                 try { refreshAuthStateAndUI(); } catch (_) {}
                 try { refreshNavBadges(); } catch (_) {}
+                // The infinite-scroll IntersectionObserver was watching the OLD sentinel
+                // node, which innerHTML just detached. Without re-attaching, a restored
+                // Feed / My Movies / list would silently stop loading more on scroll.
+                try { reattachInfiniteScrollForPage(snap.page); } catch (_) {}
                 this.osBackSnapshot = null;
                 try { window.scrollTo(0, Number(snap.scrollY) || 0); } catch (_) {}
+                // A snapshot is only ever restored by a Back, so always the back variant.
+                try { animatePageEnter(root, 'back'); } catch (_) {}
                 return true;
+            },
+
+            // Pages whose rendered DOM can be safely snapshotted and restored on Back.
+            // Deliberately EXCLUDED: `dashboard` (charts are painted onto a <canvas>,
+            // and a canvas bitmap does NOT survive innerHTML serialization — it would
+            // restore blank), `submit` (a live form), `discover` and `games` (live deck /
+            // game state and timers that the DOM alone doesn't capture), `theme_creator`.
+            snapshotPages: new Set(['home', 'feed', 'library', 'lists', 'account', 'leaderboard', 'ai_picks', 'settings']),
+            // How many snapshots to keep. Each holds a full page's HTML, and a long Feed
+            // is not small, so only the most recent few are worth the memory.
+            maxSnapshots: 3,
+
+            // Keep only the newest `maxSnapshots` page snapshots. Deeper entries keep
+            // their page/mode (Back still works) but drop the HTML, so a long session
+            // can't accumulate many full copies of a long Feed in memory.
+            trimSnapshots() {
+                let kept = 0;
+                for (let i = this.navStack.length - 1; i >= 0; i--) {
+                    const e = this.navStack[i];
+                    if (!e || !e.snapshot) continue;
+                    kept++;
+                    if (kept > this.maxSnapshots) e.snapshot = null;
+                }
+            },
+
+            // Forget the stored HTML for the given pages (or all of them). Called after
+            // a mutation that would make a restored copy WRONG — e.g. saving a rating
+            // must not let Back reveal a My Movies page that predates it. Those pages
+            // then fall back to a normal re-render, which refetches.
+            invalidateSnapshots(pages) {
+                const set = pages ? new Set([].concat(pages)) : null;
+                for (const e of this.navStack) {
+                    if (e?.snapshot && (!set || set.has(e.snapshot.page))) e.snapshot = null;
+                }
+                if (this.osBackSnapshot && (!set || set.has(this.osBackSnapshot.page))) this.osBackSnapshot = null;
+            },
+
+            // The mobile header bar's page name. Shared by navigate() and
+            // restoreSnapshot() so both routes agree on what the header says.
+            applyMobilePageTitle(page, opts) {
+                const titleEl = document.getElementById('mobile-page-title');
+                if (!titleEl) return;
+                // Restoring a snapshot of an OPEN list: that header tracks the list name,
+                // so hand off to Lists' own setter. Only on restore — on a forward nav
+                // `listsViewMode` may still read 'detail' from a previous visit, and
+                // enterListsPage is about to reset it to the overview.
+                if (opts?.restoring && page === 'lists'
+                    && typeof listsViewMode !== 'undefined' && listsViewMode === 'detail') {
+                    try { setListsMobileHeader(); return; } catch (_) {}
+                }
+                const MOBILE_PAGE_TITLES = {
+                    home: 'Home', feed: 'Feed', library: 'My Movies', lists: 'Lists',
+                    discover: 'Discover',
+                    ai_picks: 'AI Picks', dashboard: 'Data Dash', account: 'Account', settings: 'Settings',
+                    leaderboard: 'Leaderboard', submit: 'Log Entry', theme_creator: 'Theme Creator',
+                    games: 'Games',
+                };
+                // The submit page serves both new entries and rating updates; show the
+                // right header for each (it's the only header now that the in-page title
+                // card is hidden on mobile).
+                titleEl.textContent = (page === 'submit')
+                    ? (this.formMode === 'update' ? 'Update Ratings' : 'Log New Entry')
+                    : (MOBILE_PAGE_TITLES[page] || 'CinemaTracker');
             },
 
             // Is there anywhere to go back TO? Drives whether the swipe-left gesture
@@ -85,7 +158,7 @@
                 // Sub-state restores skip navigate(), so replay the page-enter
                 // transition here — otherwise the view snaps back with no motion after
                 // the swipe has just slid it off-screen.
-                try { animatePageEnter(document.getElementById('app-root')); } catch (_) {}
+                try { animatePageEnter(document.getElementById('app-root'), 'back'); } catch (_) {}
                 return true;
             },
 
@@ -113,6 +186,7 @@
                         if (prev.dashboardGeneralMode) dashboardGeneralMode = prev.dashboardGeneralMode;
                         if (prev.dashboardGeneralPieMode) dashboardGeneralPieMode = prev.dashboardGeneralPieMode;
                     }
+                    this.pendingBackTransition = true;
                     this.navigate(prev.page, prev.mode || 'new', 'replace');
                     return;
                 }
@@ -126,6 +200,12 @@
             },
 
             navigate(page, mode = 'new', navMode = 'push') {
+                // Consume the back-direction flag FIRST. Several paths below return
+                // early (auth gate, the submit guard, the snapshot fast path); leaving
+                // the flag set would make the next FORWARD navigation animate backwards.
+                const backward = this.pendingBackTransition === true;
+                this.pendingBackTransition = false;
+
                 // If the user is not logged in, open the auth modal with demo option.
                 const authGatedPages = ['dashboard','dashboard_kpi','dashboard_pie_filter','feed','library','lists','account','leaderboard','theme_creator','discover','games'];
                 if (authGatedPages.includes(page) && !cachedIsAuthed) {
@@ -190,17 +270,27 @@
                         dashboardGeneralMode,
                         dashboardGeneralPieMode,
                     };
-                    // When opening ANOTHER user's Account page, snapshot the outgoing
-                    // page (DOM + scroll) so Back / left-swipe / OS-back return to the
-                    // exact spot (e.g. Feed scrolled halfway) with no refetch/reset.
+                    // Snapshot the outgoing page (DOM + scroll) so Back / left-swipe /
+                    // OS-back return to the EXACT spot — same scroll position, same
+                    // already-loaded items — with no re-render and no refetch. Without
+                    // this, Back re-ran the page's loader, which blanked the view and
+                    // made every poster reload (the "flash" on going back).
+                    const snap = this.snapshotPages.has(prevPage)
+                        ? this.captureSnapshot(prevPage, prevMode)
+                        : null;
+                    if (snap) entry.snapshot = snap;
+
+                    // osBackSnapshot is the OS/browser-back fast path, and it only makes
+                    // sense for the account-profile jump it was built for (that flow
+                    // navigates account→account, which doesn't push a stack entry).
                     const selfId = (typeof getActiveUserId === 'function') ? getActiveUserId() : '';
-                    if (page === 'account' && mode && mode !== 'new' && mode !== selfId) {
-                        const snap = this.captureSnapshot(prevPage, prevMode);
-                        if (snap) { entry.snapshot = snap; this.osBackSnapshot = snap; }
+                    if (snap && page === 'account' && mode && mode !== 'new' && mode !== selfId) {
+                        this.osBackSnapshot = snap;
                     } else {
                         this.osBackSnapshot = null; // moving forward elsewhere → drop any stale snapshot
                     }
                     this.navStack.push(entry);
+                    this.trimSnapshots();
                 }
 
                 this.currentPage = page;
@@ -214,27 +304,11 @@
                 const root = document.getElementById('app-root');
 
                 // Mobile header bar shows the current page title (desktop shows the brand).
-                try {
-                    const titleEl = document.getElementById('mobile-page-title');
-                    if (titleEl) {
-                        const MOBILE_PAGE_TITLES = {
-                            home: 'Home', feed: 'Feed', library: 'My Movies', lists: 'Lists',
-                            discover: 'Discover',
-                            ai_picks: 'AI Picks', dashboard: 'Data Dash', account: 'Account', settings: 'Settings',
-                            leaderboard: 'Leaderboard', submit: 'Log Entry', theme_creator: 'Theme Creator',
-                            games: 'Games',
-                        };
-                        // The submit page serves both new entries and rating updates; show
-                        // the right header for each (it's the only header now that the
-                        // in-page title card is hidden on mobile).
-                        titleEl.textContent = (page === 'submit')
-                            ? (this.formMode === 'update' ? 'Update Ratings' : 'Log New Entry')
-                            : (MOBILE_PAGE_TITLES[page] || 'CinemaTracker');
-                    }
-                } catch (_) {}
+                try { this.applyMobilePageTitle(page); } catch (_) {}
 
-                // Phase 2 — play the mobile page-enter transition as the new view swaps in.
-                try { animatePageEnter(root); } catch (_) {}
+                // Phase 2 — play the mobile page-enter transition as the new view swaps
+                // in, in the direction we're travelling (see `backward` above).
+                try { animatePageEnter(root, backward ? 'back' : ''); } catch (_) {}
 
                 // Active Nav
                 document.querySelectorAll('.nav-link').forEach(el => {

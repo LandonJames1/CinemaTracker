@@ -56,6 +56,36 @@
             } catch (_) {}
         }
 
+        // Re-arm infinite scroll on a page that was restored from a snapshot.
+        // restoreSnapshot() replaces #app-root's innerHTML, which DETACHES the sentinel
+        // node the shared IntersectionObserver was watching — the observer survives but
+        // now points at a node that will never intersect anything, so the restored page
+        // would silently stop loading more as you scroll. Re-point it at the sentinel in
+        // the freshly restored DOM, with the same callback that page's renderer uses.
+        // (No sentinel = that page had nothing more to load; nothing to do.)
+        function reattachInfiniteScrollForPage(page) {
+            try {
+                if (page === 'library') {
+                    const wrap = document.getElementById('library-load-more-wrap');
+                    if (wrap) attachInfiniteScroll(wrap, () => { loadLibraryMore({ replace: false }); });
+                } else if (page === 'feed') {
+                    const sentinel = document.getElementById('feed-load-sentinel');
+                    if (sentinel) attachInfiniteScroll(sentinel, () => { loadFeedItems({ appendNormal: true }); });
+                } else if (page === 'lists') {
+                    const sentinel = document.getElementById('lists-load-sentinel');
+                    if (sentinel) attachInfiniteScroll(sentinel, () => { renderListsMoreCards(); });
+                }
+            } catch (_) {}
+        }
+
+        // Drop stored page HTML that a mutation has just made wrong, so Back re-renders
+        // (and refetches) that page instead of restoring a copy that predates the change.
+        // Thin wrapper over router.invalidateSnapshots so callers don't reach into the
+        // router; `pages` is a page key or array of them, omitted = all.
+        function invalidatePageSnapshots(pages) {
+            try { router.invalidateSnapshots(pages); } catch (_) {}
+        }
+
         // True while a back-swipe is actively dragging the page sideways. Pull-to-refresh
         // (09-home-ui.js) checks this so a diagonal drag can't run both gestures at once.
         let backSwipeEngaged = false;

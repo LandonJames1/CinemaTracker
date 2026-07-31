@@ -1066,13 +1066,22 @@
         /* ===== Phase 2 — page-enter transition (mobile-only, set by animatePageEnter) ===== */
         @media (max-width: 768px) {
             #app-root.page-enter { animation: pageEnter 0.2s ease-out both; will-change: opacity, transform; }
+            /* Going BACK: the swipe carries the old page off to the left, so the page
+               being returned to arrives from the right. Reusing the forward fade-up here
+               made a back read as a fresh load rather than as a return. */
+            #app-root.page-enter-back { animation: pageEnterBack 0.22s ease-out both; will-change: opacity, transform; }
         }
         @keyframes pageEnter {
             from { opacity: 0; transform: translateY(10px); }
             to   { opacity: 1; transform: translateY(0); }
         }
+        @keyframes pageEnterBack {
+            from { opacity: 0; transform: translateX(22px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
         @media (prefers-reduced-motion: reduce) {
-            #app-root.page-enter { animation: none; }
+            #app-root.page-enter,
+            #app-root.page-enter-back { animation: none; }
         }
 
         /* ===== Phase 4 — press feedback (mobile-only): tappables dip under the finger ===== */

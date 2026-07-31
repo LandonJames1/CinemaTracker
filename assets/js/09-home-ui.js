@@ -325,14 +325,19 @@
         // route's content is swapped in. Mobile-only + respects reduced-motion. The
         // class is removed on animationend so no transform lingers to trap fixed
         // descendants (modals/overlays). Called from router.navigate before the swap.
-        function animatePageEnter(root) {
+        // `kind` 'back' plays the reverse-direction variant: the swipe carries the old
+        // page off to the LEFT, so the page you're returning to arrives from the RIGHT.
+        // Using the same fade-up-from-below animation for both directions is what made
+        // going back read as a reload rather than as a return.
+        function animatePageEnter(root, kind) {
             try {
                 if (!root || !isMobileViewport()) return;
                 if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-                root.classList.remove('page-enter');
+                const cls = (kind === 'back') ? 'page-enter-back' : 'page-enter';
+                root.classList.remove('page-enter', 'page-enter-back');
                 void root.offsetWidth; // force reflow so the animation restarts each nav
-                root.classList.add('page-enter');
-                root.addEventListener('animationend', () => root.classList.remove('page-enter'), { once: true });
+                root.classList.add(cls);
+                root.addEventListener('animationend', () => root.classList.remove(cls), { once: true });
             } catch (_) {}
         }
 
