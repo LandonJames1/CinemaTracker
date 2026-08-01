@@ -33,7 +33,12 @@
         let listsDetailCache = new Map();   // list_id -> { rows: viewRows[], platforms: Map<movie_id, string[]> }
         let listsDetailCacheAt = 0;         // timestamp the cache was last (re)built
         let listsDetailPrefetchToken = 0;   // guards against a stale prefetch overwriting a newer one
-        const LISTS_DETAIL_CACHE_TTL = 60000; // 60s — overview re-render repopulates it anyway
+        // How long a prefetched list's contents stay usable. This was 60s, which was fine
+        // when the only source was the overview render (you click into a list seconds
+        // later) but throws away the BOOT prewarm for anyone who doesn't reach Lists within
+        // a minute — i.e. almost everyone. Correctness doesn't rest on this timer:
+        // invalidateListsDetailCache() is called on every mutation to a list's contents.
+        const LISTS_DETAIL_CACHE_TTL = 30 * 60000; // 30 min
 
         // Drop the prefetch cache + bump the token so any in-flight prefetch can't
         // write back stale rows. Call after ANY mutation to a list's contents.
@@ -3444,6 +3449,66 @@
             return `<div class="lists-cover-fallback"><span class="lists-cover-fallback-icon">${icon}</span></div>`;
         }
 
+        // Everything the overview grid needs, as data: the user's lists in display order
+        // plus each one's movie count + up to 4 poster paths for the collage fallback.
+        // Extracted from loadListsOverview so the BOOT PREWARM (27-prewarm.js) can fetch
+        // exactly the same thing ahead of time — one code path, so the two can't drift.
+        async function fetchListsOverviewData(userId) {
+            const uid = String(userId || '').trim();
+            const allLists = await loadUserLists({ user_id: uid, force: true });
+
+            // Overview order: Recs first, then Bucket List, then the rest as-is.
+            const listRank = (l) => {
+                const n = String(l?.list_name || '').trim().toLowerCase();
+                if (n === 'recs') return 0;
+                if (n === 'bucket list') return 1;
+                return 2;
+            };
+            const lists = [...allLists].sort((a, b) => listRank(a) - listRank(b));
+
+            // One pass to get movie counts + a few posters per list for the collage
+            // fallback. Two simple queries (no FK-embed assumptions): the join rows,
+            // then the posters for those movies.
+            const infoByList = new Map(); // list_id -> { count, posters: [poster_path] }
+            lists.forEach(l => infoByList.set(String(l.id), { count: 0, posters: [], _ids: [] }));
+
+            // Query by list_id (not user_id) so SHARED lists owned by someone
+            // else — whose Movie Lists rows carry the owner's user_id — are
+            // included too. RLS lets members read these rows.
+            const allListIds = lists.map(l => String(l.id)).filter(Boolean);
+            const { data: joinRows } = allListIds.length
+                ? await supabaseClient
+                    .from('Movie Lists')
+                    .select('list_id, movie_id, created_at')
+                    .in('list_id', allListIds)
+                    .order('created_at', { ascending: false })
+                : { data: [] };
+
+            const wantIds = new Set();
+            (Array.isArray(joinRows) ? joinRows : []).forEach(r => {
+                const lid = String(r?.list_id || '');
+                const mid = String(r?.movie_id || '');
+                const info = infoByList.get(lid);
+                if (!info || !mid) return;
+                info.count += 1;
+                if (info._ids.length < 4) { info._ids.push(mid); wantIds.add(mid); }
+            });
+
+            if (wantIds.size) {
+                const { data: movieRows } = await supabaseClient
+                    .from('Movies')
+                    .select('id, poster_path')
+                    .in('id', Array.from(wantIds));
+                const posterById = new Map(
+                    (Array.isArray(movieRows) ? movieRows : []).map(m => [String(m.id), String(m.poster_path || '')]));
+                infoByList.forEach(info => {
+                    info.posters = info._ids.map(id => posterById.get(id)).filter(Boolean);
+                });
+            }
+
+            return { lists, infoByList };
+        }
+
         async function loadListsOverview() {
             const grid = document.getElementById('lists-overview-grid');
             if (!grid) return;
@@ -3455,57 +3520,12 @@
 
             try {
                 const { user } = await requireAuthOrThrow();
-                await ensureBucketListForUser({ user_id: user.id }).catch(() => null);
-                const allLists = await loadUserLists({ user_id: user.id, force: true });
-
-                // Overview order: Recs first, then Bucket List, then the rest as-is.
-                const listRank = (l) => {
-                    const n = String(l?.list_name || '').trim().toLowerCase();
-                    if (n === 'recs') return 0;
-                    if (n === 'bucket list') return 1;
-                    return 2;
-                };
-                const lists = [...allLists].sort((a, b) => listRank(a) - listRank(b));
-
-                // One pass to get movie counts + a few posters per list for the collage
-                // fallback. Two simple queries (no FK-embed assumptions): the join rows,
-                // then the posters for those movies.
-                const infoByList = new Map(); // list_id -> { count, posters: [poster_path] }
-                lists.forEach(l => infoByList.set(String(l.id), { count: 0, posters: [], _ids: [] }));
-
-                // Query by list_id (not user_id) so SHARED lists owned by someone
-                // else — whose Movie Lists rows carry the owner's user_id — are
-                // included too. RLS lets members read these rows.
-                const allListIds = lists.map(l => String(l.id)).filter(Boolean);
-                const { data: joinRows } = allListIds.length
-                    ? await supabaseClient
-                        .from('Movie Lists')
-                        .select('list_id, movie_id, created_at')
-                        .in('list_id', allListIds)
-                        .order('created_at', { ascending: false })
-                    : { data: [] };
-
-                const wantIds = new Set();
-                (Array.isArray(joinRows) ? joinRows : []).forEach(r => {
-                    const lid = String(r?.list_id || '');
-                    const mid = String(r?.movie_id || '');
-                    const info = infoByList.get(lid);
-                    if (!info || !mid) return;
-                    info.count += 1;
-                    if (info._ids.length < 4) { info._ids.push(mid); wantIds.add(mid); }
-                });
-
-                if (wantIds.size) {
-                    const { data: movieRows } = await supabaseClient
-                        .from('Movies')
-                        .select('id, poster_path')
-                        .in('id', Array.from(wantIds));
-                    const posterById = new Map(
-                        (Array.isArray(movieRows) ? movieRows : []).map(m => [String(m.id), String(m.poster_path || '')]));
-                    infoByList.forEach(info => {
-                        info.posters = info._ids.map(id => posterById.get(id)).filter(Boolean);
-                    });
-                }
+                // The boot prewarm may already have fetched (and image-preloaded) exactly
+                // this — in which case the grid paints with no round-trip at all.
+                let pre = null;
+                try { pre = takeListsOverviewPrewarm(user.id); } catch (_) {}
+                if (!pre) await ensureBucketListForUser({ user_id: user.id }).catch(() => null);
+                const { lists, infoByList } = pre || await fetchListsOverviewData(user.id);
 
                 if (!lists.length) {
                     grid.innerHTML = `<div class="text-gray" style="grid-column:1/-1;">No lists yet — tap “New List” to create one.</div>`;

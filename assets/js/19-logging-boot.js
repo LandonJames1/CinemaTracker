@@ -287,15 +287,25 @@
             });
         }
 
+        // Whose session the cached pages were captured under (see the handler below).
+        // Seeded from the first event, so boot doesn't count as an identity change.
+        let _lastAuthIdentity = null;
+
         // Keep auth UI synced with session changes.
         if (supabaseClient?.auth?.onAuthStateChange) {
-            supabaseClient.auth.onAuthStateChange((event) => {
+            supabaseClient.auth.onAuthStateChange((event, session) => {
                 // Every cached page copy belongs to whoever was signed in when it was
-                // captured — a sign-in/out must never restore one. TOKEN_REFRESHED fires
-                // on a timer for the SAME user, so it's excluded (it would otherwise drop
-                // the cache mid-session for no reason).
-                if (String(event || '') !== 'TOKEN_REFRESHED') {
+                // captured, so a sign-in/out must never restore one. Keyed on the USER ID
+                // changing, not on the event name: this fires for TOKEN_REFRESHED (on a
+                // timer) and re-fires SIGNED_IN on tab focus in some supabase-js versions,
+                // and dropping the cache on those would silently reload pages mid-session
+                // for no reason the user can see.
+                const uid = String(session?.user?.id || '');
+                if (uid !== _lastAuthIdentity) {
+                    _lastAuthIdentity = uid;
                     try { router.clearPageCache(); router.invalidateSnapshots(); } catch (_) {}
+                    // New identity → prewarm the new user's pages (a no-op when signed out).
+                    try { schedulePrewarm(); } catch (_) {}
                 }
                 refreshAuthStateAndUI();
                 loadThemeOptions().catch(() => null);
@@ -368,6 +378,12 @@
             // Warm the "You Might Like" home strip cache in the background so the first
             // Home visit paints instantly (dedupes with the Home render's own fetch).
             try { prefetchHomeForYou(); } catch (_) {}
+
+            // Load the pages the user hasn't opened yet — Lists cover art, My Movies'
+            // first page, the feed's first page — while they're still on Home, so the
+            // FIRST visit is as instant as the second. Idle-scheduled and staggered; see
+            // 27-prewarm.js for the bandwidth/staleness rules.
+            try { schedulePrewarm(); } catch (_) {}
 
             // Re-check badges whenever a left-open tab/app regains focus, so a feed/recs
             // view on another device clears the icons here without a full reload.

@@ -125,6 +125,14 @@
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
+        /* Re-inserting stored HTML (router page-cache / Back snapshot restore) makes the
+           browser REPLAY this animation, so a page that was already on screen visibly
+           slides up 10px — the "content moves up and down" glitch. Suppress it on restore
+           by running it in zero time rather than by dropping the class: `forwards` still
+           applies the finished `transform: translateY(0)`, and that transform is a
+           containing block some page layouts sit inside, so a restored page must keep the
+           exact same computed style as a freshly rendered one. */
+        .fade-in.no-enter-anim { animation-duration: 0s; }
 
         .animate-spin { animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }

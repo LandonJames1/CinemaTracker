@@ -57,6 +57,9 @@
                 document.body.dataset.page = snap.page;
                 try { history.replaceState({ page: snap.page, mode: snap.mode || 'new' }, '', location.pathname); } catch (_) {}
                 root.innerHTML = snap.html;
+                // Don't let the re-inserted `.fade-in` wrapper replay its slide-up — the
+                // directional page-enter-back below is the only motion a Back should have.
+                this.suppressRestoredEnterAnimations(root);
                 // Keep the account-page module state in sync with a restored account
                 // snapshot (mode carries the viewed user id) so Follow/back act on the
                 // right user after a profile→profile→back chain.
@@ -71,7 +74,7 @@
                 // Feed / My Movies / list would silently stop loading more on scroll.
                 try { reattachInfiniteScrollForPage(snap.page); } catch (_) {}
                 this.osBackSnapshot = null;
-                try { window.scrollTo(0, Number(snap.scrollY) || 0); } catch (_) {}
+                this.restoreScrollY(snap.scrollY);
                 // A snapshot is only ever restored by a Back, so always the back variant.
                 try { animatePageEnter(root, 'back'); } catch (_) {}
                 return true;
@@ -115,6 +118,10 @@
                 for (const [key, entry] of this.pageCache) {
                     if (!set || set.has(entry?.page)) this.pageCache.delete(key);
                 }
+                // Same for anything the boot prewarm fetched ahead of time (27-prewarm.js) —
+                // it's stored page data too, so whatever makes a cached page wrong makes it
+                // wrong. Routing it through here means every existing caller covers it.
+                try { invalidatePrewarm(pages); } catch (_) {}
             },
 
             // ================= Page cache (FORWARD navigation) =====================
@@ -125,24 +132,32 @@
             // re-running its loaders. So Lists → Games → Lists no longer refetches the
             // lists (or flashes every poster) — it's the same DOM you left.
             //
-            // Same three safety rules as the Back snapshots, for the same reasons:
-            //   • only pages whose listeners are DOCUMENT-DELEGATED and idempotent can be
-            //     restored (an element-bound listener does not survive innerHTML), which
-            //     is what `pageCachePages` encodes;
-            //   • anything with live state the DOM can't carry is excluded — `dashboard`
-            //     (canvas bitmaps don't survive serialization), `discover`/`games` (live
-            //     deck / timers), `submit` (a live form), `theme_creator`. `home` is out
-            //     too: its actions key off `router.selectedMovie`, which navigate() resets,
-            //     so a restored search dropdown would point at nothing;
-            //   • a restored copy must never be able to show pre-mutation data — see
-            //     invalidateSnapshots() above and the TTL below.
-            pageCache: new Map(),           // "page|mode" -> {page, mode, html, scrollY, ts}
-            pageCachePages: new Set(['feed', 'library', 'lists', 'account', 'leaderboard', 'settings']),
-            // Belt-and-braces against data that changed with no invalidation hook (someone
-            // else's new review, a rec that arrived): past this, the page re-renders.
-            pageCacheTtlMs: 5 * 60 * 1000,
-            // Each entry is a full page of HTML; cap how many we hold at once.
-            pageCacheMax: 6,
+            // ⚠️ THE RULE: once a page has loaded, it does not load again — no re-render, no
+            // refetch, no skeletons, no entry animation — until the USER does something that
+            // warrants it (saves/updates a rating, follows someone, pulls to refresh, opens
+            // a deep link). There is deliberately NO time-based expiry and NO "refresh
+            // because new activity exists" rule; both were tried and both meant the pages
+            // people actually use (Feed, Lists) reloaded every single time. Freshness is
+            // handled by explicit invalidation at the mutation sites instead — see
+            // invalidateSnapshots() above and its callers.
+            //
+            // Applies identically on mobile and desktop: nothing on this path is viewport-
+            // gated (only the mobile-only page-enter ANIMATION is, and a restore skips it).
+            //
+            // What can't be cached, and why:
+            //   • listeners must be DOCUMENT-DELEGATED and idempotent — an element-bound
+            //     listener does not survive innerHTML — which is what `pageCachePages`
+            //     encodes; every page in it rebinds via a guarded init*Page() below;
+            //   • live state the DOM can't carry rules out `dashboard` (charts are painted
+            //     onto a <canvas>, whose bitmap does NOT survive innerHTML serialization —
+            //     it would restore blank), `discover`/`games` (live deck / game state /
+            //     timers), `submit` (a live form) and `theme_creator`.
+            pageCache: new Map(),           // "page|mode" -> {page, mode, html, scrollY}
+            pageCachePages: new Set(['home', 'feed', 'library', 'lists', 'account', 'leaderboard', 'settings', 'ai_picks']),
+            // Each entry is a full page of HTML; cap how many we hold at once. Big enough
+            // that every cacheable page can be held simultaneously (only `account` has more
+            // than one key — one per viewed user — so those are what actually evict).
+            pageCacheMax: 12,
 
             pageCacheKey(page, mode) {
                 return `${page}|${String(mode ?? 'new') || 'new'}`;
@@ -153,6 +168,8 @@
             // Store the page we're leaving. Skipped while it's still LOADING: a page
             // captured mid-load would restore its skeletons forever, because the loader
             // that was going to replace them resolves into a DOM we've since detached.
+            // Note this returns BEFORE touching the map, so a half-loaded page leaves the
+            // previous good copy in place rather than replacing it with skeletons.
             pageCachePut(page, mode) {
                 try {
                     if (!this.pageCachePages.has(page)) return;
@@ -165,7 +182,6 @@
                         page, mode,
                         html: root.innerHTML,
                         scrollY: window.scrollY || window.pageYOffset || 0,
-                        ts: Date.now(),
                     });
                     while (this.pageCache.size > this.pageCacheMax) {
                         this.pageCache.delete(this.pageCache.keys().next().value);
@@ -173,56 +189,96 @@
                 } catch (_) {}
             },
 
-            // Consume the cached copy (single use — leaving the page writes a fresh one),
-            // so a stale entry can never outlive the visit it was made for.
-            pageCacheTake(page, mode) {
-                const key = this.pageCacheKey(page, mode);
-                const entry = this.pageCache.get(key);
-                if (!entry) return null;
-                this.pageCache.delete(key);
-                if (Date.now() - Number(entry.ts || 0) > this.pageCacheTtlMs) return null;
-                return entry;
+            // Read WITHOUT consuming: the copy stays until it's either overwritten (leaving
+            // the page again) or explicitly invalidated. An earlier version deleted on read
+            // and relied on the re-capture, which meant any path that skipped the capture
+            // (leaving mid-load, an unusual exit) silently cost the user a full reload.
+            pageCachePeek(page, mode) {
+                return this.pageCache.get(this.pageCacheKey(page, mode)) || null;
             },
 
-            // A pending deep link (a push notification opening one list / the To Rate tab)
-            // needs the page's real loader to run — restoring the last view would silently
-            // drop where the user was actually being sent.
+            // The ONLY reason to refuse a restore: a pending deep link (a push notification
+            // opening one specific list / the To Rate tab) needs that page's real loader to
+            // run, or we'd silently drop where the user was actually being sent.
+            //
+            // ⚠️ Nothing else belongs here. An earlier version also forced a reload when the
+            // Feed/Lists unread badge was lit — which, for anyone who follows people or gets
+            // recs, meant those two pages ALWAYS reloaded and the cache never did anything.
+            // A page reloads when the USER takes an action that warrants it (saving a rating,
+            // pulling to refresh, following someone — see invalidateSnapshots callers), never
+            // just because time passed or new activity exists elsewhere.
             pageCacheBlocked(page) {
                 try {
                     if (page === 'lists' && (listsPendingSelectId || listsPendingSelectName)) return true;
                     if (page === 'account' && accountHomePendingTab) return true;
                 } catch (_) {}
-                // Unread badge lit = activity arrived while we were away. Restoring a copy
-                // that predates it would hide the new items AND leave the badge lit (the
-                // "seen" marks are set by the loaders we'd be skipping), so load fresh.
-                if (page === 'feed' && this.navBadgeLit('nav-badge-feed')) return true;
-                if (page === 'lists' && this.navBadgeLit('nav-badge-lists')) return true;
                 return false;
             },
 
-            navBadgeLit(id) {
-                const el = document.getElementById(id);
-                return Boolean(el && el.classList.contains('show'));
+            // Both restore paths re-insert stored HTML, and inserting an element with an
+            // `animation` REPLAYS it — so every page template's `.fade-in` wrapper slid up
+            // 10px again on a page that was already on screen (and on mobile the
+            // `page-enter` class added a second translateY on top, while the scroll was
+            // being restored). That stacked motion is the "content moves up and down"
+            // glitch. Call this immediately after writing innerHTML on a restore.
+            suppressRestoredEnterAnimations(root) {
+                try {
+                    if (!root) return;
+                    // A class left behind by a nav whose animation never reached
+                    // animationend would keep transforming the page we just restored.
+                    root.classList.remove('page-enter', 'page-enter-back');
+                    root.querySelectorAll('.fade-in').forEach((el) => el.classList.add('no-enter-anim'));
+                } catch (_) {}
             },
 
-            // Swap a cached page back in. Called from navigate() AFTER it has done all the
-            // page chrome (history, body[data-page], nav links, header title, enter
-            // animation), so this only has to restore the body + whatever innerHTML alone
-            // can't carry: delegated bindings, the infinite-scroll sentinel, the in-page
-            // Back step for a sub-state the restored DOM is sitting in, and scroll.
+            // Put the page back at the scroll position it was left at. Applied again on the
+            // next frame because the first write can be clamped: at that instant the
+            // restored document may still be laying out and be shorter than the target.
+            restoreScrollY(y) {
+                const top = Number(y) || 0;
+                try { window.scrollTo(0, top); } catch (_) {}
+                try {
+                    requestAnimationFrame(() => {
+                        if (Math.abs((window.scrollY || 0) - top) > 1) {
+                            try { window.scrollTo(0, top); } catch (_) {}
+                        }
+                    });
+                } catch (_) {}
+            },
+
+            // Swap a cached page back in. Called from navigate() after the page chrome
+            // (history, body[data-page], nav links, header title) and BEFORE the page-enter
+            // animation — a restored page must get no entry animation at all. So this only
+            // has to restore the body + whatever innerHTML alone can't carry: delegated
+            // bindings, the infinite-scroll sentinel, the in-page Back step for a sub-state
+            // the restored DOM is sitting in, and scroll.
             tryRestorePageCache(page, mode) {
                 if (!this.pageCachePages.has(page)) return false;
                 if (this.pageCacheBlocked(page)) return false;
                 const root = document.getElementById('app-root');
                 if (!root) return false;
-                const entry = this.pageCacheTake(page, mode);
+                const entry = this.pageCachePeek(page, mode);
                 if (!entry) return false;
 
                 root.innerHTML = entry.html;
+                this.suppressRestoredEnterAnimations(root);
                 try { refreshAuthStateAndUI(); } catch (_) {}
                 try { this.applyMobilePageTitle(page, { restoring: true }); } catch (_) {}
 
-                if (page === 'feed') {
+                if (page === 'home') {
+                    // Home's action buttons key off router.selectedMovie, which the fresh
+                    // render nulls — so clear the search UI to match rather than leaving a
+                    // restored dropdown pointing at a selection that no longer exists. This
+                    // is DOM-only (no network): the expensive part, the "You Might Like"
+                    // strip, is what the restore preserves.
+                    this.selectedMovie = null;
+                    this.pendingTitle = '';
+                    try { resetHomeSearchAndFilters(); } catch (_) {}
+                } else if (page === 'ai_picks') {
+                    // Deliberately NOT calling initAiPicksPage() — its first half is a state
+                    // reset (showAiResults([]) etc.) that would wipe the picks we just
+                    // restored. Its listeners are bound once, at document level, and survive.
+                } else if (page === 'feed') {
                     try { initFeedPage(); } catch (_) {}
                 } else if (page === 'library') {
                     try { initLibraryPage(); } catch (_) {}
@@ -254,7 +310,7 @@
                 }
 
                 try { reattachInfiniteScrollForPage(page); } catch (_) {}
-                try { window.scrollTo(0, Number(entry.scrollY) || 0); } catch (_) {}
+                this.restoreScrollY(entry.scrollY);
                 return true;
             },
 
@@ -461,10 +517,6 @@
                 // Mobile header bar shows the current page title (desktop shows the brand).
                 try { this.applyMobilePageTitle(page); } catch (_) {}
 
-                // Phase 2 — play the mobile page-enter transition as the new view swaps
-                // in, in the direction we're travelling (see `backward` above).
-                try { animatePageEnter(root, backward ? 'back' : ''); } catch (_) {}
-
                 // Active Nav
                 document.querySelectorAll('.nav-link').forEach(el => {
                     let label = '';
@@ -493,6 +545,13 @@
                 // no re-render, no loaders, no refetch. Everything above this line is page
                 // chrome that has to run either way; everything below is the fresh render.
                 if (this.tryRestorePageCache(page, mode)) return;
+
+                // Phase 2 — play the mobile page-enter transition as the new view swaps in,
+                // in the direction we're travelling (see `backward` above). Deliberately
+                // AFTER the restore check: a restored page was already on screen, so sliding
+                // it in reads as a glitch rather than as a transition. It also has to clear
+                // any class a previous nav left mid-flight, which animatePageEnter does.
+                try { animatePageEnter(root, backward ? 'back' : ''); } catch (_) {}
 
                 if (page === 'home') {
                     root.innerHTML = this.renderHome();

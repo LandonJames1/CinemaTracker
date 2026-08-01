@@ -2089,8 +2089,16 @@
 
             try {
                 // Primary: server-side sort/filter/paging via `user_library_items`.
-                let q = libraryBuildServerQuery({ userId: authedUser.id, offset: start, limit: limitPlusOne });
-                let { data, error } = await q;
+                // First page of the DEFAULT view? The boot prewarm (27-prewarm.js) may
+                // already hold exactly these rows — and their posters — so the page paints
+                // with no round-trip. takeLibraryFirstPagePrewarm checks the sort/filter/
+                // search signature still matches, so a filtered view always queries.
+                let pre = null;
+                if (replace && start === 0) {
+                    try { pre = takeLibraryFirstPagePrewarm(authedUser.id); } catch (_) {}
+                }
+                let q = pre ? null : libraryBuildServerQuery({ userId: authedUser.id, offset: start, limit: limitPlusOne });
+                let { data, error } = pre ? { data: pre, error: null } : await q;
 
                 // If genres column isn't an array, `.contains` may fail; retry genre filter via `genre` string.
                 if (error && String(error?.message || '').toLowerCase().includes('operator')) {
@@ -3911,13 +3919,25 @@
                 // Top 100, then infinite-scroll appends the next 100 (accumulated in
                 // feedNormalRows). Shaped like watch rows so the dedup/merge is unchanged.
                 if (!appendNormal) { feedNormalRows = []; feedNormalOffset = 0; feedNormalHasMore = false; }
-                const { data: recent, error: wErr } = await supabaseClient
-                    .from('Movie Ratings')
-                    .select('user_id, movie_id, watch_date, updated_at, created_at')
-                    .in('user_id', queryUserIds)
-                    .order('created_at', { ascending: false, nullsFirst: false })
-                    .range(feedNormalOffset, feedNormalOffset + FEED_NORMAL_PAGE - 1);
-                if (wErr) throw wErr;
+                // The boot prewarm (27-prewarm.js) may already hold this exact first page —
+                // it's the query everything below depends on, so skipping it removes a full
+                // round-trip from the critical path. Only valid for page 1 of the same set
+                // of users (takeFeedFirstPagePrewarm checks that).
+                let pre = null;
+                if (!appendNormal) {
+                    try { pre = takeFeedFirstPagePrewarm(queryUserIds); } catch (_) {}
+                }
+                let recent = pre;
+                if (!pre) {
+                    const { data, error: wErr } = await supabaseClient
+                        .from('Movie Ratings')
+                        .select('user_id, movie_id, watch_date, updated_at, created_at')
+                        .in('user_id', queryUserIds)
+                        .order('created_at', { ascending: false, nullsFirst: false })
+                        .range(feedNormalOffset, feedNormalOffset + FEED_NORMAL_PAGE - 1);
+                    if (wErr) throw wErr;
+                    recent = data;
+                }
                 const batch = Array.isArray(recent) ? recent : [];
                 feedNormalRows.push(...batch);
                 feedNormalOffset += batch.length;
