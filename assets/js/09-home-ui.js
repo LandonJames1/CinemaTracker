@@ -331,9 +331,15 @@
         // going back read as a reload rather than as a return.
         function animatePageEnter(root, kind) {
             try {
-                if (!root || !isMobileViewport()) return;
+                if (!root) return;
                 if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-                const cls = (kind === 'back') ? 'page-enter-back' : 'page-enter';
+                const back = (kind === 'back');
+                // The BACK variant is the tail of the swipe gesture, so it stays mobile-only.
+                // The forward fade runs EVERYWHERE — desktop used to get the page template's
+                // 0.4s `.fade-in` instead, and mobile got both stacked, which is what made
+                // page switches flash. One animation, same on both.
+                if (back && !isMobileViewport()) return;
+                const cls = back ? 'page-enter-back' : 'page-enter';
                 root.classList.remove('page-enter', 'page-enter-back');
                 void root.offsetWidth; // force reflow so the animation restarts each nav
                 root.classList.add(cls);

@@ -1149,12 +1149,23 @@
             const attempts = d.attempts || 0;
             const cur = Math.min(max, attempts + 1);
             const armed = !!gameGiveUpArmed[game];
+            // Back sits IN this row, left of Hint — one control bar per game instead of a
+            // separate head row above it. (Only reached while the game is unfinished; the
+            // results frame has its own Back, so there's no double-up.)
+            // TWO rows: the buttons up top (Back + Hint grouped left, Give Up right), then
+            // the counter on its own full-width row below. Keeping the counter in the
+            // button row meant it could be evenly spaced OR dead-centre but not both —
+            // Back+Hint is wider than Give Up, so any single-row arrangement pulled it
+            // off-centre. On its own row it's simply centred, with nothing to balance.
             return `
                 <div class="spottle-topbar">
-                    ${gameHintButtonHtml(game, d)}
-                    <div class="spottle-counter">Guess <span class="spottle-counter-num">${cur}</span> of ${max}</div>
+                    <div class="spottle-topbar-left">
+                        ${gameBackBtnHtml()}
+                        ${gameHintButtonHtml(game, d)}
+                    </div>
                     <button class="spottle-topbtn spottle-giveup-btn ${armed ? 'is-armed' : ''}" type="button" data-game-giveup="${game}">${SPOTTLE_FLAG_ICON} ${armed ? 'Confirm' : 'Give Up'}</button>
-                </div>`;
+                </div>
+                <div class="spottle-counter">Guess <span class="spottle-counter-num">${cur}</span> of ${max}</div>`;
         }
 
         // Re-render whichever guess game is active.
@@ -1185,9 +1196,9 @@
             if (!play) return;
             if (!d) { play.innerHTML = gamePlayHeadHtml('spottle') + '<div class="games-error">No puzzle available today.</div>'; return; }
             if (d.done && gamesFinishedView.spottle === 'results') { renderGameResults('spottle'); return; }
-            play.innerHTML = `
-                ${gamePlayHeadHtml('spottle')}
-                ${spottleBoardHtml(d, false)}`;
+            // No separate head row: the Back caret lives in the board's own top control
+            // bar (guessTopbarHtml), left of Hint.
+            play.innerHTML = spottleBoardHtml(d, false);
         }
 
         // Reveal the NEXT progressive hint tier for a guess game (spottle/poster).
@@ -1354,9 +1365,9 @@
             if (!play) return;
             if (!d) { play.innerHTML = gamePlayHeadHtml('poster') + '<div class="games-error">No puzzle available today.</div>'; return; }
             if (d.done && gamesFinishedView.poster === 'results') { renderGameResults('poster'); return; }
-            play.innerHTML = `
-                ${gamePlayHeadHtml('poster')}
-                ${posterBoardHtml(d, false)}`;
+            // No separate head row: the Back caret lives in the board's own top control
+            // bar (guessTopbarHtml), left of Hint.
+            play.innerHTML = posterBoardHtml(d, false);
             applyPosterBlurTransition();
         }
 
@@ -1466,9 +1477,9 @@
             if (!play) return;
             if (!d) { play.innerHTML = gamePlayHeadHtml('cast') + '<div class="games-error">No puzzle available today.</div>'; return; }
             if (d.done && gamesFinishedView.cast === 'results') { renderGameResults('cast'); return; }
-            play.innerHTML = `
-                ${gamePlayHeadHtml('cast')}
-                ${castBoardHtml(d, false)}`;
+            // No separate head row: the Back caret lives in the board's own top control
+            // bar (guessTopbarHtml), left of Hint.
+            play.innerHTML = castBoardHtml(d, false);
         }
 
         // ---- Rank ----------------------------------------------------------------
@@ -1512,12 +1523,13 @@
             // triggered by the give-up control preserves the user's arrangement.
             if (!rankOrderIds.length) rankOrderIds = (d.movies || []).map((m) => Number(m.tmdb_id));
             const armed = !!gameGiveUpArmed.rank;
-            // Rank has NO hint — ordering the films IS the puzzle — so the top bar is
-            // just the counter + Give Up.
+            // Rank has NO hint — ordering the films IS the puzzle — and no counter row
+            // either (it's one shot, so there's nothing to count), leaving just Back and
+            // Give Up. Same classes as the guess games so the two buttons render
+            // identically; the instruction line below carries the "what to do".
             play.innerHTML = `
-                ${gamePlayHeadHtml('rank')}
                 <div class="spottle-topbar">
-                    <div class="spottle-counter">Order ${(d.movies || []).length || 6} films</div>
+                    <div class="spottle-topbar-left">${gameBackBtnHtml()}</div>
                     <button class="spottle-topbtn spottle-giveup-btn ${armed ? 'is-armed' : ''}" type="button" data-rank-giveup>${SPOTTLE_FLAG_ICON} ${armed ? 'Confirm' : 'Give Up'}</button>
                 </div>
                 <div class="rank-hint">Drag the cards (or use ▲▼) to order them from <strong>highest</strong> to <strong>lowest</strong> IMDb rating.</div>

@@ -1071,17 +1071,22 @@
         /* Desktop never pulls-to-refresh, so the spinner stays hidden there. */
         @media (min-width: 769px) { .ptr-indicator { display: none; } }
 
-        /* ===== Phase 2 — page-enter transition (mobile-only, set by animatePageEnter) ===== */
+        /* ===== Phase 2 — page-enter transition (set by animatePageEnter) =====
+           The app's ONE entry animation, mobile and desktop alike. Deliberately a pure
+           OPACITY fade: it used to also slide 10px, which stacked with the page template's
+           own `.fade-in` slide (now suppressed) and with a scroll restore, and read as the
+           content twitching up and down on every switch. Nothing moves; it just appears. */
+        #app-root.page-enter { animation: pageEnter 0.18s ease-out both; will-change: opacity; }
         @media (max-width: 768px) {
-            #app-root.page-enter { animation: pageEnter 0.2s ease-out both; will-change: opacity, transform; }
             /* Going BACK: the swipe carries the old page off to the left, so the page
-               being returned to arrives from the right. Reusing the forward fade-up here
-               made a back read as a fresh load rather than as a return. */
+               being returned to arrives from the right. Mobile-only — it's the tail of
+               the gesture. Reusing the forward fade here made a back read as a fresh load
+               rather than as a return. */
             #app-root.page-enter-back { animation: pageEnterBack 0.22s ease-out both; will-change: opacity, transform; }
         }
         @keyframes pageEnter {
-            from { opacity: 0; transform: translateY(10px); }
-            to   { opacity: 1; transform: translateY(0); }
+            from { opacity: 0; }
+            to   { opacity: 1; }
         }
         @keyframes pageEnterBack {
             from { opacity: 0; transform: translateX(22px); }
@@ -8706,17 +8711,41 @@
         .games-guess-item img { width: 30px; height: 45px; object-fit: cover; border-radius: 4px; background: #16161a; }
         .games-guess-item.no-poster { padding: 11px 12px; }
 
-        /* Spottle — top control bar: Hint · Guess N of M · Give Up */
+        /* Games — top control bar: ‹ Back · Hint · Guess N of M · Give Up
+           (rank has no Hint, so it reads ‹ Back · Order N films · Give Up).
+           The Back caret is IN this row rather than a head row above it, so each game has
+           exactly one control bar. */
+        /* ⚠️ TWO rows, and that's deliberate. The counter used to sit IN this row, which
+           forced a choice between "evenly spaced" and "text dead-centre" — Back+Hint is
+           wider than Give Up, so every single-row arrangement (space-between, a 1fr auto
+           1fr grid, a centred cluster) pulled it off-centre or left big lopsided voids on
+           the 850px desktop bar. Splitting it out removes the conflict entirely: the
+           buttons space themselves, and the counter is just centred on its own line. */
         .spottle-topbar {
-            display: flex; align-items: center; justify-content: space-between; gap: 12px;
-            max-width: var(--games-w, 680px); margin: 4px 0 14px;
+            display: flex; align-items: center; justify-content: space-between; gap: 8px;
+            max-width: var(--games-w, 680px); margin: 4px 0 10px;
         }
+        /* ⚠️ `align-self: stretch` is load-bearing. The Back caret sizes itself with
+           `align-self: stretch` (so its height tracks the pills beside it), which needs a
+           parent that already HAS a height. On the guess games this group also holds the
+           Hint button, so it did — but on Rank It, Back is the group's only child, so the
+           group collapsed to the bare caret glyph and the button rendered noticeably
+           shorter than the same button on every other game. Stretching the group to the
+           row (whose height Give Up sets) makes all four match. */
+        .spottle-topbar-left { display: flex; align-items: center; gap: 8px; align-self: stretch; }
+        /* Sized for this row, not for the results hero: match the pills' shape, and let
+           the height track them via stretch instead of the fixed 38px square. */
+        .spottle-topbar .games-back-ico {
+            width: 42px; height: auto; align-self: stretch; border-radius: 999px;
+            background: #16202e; border-color: #2a3a52;
+        }
+        .spottle-topbar .games-back-ico .games-back-caret { font-size: 1.7rem; }
         .spottle-topbtn {
-            display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px;
+            display: inline-flex; align-items: center; gap: 7px; padding: 12px 18px; border-radius: 999px;
             background: #16202e; border: 1px solid #2a3a52; color: #dbe5f0; cursor: pointer;
-            font-size: 0.86rem; font-weight: 600; line-height: 1;
+            font-size: 0.94rem; font-weight: 600; line-height: 1;
         }
-        .spottle-topbtn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2;
+        .spottle-topbtn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2;
             stroke-linecap: round; stroke-linejoin: round; }
         .spottle-topbtn:hover { border-color: var(--brand, #14b8a6); }
         .spottle-topbtn.is-locked { opacity: 0.6; cursor: default; }
@@ -8724,8 +8753,16 @@
         .spottle-giveup-btn { color: #fca5a5; border-color: #4a2530; }
         .spottle-giveup-btn:hover { border-color: #ef4444; }
         .spottle-giveup-btn.is-armed { background: #ef4444; color: #fff; border-color: #ef4444; }
-        .spottle-counter { font-size: 0.95rem; font-weight: 600; color: #dbe5f0; text-align: center; }
-        .spottle-counter-num { color: #f5a623; font-weight: 800; }
+        /* Its own full-width row under the buttons, so `text-align: center` puts it dead
+           centre with nothing to balance it against. Sized to read as the board's headline
+           status (it's the one thing telling you how much rope is left), not as a caption:
+           bigger than the buttons, pure white, with the live number in the amber accent. */
+        .spottle-counter {
+            display: block; max-width: var(--games-w, 680px); margin: 0 0 16px;
+            font-size: 1.35rem; font-weight: 700; color: #fff; text-align: center;
+            letter-spacing: 0.01em;
+        }
+        .spottle-counter-num { color: #f5a623; font-weight: 800; font-size: 1.12em; }
         .spottle-hint-reveal {
             max-width: var(--games-w, 680px); margin: -6px 0 12px; padding: 10px 14px; border-radius: 12px;
             background: color-mix(in srgb, #f5a623 14%, #101826); border: 1px solid #4a3a1a;
@@ -9352,8 +9389,14 @@
             .spottle-person-img { width: clamp(32px, 11vw, 46px); height: clamp(32px, 11vw, 46px); }
             .spottle-person-name { font-size: 0.58rem; }
             .spottle-person-label { font-size: 0.55rem; }
-            .spottle-topbar, .spottle-topbtn { font-size: 0.8rem; }
-            .spottle-topbtn { padding: 7px 11px; }
+            /* Only three controls in this row now that the counter has its own line, so
+               even the widest state ("No more hints" + Give Up) fits a phone comfortably. */
+            .spottle-topbar, .spottle-topbtn { font-size: 0.82rem; }
+            .spottle-topbtn { padding: 11px 12px; }
+            .spottle-topbar, .spottle-topbar-left { gap: 8px; }
+            .spottle-topbar .games-back-ico { width: 36px; }
+            .spottle-topbar .games-back-ico .games-back-caret { font-size: 1.45rem; }
+            .spottle-counter { font-size: 1.15rem; margin-bottom: 14px; }
 
             /* Hide the bottom tab bar while the guess box is focused. iOS floats the fixed
                bottom bar up over the keyboard, on top of the guess dropdown; a z-index bump

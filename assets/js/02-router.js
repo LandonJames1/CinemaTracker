@@ -59,7 +59,7 @@
                 root.innerHTML = snap.html;
                 // Don't let the re-inserted `.fade-in` wrapper replay its slide-up — the
                 // directional page-enter-back below is the only motion a Back should have.
-                this.suppressRestoredEnterAnimations(root);
+                this.suppressWrapperEnterAnimation(root);
                 // Keep the account-page module state in sync with a restored account
                 // snapshot (mode carries the viewed user id) so Follow/back act on the
                 // right user after a profile→profile→back chain.
@@ -165,6 +165,21 @@
 
             clearPageCache() { try { this.pageCache.clear(); } catch (_) {} },
 
+            // Is the page mid-load? Only skeletons in the CONTENT count. The Feed's
+            // infinite-scroll sentinel permanently contains `skeletonRows(2)` as its
+            // "more coming" hold (renderFeedNormalLoadMore in 05), so a naive
+            // `querySelector('.skel')` matched on every fully-loaded feed — which meant
+            // the Feed was NEVER cached and reloaded on every single visit.
+            pageHasLoadingSkeleton(root) {
+                try {
+                    const skels = root.querySelectorAll('.skel, .skel-card, .skel-cover');
+                    for (const el of skels) {
+                        if (!el.closest('.infinite-sentinel')) return true;
+                    }
+                } catch (_) {}
+                return false;
+            },
+
             // Store the page we're leaving. Skipped while it's still LOADING: a page
             // captured mid-load would restore its skeletons forever, because the loader
             // that was going to replace them resolves into a DOM we've since detached.
@@ -175,7 +190,7 @@
                     if (!this.pageCachePages.has(page)) return;
                     const root = document.getElementById('app-root');
                     if (!root || !root.innerHTML.trim()) return;
-                    if (root.querySelector('.skel, .skel-card, .skel-cover')) return;
+                    if (this.pageHasLoadingSkeleton(root)) return;
                     const key = this.pageCacheKey(page, mode);
                     this.pageCache.delete(key);   // re-insert so the Map stays in LRU order
                     this.pageCache.set(key, {
@@ -215,13 +230,16 @@
                 return false;
             },
 
-            // Both restore paths re-insert stored HTML, and inserting an element with an
-            // `animation` REPLAYS it — so every page template's `.fade-in` wrapper slid up
-            // 10px again on a page that was already on screen (and on mobile the
-            // `page-enter` class added a second translateY on top, while the scroll was
-            // being restored). That stacked motion is the "content moves up and down"
-            // glitch. Call this immediately after writing innerHTML on a restore.
-            suppressRestoredEnterAnimations(root) {
+            // ⚠️ Writing innerHTML REPLAYS any CSS animation on the inserted nodes, and
+            // every page template wraps itself in `.fade-in` (0.4s opacity 0→1 + a 10px
+            // slide). That fires on EVERY render, fresh or restored, nested inside the
+            // `page-enter` fade — two stacked opacity animations multiply into a
+            // non-linear double fade, which is what read as a flash/glitch on every page
+            // switch, and on a restore it also slid a page that was already on screen.
+            // So: exactly ONE entry animation, `page-enter`, applied by navigate() to the
+            // content that is now on screen. Call this right after writing innerHTML —
+            // on both the fresh-render and the restore paths.
+            suppressWrapperEnterAnimation(root) {
                 try {
                     if (!root) return;
                     // A class left behind by a nav whose animation never reached
@@ -261,7 +279,7 @@
                 if (!entry) return false;
 
                 root.innerHTML = entry.html;
-                this.suppressRestoredEnterAnimations(root);
+                this.suppressWrapperEnterAnimation(root);
                 try { refreshAuthStateAndUI(); } catch (_) {}
                 try { this.applyMobilePageTitle(page, { restoring: true }); } catch (_) {}
 
@@ -546,13 +564,6 @@
                 // chrome that has to run either way; everything below is the fresh render.
                 if (this.tryRestorePageCache(page, mode)) return;
 
-                // Phase 2 — play the mobile page-enter transition as the new view swaps in,
-                // in the direction we're travelling (see `backward` above). Deliberately
-                // AFTER the restore check: a restored page was already on screen, so sliding
-                // it in reads as a glitch rather than as a transition. It also has to clear
-                // any class a previous nav left mid-flight, which animatePageEnter does.
-                try { animatePageEnter(root, backward ? 'back' : ''); } catch (_) {}
-
                 if (page === 'home') {
                     root.innerHTML = this.renderHome();
                     this.selectedMovie = null;
@@ -651,7 +662,16 @@
                     syncDashboardGeneralPieUI();
                     syncDashboardRatingsChartUI();
                 }
-                
+
+                // ONE entry animation, on the content that is NOW on screen. This used to
+                // run before the render chain, i.e. it started animating the OUTGOING DOM
+                // and forced a reflow on it, so a frame of the old page could show at
+                // partial opacity mid-swap — half of the "short flash" on every switch.
+                // The other half was the page template's own `.fade-in` replaying nested
+                // inside it; suppressWrapperEnterAnimation kills that, leaving exactly one.
+                this.suppressWrapperEnterAnimation(root);
+                try { animatePageEnter(root, backward ? 'back' : ''); } catch (_) {}
+
                 window.scrollTo(0, 0);
             },
 
