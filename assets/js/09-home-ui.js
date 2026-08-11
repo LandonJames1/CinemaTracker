@@ -840,3 +840,23 @@
             }
         }, { capture: true });
 
+        // Same for the HOME search dropdown, which never had one — picking a result used
+        // to hide it, so there was nothing to dismiss. Now that picking a result leaves
+        // the dropdown open underneath the Movie Spotlight (see the click handler in
+        // 08-search-trending.js), clicking outside has to be the way out, or the results
+        // panel becomes a thing you can't get rid of.
+        //
+        // ⚠️ Clicks inside ANY open modal/sheet must NOT close it. The spotlight opens on
+        // top of the still-open dropdown, so treating a tap on the modal (or on its
+        // backdrop, which IS the .auth-overlay element) as "outside" would close the very
+        // results the user is going back to.
+        document.addEventListener('click', (e) => {
+            const results = document.getElementById('search-results');
+            const input = document.getElementById('movie-search-input');
+            const t = e?.target;
+            if (!results || !input || !t || results.classList.contains('hidden')) return;
+            if (results.contains(t) || input.contains(t)) return;
+            if (t.closest && t.closest('.auth-overlay, .more-sheet-overlay, .feed-follows-panel')) return;
+            try { results.classList.add('hidden'); } catch (_) {}
+        }, { capture: true });
+

@@ -530,11 +530,22 @@
                     // Open the rich Movie Spotlight modal (poster/backdrop/cast/IMDb +
                     // the same Log/Update/List/Recommend actions). Falls back to the
                     // old inline selection if the modal isn't available.
+                    //
+                    // ⚠️ Picking a result deliberately leaves BOTH the typed query and
+                    // the open dropdown alone, so closing the spotlight drops you back
+                    // on your results — searching "Dune" and opening 1984 / 2021 /
+                    // Part Two in turn is the whole reason you'd open one from here.
+                    // The modal is `position: fixed` above the dropdown, so there is no
+                    // state to restore: it's simply still open underneath.
+                    //
+                    // It used to do `input.value = picked.title` + hide the dropdown —
+                    // a leftover from the pre-spotlight flow, where picking a movie
+                    // filled the box and revealed inline Log/Update buttons on Home.
+                    // That overwrote what the user actually typed ("du" became "Dune")
+                    // and left the box implying a result list that was no longer there.
+                    // The dropdown is dismissed by clicking outside it instead (see the
+                    // handler in 09-home-ui.js) or by the input's × clear button.
                     if (typeof openMovieSpotlight === 'function') {
-                        const input = document.getElementById('movie-search-input');
-                        if (input) input.value = picked.title || '';
-                        const dropdown = document.getElementById('search-results');
-                        if (dropdown) dropdown.classList.add('hidden');
                         openMovieSpotlight(picked);
                     } else {
                         router.selectMovie(picked);
