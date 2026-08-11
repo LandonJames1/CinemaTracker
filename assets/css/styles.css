@@ -5331,6 +5331,22 @@
             justify-content: start;
             justify-items: start;
         }
+        /* Saving a diary entry drops you back on My Movies scrolled to that card
+           (consumePendingLibraryScroll in 05-feed-library.js). This pulse is the only
+           thing telling you WHICH card you just wrote, so it runs on both views. */
+        .library-jump-highlight {
+            border-radius: 1rem;
+            animation: libraryJumpPulse 2.2s ease-out 1;
+        }
+        @keyframes libraryJumpPulse {
+            0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 0%, transparent); }
+            15%  { box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 90%, transparent); }
+            70%  { box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 60%, transparent); }
+            100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--brand) 0%, transparent); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .library-jump-highlight { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 70%, transparent); }
+        }
         .library-movie-grid .dash-kpi-movie-card {
             align-items: flex-start;
             width: 100%;
@@ -7188,6 +7204,24 @@
             gap: 8px;
             margin-top: 18px;
         }
+
+        /* Armed state for a small destructive control awaiting its SECOND tap
+           (confirmDestructiveTap in 09-home-ui.js). Nothing in the app deletes on one
+           tap; the big deletions use a confirm modal, these inline "×" controls light
+           up red and wait instead. */
+        .is-armed {
+            background: #7f1d1d !important;
+            border-color: rgba(239, 68, 68, 0.9) !important;
+            color: #fff !important;
+            animation: destructiveArmPulse 1s ease-in-out infinite;
+        }
+        @keyframes destructiveArmPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55); }
+            50%      { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.0); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .is-armed { animation: none; box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.8); }
+        }
         .diary-action-btn {
             flex: 1 1 0;
             min-width: 0;
@@ -8161,8 +8195,11 @@
         .ms-tagline { margin-top: 0.3rem; font-size: 0.9rem; font-style: italic; color: rgba(255,255,255,0.72); }
 
         /* ---- Tabs (fixed zone) ---- */
+        /* Spacing is the `gap` ALONE. It used to be gap 0.4rem PLUS a 0.6rem
+           margin-right on every button — 16px between tabs, which is a big chunk of a
+           phone's width to spend on nothing when there are five of them. */
         .ms-tabs {
-            display: flex; gap: 0.4rem; padding: 0 1.4rem;
+            display: flex; gap: 1rem; padding: 0 1.4rem;
             border-bottom: 1px solid rgba(255,255,255,0.08);
             background: #16161a; z-index: 3;
             overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
@@ -8170,7 +8207,7 @@
         .ms-tabs::-webkit-scrollbar { display: none; }
         .ms-tabs button {
             appearance: none; background: none; border: none; cursor: pointer;
-            padding: 0.7rem 0.3rem; margin-right: 0.6rem; white-space: nowrap; flex: 0 0 auto;
+            padding: 0.7rem 0.3rem; white-space: nowrap; flex: 0 0 auto;
             font-size: 0.9rem; font-weight: 800; color: rgba(255,255,255,0.5);
             border-bottom: 2.5px solid transparent; transition: color 0.18s, border-color 0.18s;
         }
@@ -8190,8 +8227,15 @@
             padding: 0.55rem 0 0; font-size: 0.78rem; color: rgba(255,255,255,0.42);
         }
 
-        /* Synopsis tab */
+        /* Synopsis — the bottom section of the Info tab (there is no longer a separate
+           "Brief" tab; see spotlightDetailsCardsHtml). Divider + label so it reads as
+           its own block under the KPI cards. */
         .ms-overview { font-size: 0.97rem; line-height: 1.65; color: rgba(255,255,255,0.88); font-weight: 500; margin: 0; }
+        .ms-synopsis {
+            margin-top: 0.85rem; padding-top: 0.85rem;
+            border-top: 1px solid rgba(255,255,255,0.09);
+        }
+        .ms-synopsis .ms-stat-label { margin-bottom: 0.4rem; }
 
         /* Details tab — Row 1: Director + IMDb · Row 2: Genre · Row 3: MPA/Runtime/Released */
 
@@ -8375,6 +8419,29 @@
             .ms-poster { flex-basis: 92px; width: 92px; height: 138px; }
             .ms-title { font-size: 1.4rem; }
             .ms-tabs, .ms-panel, .ms-actions { padding-left: 1.1rem; padding-right: 1.1rem; }
+            /* Tabs are CONTENT-WIDTH with EVENLY DISTRIBUTED space — not equal columns.
+               Equal columns (`flex: 1 1 0`) centre each label inside its own equal box,
+               so the visible gap between two labels is whatever their lengths leave
+               over: "Info | Cast" sat ~37px apart while "Where | My Review" was ~15px,
+               which reads as badly spaced even though the boxes are identical.
+               `space-evenly` on content-sized buttons makes every gap the same instead,
+               and the active underline hugs its label rather than spanning a column.
+               The row keeps `overflow-x: auto` from the base rule as a safety net (huge
+               text settings) — at normal sizes the five labels fit with room to spare,
+               which is why the "Brief" tab was folded into Info rather than shrunk. */
+            .ms-tabs {
+                gap: 0; justify-content: space-evenly;
+                padding-left: 0.4rem; padding-right: 0.4rem;
+            }
+            .ms-tabs button {
+                flex: 0 0 auto; text-align: center;
+                padding: 0.7rem 0; font-size: 0.82rem;
+            }
+            /* "My Review" is the widest label; on the narrowest phones (SE-class, 320px)
+               the row would otherwise run out of breathing room between tabs. */
+            @media (max-width: 360px) {
+                .ms-tabs button { font-size: 0.76rem; }
+            }
             .ms-cast-grid { grid-template-columns: repeat(3, 1fr); }
             /* Cast photos 15% smaller on mobile (grid stays 3-up; shrink the photo
                within each card so the whole row fits without scrolling). */
@@ -8397,6 +8464,28 @@
             .movie-spotlight-modal { animation: none; }
         }
         .trending-card { cursor: pointer; }
+
+        /* "My Review" tab — the viewer's own diary entry, rendered by the SAME
+           renderLibraryDiaryBody as the standalone diary popup but with its
+           poster/title/meta header dropped (the spotlight hero already shows it).
+           .ms-panel is the scroller here, so the notes block shouldn't also cap
+           its own height and create a scroller-inside-a-scroller. */
+        .ms-myreview > :first-child { margin-top: 0; }
+        .ms-myreview .review-notes-scroll { max-height: none; overflow: visible; padding-right: 0; }
+        /* Delete is the ONLY button left in this row (Edit and Recommend were dropped —
+           the action footer right below already offers both). `.diary-action-btn` is
+           `flex: 1 1 0`, so on its own it would stretch into a full-width red banner;
+           keep it small and centred instead — it's a rarely-used destructive action,
+           not the point of the tab. */
+        .ms-myreview .diary-actions-row { margin-top: 18px; justify-content: center; }
+        .ms-myreview .diary-action-btn {
+            flex: 0 1 132px;
+            flex-direction: row;
+            gap: 6px;
+            padding: 0.4rem 0.7rem;
+            font-size: 0.74rem;
+        }
+        .ms-myreview .diary-action-ico svg { width: 15px; height: 15px; }
 
         /* ============================================================
            Activity inbox (navbar bell → dropdown on desktop / bottom sheet

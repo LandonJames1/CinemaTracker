@@ -39,6 +39,13 @@
                 try {
                     const root = document.getElementById('app-root');
                     if (!root) return null;
+                    // Same two guards as pageCachePut, for the same reasons: never store
+                    // an EMPTY copy (restoring it would blank the page), and never store
+                    // a mid-load one (its skeletons would restore forever, since the
+                    // loader that was going to replace them resolves into a DOM we've
+                    // detached). Returning null just means Back re-renders that page.
+                    if (!root.innerHTML.trim()) return null;
+                    if (this.pageHasLoadingSkeleton(root)) return null;
                     return { page, mode, html: root.innerHTML, scrollY: window.scrollY || window.pageYOffset || 0 };
                 } catch (_) { return null; }
             },
@@ -48,6 +55,9 @@
             restoreSnapshot(snap) {
                 const root = document.getElementById('app-root');
                 if (!snap || !root) return false;
+                // A Back is very often the tail of a swipe gesture, so this is exactly
+                // where a stranded inline transform/opacity would land.
+                this.clearAppRootTransientStyles(root);
                 // Back is just another way to LEAVE the current page, and this path
                 // returns before navigate()'s own capture runs — so cache the outgoing
                 // page here too, or a page exited by swipe/OS-back would reload next time.
@@ -246,6 +256,29 @@
                     // animationend would keep transforming the page we just restored.
                     root.classList.remove('page-enter', 'page-enter-back');
                     root.querySelectorAll('.fade-in').forEach((el) => el.classList.add('no-enter-anim'));
+                } catch (_) {}
+            },
+
+            // ⚠️ SAFETY NET — do not remove. #app-root is the one element the two drag
+            // gestures move IN PLACE: the swipe-back (26-back-nav.js) sets an inline
+            // translateX + opacity, and pull-to-refresh (09-home-ui.js) sets an inline
+            // translateY. Both normally clean up on touchend — but a gesture that never
+            // gets its touchend (a second finger mid-drag was the known case) used to
+            // strand those styles on the element, and NOTHING in a normal navigation
+            // cleared them. The result was a page that rendered fine but was shifted
+            // off-position and/or faded out — i.e. "the page is blank and only a hard
+            // reload fixes it". The gesture bugs are fixed at the source, but this makes
+            // the whole class of failure self-healing: whatever strands a style there,
+            // the next navigation wipes it. Cheap (three property writes) and it runs on
+            // BOTH the fresh-render and the page-cache/snapshot restore paths.
+            clearAppRootTransientStyles(root) {
+                try {
+                    const el = root || document.getElementById('app-root');
+                    if (!el) return;
+                    el.style.transform = '';
+                    el.style.opacity = '';
+                    el.style.transition = '';
+                    el.classList.remove('page-enter', 'page-enter-back');
                 } catch (_) {}
             },
 
@@ -531,6 +564,11 @@
                 }
                 document.body.dataset.page = page;
                 const root = document.getElementById('app-root');
+
+                // Wipe any inline transform/opacity a half-finished drag gesture left on
+                // #app-root. Above the tryRestorePageCache early-return on purpose, so
+                // BOTH the fresh render and a restore get a clean element.
+                this.clearAppRootTransientStyles(root);
 
                 // Mobile header bar shows the current page title (desktop shows the brand).
                 try { this.applyMobilePageTitle(page); } catch (_) {}

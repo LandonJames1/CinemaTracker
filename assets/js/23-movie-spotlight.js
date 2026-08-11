@@ -25,8 +25,9 @@
             token: 0,
             reviews: null,        // null = not loaded yet; [] = loaded, none found
             reviewsLoading: false,
-            sharedListId: null,   // set ONLY when opened from a SHARED list → its members' reviews join the User Reviews tab
+            sharedListId: null,   // set ONLY when opened from a SHARED list → its members' reviews join the Friends tab
             tasteScore: null,     // set ONLY when opened from the "You Might Like" home strip → drives the "% match" tile
+            myEntry: null,        // the viewer's OWN library-view row → drives the "My Review" tab (null = none/not loaded yet)
         };
 
         function spotlightTmdbImg(path, size) {
@@ -157,7 +158,17 @@
             ].filter(Boolean).join('');
             const cardsHtml = cards ? `<div class="ms-stats-mini">${cards}</div>` : '';
 
-            const html = `${matchHtml}${topRow}${genreHtml}${cardsHtml}`;
+            // Synopsis lives at the BOTTOM of this tab rather than in a tab of its own —
+            // it's one paragraph, and six tabs did not fit a phone screen. It also reads
+            // better here, next to the details it describes.
+            const synopsisHtml = mv.overview
+                ? `<div class="ms-synopsis">
+                        <div class="ms-stat-label">Synopsis</div>
+                        <p class="ms-overview">${escapeHtml(mv.overview)}</p>
+                   </div>`
+                : '';
+
+            const html = `${matchHtml}${topRow}${genreHtml}${cardsHtml}${synopsisHtml}`;
             return html.trim() ? html : `<p class="ms-empty">No additional details available.</p>`;
         }
 
@@ -303,8 +314,8 @@
             if (token !== movieSpotlightState.token) return;
             movieSpotlightState.reviews = Array.isArray(reviews) ? reviews : [];
             movieSpotlightState.reviewsLoading = false;
-            // Re-emit the tab bar so the "User Reviews" tab appears (≥1 follow review)
-            // or stays hidden (none).
+            // Re-emit the tab bar so the "Friends" tab appears (≥1 follow
+            // review) or stays hidden (none).
             const tabsEl = document.getElementById('ms-tabs');
             if (tabsEl) tabsEl.outerHTML = spotlightTabsHtml(movieSpotlightState.tab);
             // Repaint the panel only if the reviews tab is still showing.
@@ -388,7 +399,10 @@
             if (cardEl && cardEl.classList) cardEl.classList.toggle('is-open');
         }
 
-        async function openMovieSpotlight(movie) {
+        // `opts.tab` picks the tab to land on. My Movies (and the Data Dash posters /
+        // the profile "You —" chip) pass `'mine'` so a tap on your own poster opens
+        // straight onto your diary entry; every other opener lands on Info.
+        async function openMovieSpotlight(movie, opts) {
             if (!movie) return;
             const overlay = document.getElementById('movie-spotlight-overlay');
             if (!overlay) return;
@@ -400,15 +414,24 @@
             const cached = (Number.isFinite(tmdbId) && tmdbId > 0)
                 ? movieSpotlightDetailsCache.get(tmdbId) : null;
 
+            // The viewer's own diary row, when the opener already had it (My Movies /
+            // Data Dash). Otherwise refreshSpotlightRatedState fetches it, so the tab
+            // also appears on a movie you rated but opened from Home/Lists/Feed.
+            const myEntry = (movie && typeof movie._myEntry === 'object') ? movie._myEntry : null;
+
             movieSpotlightState.movie = movie;
             movieSpotlightState.details = cached || null;
-            movieSpotlightState.tab = 'details';
+            movieSpotlightState.tab = (String(opts?.tab || '') === 'mine' && myEntry) ? 'mine' : 'details';
             movieSpotlightState.loading = !cached;
-            movieSpotlightState.rated = false;
+            movieSpotlightState.rated = !!myEntry;
+            movieSpotlightState.myEntry = myEntry;
             movieSpotlightState.reviews = null;
             movieSpotlightState.reviewsLoading = false;
+            // The My Review tab's Edit/Recommend/Delete row rides the delegated
+            // [data-library-action] handlers, which are bound lazily by My Movies.
+            if (myEntry) { try { initLibraryPage(); } catch (_) {} }
             // Set ONLY by a poster tap on a SHARED list (openListMovieSpotlight) — makes the
-            // User Reviews tab include that list's members, not just the viewer's follows.
+            // Friends tab include that list's members, not just the viewer's follows.
             movieSpotlightState.sharedListId = String(movie?._sharedListId || '').trim() || null;
             // Only present when opened from the "You Might Like" home strip. Every
             // other opener (Search / Trending / Lists / Feed) passes no taste_score, so
@@ -479,8 +502,13 @@
             movieSpotlightState.token++; // cancel any in-flight render/fetch callbacks
             movieSpotlightState.tasteScore = null; // don't leak the match tile into the next opener
             movieSpotlightState.sharedListId = null; // nor the shared-list reviewer scope
+            movieSpotlightState.myEntry = null;      // nor this viewer's diary row
         }
 
+        // Resolves BOTH "have I rated this?" (which flips the action footer) and the
+        // viewer's own diary row (which drives the "My Review" tab). Run in parallel:
+        // the rating check stays the authority for `rated`, while the library-view row
+        // is what the tab actually renders.
         async function refreshSpotlightRatedState(token) {
             if (!supabaseClient) return;
             const { data } = await supabaseClient.auth.getSession();
@@ -488,12 +516,41 @@
             if (!authedUser?.id) return;
             const movie_id = await resolveDbMovieIdFromSelectedMovie(movieSpotlightState.movie);
             if (!movie_id) return;
-            const rated = await hasExistingMovieRating({ user_id: authedUser.id, movie_id });
+            const [rated, entry] = await Promise.all([
+                hasExistingMovieRating({ user_id: authedUser.id, movie_id }),
+                fetchMyLibraryEntry(authedUser.id, movie_id),
+            ]);
             if (token !== movieSpotlightState.token) return;
+
             movieSpotlightState.rated = !!rated;
-            // Only the action row depends on this — repaint it in place.
+            // `undefined` = the query failed, so keep whatever the opener handed us;
+            // `null` = there genuinely is no entry.
+            if (entry !== undefined) movieSpotlightState.myEntry = entry;
+
+            // Only the action row depends on `rated` — repaint it in place.
             const actions = document.getElementById('ms-actions');
             if (actions) actions.innerHTML = spotlightActionsHtml();
+            finishSpotlightMyEntry();
+        }
+
+        // The "My Review" tab appears/disappears with the entry, so re-emit the tab bar
+        // (same pattern as finishSpotlightReviews) and repaint the panel if it's showing.
+        function finishSpotlightMyEntry() {
+            const prevTab = movieSpotlightState.tab;
+            if (movieSpotlightState.myEntry) {
+                // The diary action row uses the delegated [data-library-action] handlers.
+                try { initLibraryPage(); } catch (_) {}
+            } else if (prevTab === 'mine') {
+                movieSpotlightState.tab = 'details';   // the tab we were on just vanished
+            }
+            const tab = movieSpotlightState.tab;
+            const tabs = document.getElementById('ms-tabs');
+            if (tabs) tabs.outerHTML = spotlightTabsHtml(tab);
+            // Repaint the panel when it's showing the entry, or when we just had to
+            // move off a "My Review" tab that no longer exists.
+            const panel = document.getElementById('ms-panel');
+            if (panel && (tab === 'mine' || tab !== prevTab)) panel.innerHTML = spotlightPanelHtml(tab);
+            scrollSpotlightActiveTabIntoView();
         }
 
         function setMovieSpotlightTab(tab) {
@@ -503,6 +560,7 @@
             document.querySelectorAll('#movie-spotlight-overlay [data-ms-tab]').forEach((b) => {
                 b.classList.toggle('is-active', b.getAttribute('data-ms-tab') === tab);
             });
+            scrollSpotlightActiveTabIntoView();
         }
 
         function spotlightActionsHtml() {
@@ -584,6 +642,14 @@
             const mv = spotlightMerged();
             const loading = movieSpotlightState.loading;
 
+            if (tab === 'mine') {
+                const entry = movieSpotlightState.myEntry;
+                if (!entry) return `<p class="ms-empty">You haven't reviewed this movie yet.</p>`;
+                // The SAME renderer + Edit/Recommend/Delete row as the standalone diary
+                // popup — minus its poster/title/meta block, which the hero already shows.
+                return `<div class="ms-myreview">${renderLibraryDiaryBody(entry, { showActions: true, showHeader: false })}</div>`;
+            }
+
             if (tab === 'cast') {
                 if (loading && !mv.cast_detailed.length) {
                     return `<div class="ms-loading"><div class="discover-spinner discover-spinner-sm"></div><span>Loading cast…</span></div>`;
@@ -631,48 +697,78 @@
                 return `${spotlightReviewsAvgHtml(reviews)}<div class="ms-reviews-list">${reviews.map(spotlightReviewCardHtml).join('')}</div>`;
             }
 
-            if (tab === 'details') {
-                // Paint whatever the OPENER already gave us (Lists carry director/genre/
-                // MPA/runtime/IMDb; search + feed carry year/genre) instead of blanking
-                // the whole tab behind a spinner — the details fetch then fills the gaps.
-                // Only a movie we know nothing about gets the bare spinner.
-                const hasAny = Boolean(mv.director) || mv.genres.length > 0 || Boolean(mv.mpa)
-                    || Boolean(mv.runtime) || Boolean(mv.year)
-                    || typeof mv.imdb_rating_pct === 'number';
-                if (loading && !hasAny) {
-                    return `<div class="ms-loading"><div class="discover-spinner discover-spinner-sm"></div><span>Loading details…</span></div>`;
-                }
-                const cards = spotlightDetailsCardsHtml(mv);
-                return loading
-                    ? `${cards}<div class="ms-loading ms-loading-inline"><div class="discover-spinner discover-spinner-sm"></div><span>Loading more…</span></div>`
-                    : cards;
+            // Info (default, and the fallback for any unknown tab key — which is what
+            // the retired 'overview' tab now resolves to, since the synopsis moved into
+            // spotlightDetailsCardsHtml at the bottom of this tab).
+            //
+            // Paint whatever the OPENER already gave us (Lists carry director/genre/
+            // MPA/runtime/IMDb; search + feed carry year/genre) instead of blanking
+            // the whole tab behind a spinner — the details fetch then fills the gaps.
+            // Only a movie we know nothing about gets the bare spinner.
+            const hasAny = Boolean(mv.director) || mv.genres.length > 0 || Boolean(mv.mpa)
+                || Boolean(mv.runtime) || Boolean(mv.year)
+                || typeof mv.imdb_rating_pct === 'number' || Boolean(mv.overview);
+            if (loading && !hasAny) {
+                return `<div class="ms-loading"><div class="discover-spinner discover-spinner-sm"></div><span>Loading details…</span></div>`;
             }
-
-            // Overview (default)
-            if (loading && !mv.overview) {
-                return `<div class="ms-loading"><div class="discover-spinner discover-spinner-sm"></div><span>Loading…</span></div>`;
-            }
-            return mv.overview
-                ? `<p class="ms-overview">${escapeHtml(mv.overview)}</p>`
-                : `<p class="ms-empty">No synopsis available.</p>`;
+            const cards = spotlightDetailsCardsHtml(mv);
+            return loading
+                ? `${cards}<div class="ms-loading ms-loading-inline"><div class="discover-spinner discover-spinner-sm"></div><span>Loading more…</span></div>`
+                : cards;
         }
 
-        // Builds the tab bar. The "User Reviews" tab is only included when at least one
-        // relevant user — someone the viewer follows, or a member of the shared list the
-        // spotlight was opened from — has reviewed this movie (reviews eagerly loaded on
-        // open); until then / when none, the button is omitted. Re-emitted by
-        // finishSpotlightReviews.
+        // Builds the tab bar. Info / Cast / Where keep their original order and positions
+        // — the two review tabs are APPENDED after them, so nothing an existing user has
+        // learned moves.
+        //
+        // ⚠️ There is NO "Brief" tab. It was removed when the review tabs landed: six tabs
+        // do not fit a phone screen, and the synopsis is one paragraph that reads better
+        // beside the details it describes, so it moved to the bottom of the Info tab
+        // (spotlightDetailsCardsHtml). Don't re-add it — add to Info instead.
+        //
+        // "My Review" is included when the viewer has their own diary entry for this
+        // movie. It sits BEFORE the followed-reviews tab (rather than last) so its
+        // position is stable: the followed tab appears asynchronously, and inserting it
+        // to My Review's left would shuffle a tab the user may already be reaching for.
+        //
+        // "Friends" is only included when at least one relevant user — someone
+        // the viewer follows, or a member of the shared list the spotlight was opened
+        // from — has reviewed this movie (reviews eagerly loaded on open); until then /
+        // when none, the button is omitted. Both are re-emitted as their data lands
+        // (finishSpotlightMyEntry / finishSpotlightReviews).
         function spotlightTabsHtml(tab) {
             const reviews = movieSpotlightState.reviews;
             const showReviews = Array.isArray(reviews) && reviews.length > 0;
+            const showMine = !!movieSpotlightState.myEntry;
             return `
                 <div class="ms-tabs" id="ms-tabs">
                     <button type="button" data-ms-tab="details" class="${tab === 'details' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('details')">Info</button>
-                    <button type="button" data-ms-tab="overview" class="${tab === 'overview' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('overview')">Brief</button>
                     <button type="button" data-ms-tab="cast" class="${tab === 'cast' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('cast')">Cast</button>
                     <button type="button" data-ms-tab="watch" class="${tab === 'watch' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('watch')">Where</button>
-                    ${showReviews ? `<button type="button" data-ms-tab="reviews" class="${tab === 'reviews' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('reviews')">User Reviews</button>` : ''}
+                    ${showMine ? `<button type="button" data-ms-tab="mine" class="${tab === 'mine' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('mine')">My Review</button>` : ''}
+                    ${showReviews ? `<button type="button" data-ms-tab="reviews" class="${tab === 'reviews' ? 'is-active' : ''}" onclick="setMovieSpotlightTab('reviews')">Friends</button>` : ''}
                 </div>`;
+        }
+
+        // The tab row scrolls horizontally on narrow screens, so an active tab that
+        // isn't the first one can open off-screen — which is exactly the case when My
+        // Movies lands you on "My Review". Nudge the row so the active tab is visible.
+        //
+        // Done by hand rather than with scrollIntoView, which would also scroll the
+        // page and .ms-panel behind the modal. Uses rects, not offsetLeft, so it does
+        // not care what the row's offsetParent happens to be.
+        function scrollSpotlightActiveTabIntoView() {
+            const tabs = document.getElementById('ms-tabs');
+            if (!tabs) return;
+            const active = tabs.querySelector('[data-ms-tab].is-active');
+            if (!active) return;
+            try {
+                const t = tabs.getBoundingClientRect();
+                const a = active.getBoundingClientRect();
+                const pad = 12;
+                if (a.left < t.left) tabs.scrollLeft -= (t.left - a.left) + pad;
+                else if (a.right > t.right) tabs.scrollLeft += (a.right - t.right) + pad;
+            } catch (_) {}
         }
 
         function renderMovieSpotlight() {
@@ -707,4 +803,7 @@
                 <div class="ms-panel" id="ms-panel">${spotlightPanelHtml(tab)}</div>
                 <div class="ms-actions" id="ms-actions">${spotlightActionsHtml()}</div>
             `;
+
+            // The active tab isn't always the first one (My Movies opens on My Review).
+            scrollSpotlightActiveTabIntoView();
         }

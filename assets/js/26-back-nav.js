@@ -180,6 +180,16 @@
             }
 
             document.addEventListener('touchstart', (e) => {
+                // ⚠️ A drag already in progress MUST be released before we reset our
+                // state. This handler used to clear `locked` unconditionally and then
+                // early-return below (a second finger landing mid-swipe hits every one
+                // of those conditions) — so `touchend`'s `if (!tracking) return` fired
+                // and snapBack()/commit() NEVER RAN. The inline transform + opacity
+                // dragTo() put on #app-root were then orphaned there permanently, and
+                // `backSwipeEngaged` stayed true, which ALSO permanently disables both
+                // this gesture and pull-to-refresh. Nothing in a normal navigation
+                // cleared any of it, so the app stayed broken until a hard reload.
+                if (locked) { locked = false; snapBack(); }
                 tracking = false; locked = false; dx = 0;
                 if (backSwipeEngaged || !swipeActive() || e.touches.length !== 1) return;
                 const t = e.target;

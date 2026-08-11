@@ -321,6 +321,51 @@
             try { return window.matchMedia('(max-width: 768px)').matches; } catch (_) { return false; }
         }
 
+        // ===== Two-tap confirm for small destructive controls =====
+        // Nothing in this app should delete on a single tap. Big deletions (a whole
+        // list, a diary entry, a theme) get a full confirm modal; these are the small
+        // inline "×" controls where a modal would be too heavy — the × on a list
+        // poster, the × on a shared-list member, the × on a theme backdrop.
+        //
+        // First tap ARMS the button (it turns red via `.is-armed` and a toast says what
+        // the second tap will do); a second tap within DESTRUCTIVE_ARM_MS runs the
+        // action; anything else disarms it. Same pattern as the Games "Give Up" button
+        // and the Review Drafts delete, so it's already familiar in the app.
+        const DESTRUCTIVE_ARM_MS = 3000;
+        let destructiveArmedBtn = null;
+        let destructiveArmTimer = null;
+
+        function disarmDestructiveButton() {
+            if (destructiveArmTimer) { clearTimeout(destructiveArmTimer); destructiveArmTimer = null; }
+            const btn = destructiveArmedBtn;
+            destructiveArmedBtn = null;
+            if (!btn) return;
+            try {
+                btn.classList.remove('is-armed');
+                if (btn.dataset.armPrevTitle !== undefined) {
+                    btn.setAttribute('title', btn.dataset.armPrevTitle);
+                    delete btn.dataset.armPrevTitle;
+                }
+            } catch (_) {}
+        }
+
+        // Returns TRUE only on the confirming (second) tap — so a caller reads as:
+        //   if (!confirmDestructiveTap(btn, {toast: 'Tap again to remove'})) return;
+        function confirmDestructiveTap(btn, { toast = 'Tap again to confirm', armedTitle = 'Tap again to confirm' } = {}) {
+            if (!btn) return true;   // nothing to arm (programmatic call) — let it through
+            if (destructiveArmedBtn === btn) { disarmDestructiveButton(); return true; }
+            disarmDestructiveButton();
+            destructiveArmedBtn = btn;
+            try {
+                btn.dataset.armPrevTitle = btn.getAttribute('title') || '';
+                btn.setAttribute('title', armedTitle);
+                btn.classList.add('is-armed');
+            } catch (_) {}
+            if (toast) { try { showToast(toast, { durationMs: DESTRUCTIVE_ARM_MS }); } catch (_) {} }
+            destructiveArmTimer = window.setTimeout(disarmDestructiveButton, DESTRUCTIVE_ARM_MS);
+            return false;
+        }
+
         // Phase 2 — play a quick "page enter" animation on the app root whenever the
         // route's content is swapped in. Mobile-only + respects reduced-motion. The
         // class is removed on animationend so no transform lingers to trap fixed
@@ -351,6 +396,10 @@
         // already on smooth-scrolls to top (native behavior) instead of re-rendering.
         function tabNav(page) {
             try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
+            // Tapping a tab is what a user does when the page looks wrong, and the
+            // same-page branch below returns without navigating — so heal any stranded
+            // gesture styles here too, not just on a real navigation.
+            try { router.clearAppRootTransientStyles(); } catch (_) {}
             if (router && router.currentPage === page) {
                 // Tapping the Lists tab while inside a specific list returns to the
                 // all-lists overview (not just a scroll-to-top).
@@ -505,6 +554,12 @@
             }
 
             document.addEventListener('touchstart', (e) => {
+                // Release a pull that never got its touchend before resetting state —
+                // a second finger landing mid-pull re-enters here and hits the bail-out
+                // below, which would otherwise strand the inline translateY dragTo()
+                // put on #app-root. Nothing else clears it, so the page stays shoved
+                // down until a hard reload. (Same class of bug as the back-swipe's.)
+                if (pulling) { pulling = false; release(false); }
                 if (refreshing || !pageSupportsPullToRefresh() || window.scrollY > 0 || e.touches.length !== 1
                     || anyModalOpen()) {
                     pulling = false; return;

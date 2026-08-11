@@ -31,6 +31,9 @@
         const LIBRARY_ITEMS_VIEW = 'user_library_items_v2';
         let libraryItems = [];
         let libraryFacetsLoaded = false;
+        // Set by a diary save; consumed by the next renderLibraryList to scroll that
+        // entry into view (see consumePendingLibraryScroll).
+        let pendingLibraryScrollMovieId = '';
 
         // (director filter is applied via modal Save)
 
@@ -914,9 +917,11 @@
                     e.preventDefault?.();
                     e.stopPropagation?.();
 
-                    // Close the diary popup so it doesn't sit on top of the
-                    // Update Ratings page we're about to open.
+                    // Close whichever surface this was clicked from — the standalone
+                    // diary popup or the spotlight's "My Review" tab — so it doesn't
+                    // sit on top of the Update Ratings page we're about to open.
                     closeLibraryMovieModal();
+                    try { closeMovieSpotlight(); } catch (_) {}
 
                     (async () => {
                         try {
@@ -1290,58 +1295,93 @@
             if (titleEl) titleEl.textContent = 'Diary Entry';
         }
 
-        // Tapping a poster in My Movies (esp. grid view on mobile) opens the full
-        // diary entry — ratings, sub-ratings, watch info, quote, notes + actions.
+        // Read ONE of my own diary rows straight from the library view. Used when the
+        // movie isn't in the My Movies cache (Data Dash, a spotlight opened from Home)
+        // and whenever a caller needs a guaranteed-fresh copy.
+        async function fetchMyLibraryEntry(userId, movieId) {
+            const uid = String(userId || '').trim();
+            const mid = String(movieId || '').trim();
+            if (!uid || !mid || !supabaseClient) return undefined;
+            try {
+                const { data, error } = await supabaseClient
+                    .from(LIBRARY_ITEMS_VIEW)
+                    .select('*')
+                    .eq('user_id', uid)
+                    .eq('movie_id', mid)
+                    .limit(1);
+                if (error) return undefined;               // query failed — caller keeps what it had
+                return Array.isArray(data) && data.length ? data[0] : null;  // null = no such entry
+            } catch (_) {
+                return undefined;
+            }
+        }
+
+        // Map a library-view row onto the movie shape the Movie Spotlight expects, so
+        // the hero + Info tab paint from data we already have (zero network) while the
+        // TMDb details fetch fills in backdrop/cast/watch options.
+        function libraryRowToSpotlightMovie(it) {
+            const mid = String(it?.movie_id || '').trim();
+            const tmdbId = Number(it?.tmdb_id);
+            return {
+                ...it,
+                id: mid,
+                db_movie_id: mid,
+                tmdb_id: (Number.isFinite(tmdbId) && tmdbId > 0) ? tmdbId : undefined,
+                title: String(it?.title || '').trim(),
+                year: it?.release_year ?? null,
+                poster_path: String(it?.poster_path || '').trim(),
+                genre: normalizeMovieFieldValue(it?.genre) || '',
+                director: normalizeMovieFieldValue(it?.director) || '',
+                mpa: normalizeMovieFieldValue(it?.mpa_rating ?? it?.mpa) || '',
+                runtime: (() => { const n = Number(it?.runtime_minutes ?? it?.runtime); return Number.isFinite(n) && n > 0 ? n : undefined; })(),
+                imdb_rating_pct: (() => {
+                    const n = parsePercentLike(it?.imdb_rating_pct ?? it?.imdb_pct ?? it?.imdb_rating ?? it?.imdb, { imdb: true });
+                    return (typeof n === 'number') ? n : undefined;
+                })(),
+                // Picked up by openMovieSpotlight → the "My Review" tab, so it paints
+                // immediately instead of waiting on the spotlight's own row fetch.
+                _myEntry: it,
+            };
+        }
+
+        // Tapping a poster/card in My Movies (and the Data Dash posters + the profile
+        // "You —" chip) opens the full **Movie Spotlight** on its **My Review** tab —
+        // your diary entry with its Edit/Recommend/Delete row, plus Info / Brief / Cast /
+        // Where alongside it, so general movie info is one tap away instead of a trip
+        // back to the Home search. (The old standalone `#library-movie-overlay` popup is
+        // still used by `openProfileMovieReview` for ANOTHER user's entry.)
+        //
         // `opts.fresh` skips the My Movies cache and always re-reads the row from the
-        // library view. Needed right after a save (see `goToDiaryEntryAfterSave` in
-        // `10-logging-form.js`): `libraryItems` can still hold the PRE-edit row while
-        // the page's own reload is in flight, which would show the old ratings.
+        // library view — `libraryItems` can still hold a PRE-edit row while the page's
+        // own reload is in flight.
         async function openLibraryMovieModal(movieId, opts) {
             const mid = String(movieId || '').trim();
-            const overlay = document.getElementById('library-movie-overlay');
-            const body = document.getElementById('library-movie-body');
-            if (!mid || !overlay || !body) return;
+            if (!mid) return;
             let it = (opts && opts.fresh)
                 ? null
                 : (Array.isArray(libraryItems) ? libraryItems : []).find(x => String(x?.movie_id || '').trim() === mid);
-            // Not in the My Movies cache (e.g. opened from the Data Dashboard) → fetch
-            // the same flattened row directly from the library view.
             if (!it) {
-                try {
-                    const uid = String(cachedAuthUser?.id || '').trim();
-                    if (uid && supabaseClient) {
-                        const { data } = await supabaseClient
-                            .from(LIBRARY_ITEMS_VIEW)
-                            .select('*')
-                            .eq('user_id', uid)
-                            .eq('movie_id', mid)
-                            .limit(1);
-                        it = Array.isArray(data) && data.length ? data[0] : null;
-                    }
-                } catch (_) {}
+                const fetched = await fetchMyLibraryEntry(cachedAuthUser?.id, mid);
+                it = fetched || null;
             }
             if (!it) return;
 
-            const titleEl = document.getElementById('library-movie-title');
-            if (titleEl) titleEl.textContent = 'Diary Entry';
-            body.innerHTML = renderLibraryDiaryBody(it, { showActions: true });
-            overlay.style.display = 'flex';
-            overlay.classList.add('open');
+            // Bind the delegated [data-library-action] handlers the diary action row
+            // needs — the spotlight can be opened from pages that never ran this.
+            try { initLibraryPage(); } catch (_) {}
+            try { openMovieSpotlight(libraryRowToSpotlightMovie(it), { tab: 'mine' }); } catch (_) {}
         }
 
-        // Edit / Recommend / Delete action row for the Diary Entry modal. Three
-        // equal-width, side-by-side tile buttons (icon over label), each with its
-        // own color so they read distinctly: Edit = brand, Recommend = accent,
-        // Delete = red. Used by both the mobile and desktop diary body.
+        // Action row at the bottom of the diary body (the spotlight's "My Review" tab).
+        //
+        // **Delete only.** It used to be Edit / Recommend / Delete, from when this was a
+        // standalone popup. Inside the spotlight those two are duplicates of the action
+        // footer that's already on screen — Edit did exactly what "Update Ratings" does
+        // (`router.startUpdateRatings`), and Recommend opens the same rec modal — so the
+        // row now carries only the one action the footer does NOT offer.
         function renderDiaryActionsHtml(it, mid, title, poster_path, esc) {
             return `
                 <div class="diary-actions-row">
-                    <button type="button" class="diary-action-btn diary-action-edit" data-library-action="edit_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}" data-tmdb-id="${esc(String(it?.tmdb_id ?? ''))}" data-poster-path="${esc(poster_path)}">
-                        <span class="diary-action-ico">${icons.edit3}</span><span class="diary-action-lbl">Edit</span>
-                    </button>
-                    <button type="button" class="diary-action-btn diary-action-rec" data-library-action="recommend" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}">
-                        <span class="diary-action-ico">${icons.users}</span><span class="diary-action-lbl">Recommend</span>
-                    </button>
                     <button type="button" class="diary-action-btn diary-action-delete" data-library-action="delete_entry" data-movie-id="${esc(mid)}" data-movie-title="${esc(title)}">
                         <span class="diary-action-ico">${icons.trash2}</span><span class="diary-action-lbl">Delete</span>
                     </button>
@@ -1353,7 +1393,9 @@
         // Recommend actions) and for another user's review opened from the
         // profile "Biggest disagreements" chips (`openProfileMovieReview`,
         // `showActions:false`). `it` is a flattened LIBRARY_ITEMS_VIEW row.
-        function renderLibraryDiaryBody(it, { showActions = true } = {}) {
+        // `showHeader: false` drops the poster + title + meta block at the top — used by
+        // the Movie Spotlight's "My Review" tab, whose hero already shows all of that.
+        function renderLibraryDiaryBody(it, { showActions = true, showHeader = true } = {}) {
             const mid = String(it?.movie_id || '').trim();
             const esc = (s) => escapeHtml(String(s ?? ''));
             const title = String(it?.title || '').trim() || 'Untitled';
@@ -1406,13 +1448,14 @@
                 const actionsHtml = showActions ? renderDiaryActionsHtml(it, mid, title, poster_path, esc) : '';
                 return `
                     ${lastWatchLine}
+                    ${showHeader ? `
                     <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
                         ${posterUrl ? `<img src="${posterUrl}" alt="${esc(title)}" style="width:150px; aspect-ratio:2/3; object-fit:cover; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">` : ''}
                         <div style="text-align:center;">
                             <div style="color:#fff; font-weight:800; font-size:1.15rem; line-height:1.2;">${titleLine}</div>
                             ${metaBitsNoYear ? `<div style="color:rgba(255,255,255,0.6); font-size:0.82rem; margin-top:4px;">${metaBitsNoYear}</div>` : ''}
                         </div>
-                    </div>
+                    </div>` : ''}
                     <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:center; margin-top:12px;">
                         ${overall ? `<span class="dash-quote-pill" style="color:var(--brand); border-color:color-mix(in srgb, var(--brand) 45%, transparent); font-weight:900;">Overall ${esc(overall)}</span>` : ''}
                         ${tierLabel ? `<span class="dash-quote-pill" style="background:rgba(${tierRgb}, 0.22); border-color:rgba(${tierRgb}, 0.5); color:rgb(${tierRgb}); font-weight:900;">${esc(tierLabel)}</span>` : ''}
@@ -1426,13 +1469,14 @@
 
             const actionsHtmlDesktop = showActions ? renderDiaryActionsHtml(it, mid, title, poster_path, esc) : '';
             return `
+                ${showHeader ? `
                 <div style="display:flex; flex-direction:column; align-items:center; gap:12px;">
                     ${posterUrl ? `<img src="${posterUrl}" alt="${esc(title)}" style="width:150px; aspect-ratio:2/3; object-fit:cover; border-radius:12px; border:1px solid rgba(255,255,255,0.1);">` : ''}
                     <div style="text-align:center;">
                         <div style="color:#fff; font-weight:800; font-size:1.15rem; line-height:1.2;">${esc(title)}</div>
                         ${metaBits ? `<div style="color:rgba(255,255,255,0.6); font-size:0.82rem; margin-top:4px;">${metaBits}</div>` : ''}
                     </div>
-                </div>
+                </div>` : ''}
                 <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:center; margin-top:12px;">
                     ${overall ? `${dashRenderHelpScore(overall)} <span style="color:rgba(255,255,255,0.6); font-size:0.8rem;">Overall</span>` : ''}
                     ${tierLabel ? dashRenderHelpTier(tierLabel) : ''}
@@ -1490,9 +1534,10 @@
                     if (overallGrid) metaParts.push(dashRenderHelpScore(overallGrid));
                     if (tierLabel) metaParts.push(dashRenderHelpTier(tierLabel));
                     if (watchCount > 0) metaParts.push(`<span class="text-gray">${watchCount} ${watchCount === 1 ? 'Time' : 'Times'}</span>`);
+                    const tmdbGrid = Number(it?.tmdb_id);
                     return `
-                        <div class="dash-kpi-movie-card">
-                            <div class="dash-kpi-movie-poster" ${movie_id ? `onclick="openLibraryMovieModal('${escapeHtml(movie_id)}')" title="View diary entry"` : ''}>
+                        <div class="dash-kpi-movie-card"${movie_id ? ` data-library-entry="${escapeHtml(movie_id)}"` : ''}>
+                            <div class="dash-kpi-movie-poster" ${movie_id ? `onclick="openLibraryMovieModal('${escapeHtml(movie_id)}')" title="View diary entry"${(Number.isFinite(tmdbGrid) && tmdbGrid > 0) ? ` onpointerdown="if(typeof prefetchMovieDetails==='function')prefetchMovieDetails(${tmdbGrid})"` : ''}` : ''}>
                                 ${posterUrl
                                     ? `<img src="${posterUrl}" loading="lazy" decoding="async" alt="${escapeHtml(title)}" style="width: 100%; height: 100%; object-fit: cover; display:block;" onerror="this.closest('div')?.remove?.()">`
                                     : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size: 12px;">No poster</div>`
@@ -1585,10 +1630,12 @@
                     return lines.join('');
                 })();
 
-                // List view = compact Feed-style card. Tapping anywhere opens the same
-                // diary popup (openLibraryMovieModal) that Edit/Delete/Recommend live in.
+                // List view = compact Feed-style card. Tapping anywhere opens the Movie
+                // Spotlight on its "My Review" tab (openLibraryMovieModal), where
+                // Edit/Recommend/Delete live alongside the general movie info.
+                const tmdbList = Number(it?.tmdb_id);
                 return `
-                    <div class="glass-panel feed-item-card library-feed-card" ${movie_id ? `onclick="openLibraryMovieModal('${escapeHtml(movie_id)}')" role="button" tabindex="0" title="View diary entry"` : ''} style="padding: 0.9rem; border-radius: 1rem; ${movie_id ? 'cursor: pointer;' : ''}">
+                    <div class="glass-panel feed-item-card library-feed-card"${movie_id ? ` data-library-entry="${escapeHtml(movie_id)}"` : ''} ${movie_id ? `onclick="openLibraryMovieModal('${escapeHtml(movie_id)}')" role="button" tabindex="0" title="View diary entry"${(Number.isFinite(tmdbList) && tmdbList > 0) ? ` onpointerdown="if(typeof prefetchMovieDetails==='function')prefetchMovieDetails(${tmdbList})"` : ''}` : ''} style="padding: 0.9rem; border-radius: 1rem; ${movie_id ? 'cursor: pointer;' : ''}">
                         <div class="feed-card-row">
                             <div class="feed-card-poster">
                                 ${posterUrl
@@ -1662,6 +1709,34 @@
                 syncLibraryClearButton();
             }
             if (wrap) wrap.style.display = libraryHasMore ? 'flex' : 'none';
+
+            consumePendingLibraryScroll();
+        }
+
+        // After saving a diary entry we land the user ON that entry in My Movies rather
+        // than opening a popup (see `goToDiaryEntryAfterSave` in `10-logging-form.js`):
+        // the save sets `pendingLibraryScrollMovieId`, and the next render scrolls that
+        // card into view + pulses it so it's obvious which one it is.
+        //
+        // Deliberately ONE SHOT — the id is cleared whether or not the card was found.
+        // Editing an old entry can put it on a later page of results (the default sort
+        // is by watch date), and silently yanking the user's scroll position after some
+        // later "load more" would be worse than simply leaving them at the top.
+        function consumePendingLibraryScroll() {
+            const mid = String(pendingLibraryScrollMovieId || '').trim();
+            if (!mid) return;
+            pendingLibraryScrollMovieId = '';
+
+            const sel = (window.CSS && typeof CSS.escape === 'function') ? CSS.escape(mid) : mid;
+            const el = document.querySelector(`#library-list [data-library-entry="${sel}"]`);
+            if (!el) return;
+
+            requestAnimationFrame(() => {
+                try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+                catch (_) { try { el.scrollIntoView(); } catch (__) {} }
+                el.classList.add('library-jump-highlight');
+                setTimeout(() => { try { el.classList.remove('library-jump-highlight'); } catch (_) {} }, 2200);
+            });
         }
 
         // Light up the My Movies Clear button in RED when a filter/sort is non-default

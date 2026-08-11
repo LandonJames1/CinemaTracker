@@ -1000,7 +1000,7 @@
                 const isOwner = id === owner;
                 const removeBtn = isOwner
                     ? `<span style="flex:0 0 auto; color:rgba(255,255,255,0.45); font-size:0.72rem; font-weight:700; text-transform:uppercase;">Owner</span>`
-                    : `<button type="button" class="btn btn-outline" style="flex:0 0 auto; width:auto; border-radius:0.6rem; padding:0.3rem 0.7rem; font-size:0.78rem; border-color:rgba(239,68,68,0.5); background:#3a1a1d;" onclick="removeListMember('${escapeHtml(id)}')">Remove</button>`;
+                    : `<button type="button" class="btn btn-outline" style="flex:0 0 auto; width:auto; border-radius:0.6rem; padding:0.3rem 0.7rem; font-size:0.78rem; border-color:rgba(239,68,68,0.5); background:#3a1a1d;" onclick="removeListMember('${escapeHtml(id)}', this)">Remove</button>`;
                 return `
                     <div style="${rowStyle}">
                         ${renderUserIconHtml(String(u?.icon || ''), 32)}
@@ -1013,11 +1013,13 @@
             }).join('');
         }
 
-        async function removeListMember(userId) {
+        async function removeListMember(userId, btnEl) {
             const lid = String(listsActiveListId || '').trim();
             const uid = String(userId || '').trim();
             if (!lid || !uid) return;
             if (uid === listOwnerId(lid, '')) { showToast('The owner can’t be removed.', { level: 'warn' }); return; }
+            // Kicking a co-owner off a shared list is destructive and was one tap.
+            if (!confirmDestructiveTap(btnEl, { toast: 'Tap Remove again to take them off this list', armedTitle: 'Tap again to remove' })) return;
             try {
                 const { error } = await supabaseClient
                     .from('List Members').delete().eq('list_id', lid).eq('user_id', uid);
@@ -3130,6 +3132,10 @@
                     const lid = String(el.dataset.listId || '').trim();
                     const mid = String(el.dataset.movieId || '').trim();
                     if (!lid || !mid) return;
+
+                    // This × sits on every poster in the grid and used to delete on a
+                    // single tap — far too easy to hit by accident on a phone.
+                    if (!confirmDestructiveTap(el, { toast: 'Tap × again to remove from this list', armedTitle: 'Tap again to remove' })) return;
 
                     (async () => {
                         let authedUser = null;

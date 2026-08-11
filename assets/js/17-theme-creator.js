@@ -911,7 +911,11 @@
                 const existingRemoveBtn = e?.target?.closest ? e.target.closest('[data-theme-existing-remove]') : null;
                 if (existingRemoveBtn) {
                     const idx = Number(existingRemoveBtn.getAttribute('data-theme-existing-remove'));
-                    if (Number.isFinite(idx)) deleteThemeCreatorExistingBackdrop(idx).catch(() => null);
+                    if (!Number.isFinite(idx)) return;
+                    // Deletes the file from Storage as well as the row — not undoable,
+                    // and it was one tap. (Deleting a whole THEME already confirms.)
+                    if (!confirmDestructiveTap(existingRemoveBtn, { toast: 'Tap again to delete this backdrop', armedTitle: 'Tap again to delete' })) return;
+                    deleteThemeCreatorExistingBackdrop(idx).catch(() => null);
                     return;
                 }
 

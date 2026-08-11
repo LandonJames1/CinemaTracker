@@ -915,18 +915,17 @@
         }
 
         // After a successful save/update, don't leave the user sitting on the (now
-        // stale) log form — take them to My Movies and pop that movie's diary entry
-        // straight open, so the thing they just wrote is what they land on.
-        // A toast carries the confirmation instead of the old success modal, which
-        // would otherwise sit on top of the diary entry we just opened.
-        async function goToDiaryEntryAfterSave(movieId, kind) {
-            const mid = String(movieId || '').trim();
+        // stale) log form — take them to My Movies and land them ON that entry: the
+        // card is scrolled into view and briefly pulsed, with NO popup opened (the
+        // spotlight is one tap away on the card itself). A toast carries the
+        // confirmation, replacing the old success modal.
+        //
+        // The scroll is handled by `consumePendingLibraryScroll` in `05-feed-library.js`
+        // on the next render, since the page's data load is still in flight here.
+        function goToDiaryEntryAfterSave(movieId, kind) {
             showToast(String(kind || '').toLowerCase() === 'updated' ? 'Ratings updated!' : 'Ratings saved!');
+            try { pendingLibraryScrollMovieId = String(movieId || '').trim(); } catch (_) {}
             try { router.navigate('library'); } catch (_) {}
-            if (!mid) return;
-            // `fresh: true` — the My Movies cache may still hold the pre-save row while
-            // this page's own reload is in flight.
-            try { await openLibraryMovieModal(mid, { fresh: true }); } catch (_) {}
         }
 
         async function handleFormSubmit(e) {
@@ -1337,7 +1336,7 @@
                     // library/feed/account without the rating just made.
                     try { invalidatePageSnapshots(['library', 'feed', 'home', 'lists', 'account', 'leaderboard']); } catch (_) {}
 
-                    await goToDiaryEntryAfterSave(movie_id, 'updated');
+                    goToDiaryEntryAfterSave(movie_id, 'updated');
                     return;
                 }
 
@@ -1419,7 +1418,7 @@
                 // Saved successfully → drop the autosaved draft for this movie.
                 try { clearDiaryDraftForCurrentForm(); } catch (_) {}
 
-                await goToDiaryEntryAfterSave(movie_id, 'saved');
+                goToDiaryEntryAfterSave(movie_id, 'saved');
                 return;
             } catch (err) {
                 const msg = String(err?.message || err || 'Unknown error');

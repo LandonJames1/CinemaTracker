@@ -356,6 +356,9 @@
                 if (ratingErr) throw ratingErr;
 
                 closeDeleteRatingModal();
+                // The entry is gone, so any Movie Spotlight sitting underneath (its
+                // "My Review" tab is where Delete is clicked from) is now stale.
+                try { closeMovieSpotlight(); } catch (_) {}
                 showToast('Deleted rating and watch logs.');
                 if (String(deleteRatingState?.source || '') === 'library' && String(router?.currentPage || '') === 'library') {
                     await loadLibraryPage({ reset: true });
