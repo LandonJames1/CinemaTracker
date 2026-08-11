@@ -1292,12 +1292,18 @@
 
         // Tapping a poster in My Movies (esp. grid view on mobile) opens the full
         // diary entry — ratings, sub-ratings, watch info, quote, notes + actions.
-        async function openLibraryMovieModal(movieId) {
+        // `opts.fresh` skips the My Movies cache and always re-reads the row from the
+        // library view. Needed right after a save (see `goToDiaryEntryAfterSave` in
+        // `10-logging-form.js`): `libraryItems` can still hold the PRE-edit row while
+        // the page's own reload is in flight, which would show the old ratings.
+        async function openLibraryMovieModal(movieId, opts) {
             const mid = String(movieId || '').trim();
             const overlay = document.getElementById('library-movie-overlay');
             const body = document.getElementById('library-movie-body');
             if (!mid || !overlay || !body) return;
-            let it = (Array.isArray(libraryItems) ? libraryItems : []).find(x => String(x?.movie_id || '').trim() === mid);
+            let it = (opts && opts.fresh)
+                ? null
+                : (Array.isArray(libraryItems) ? libraryItems : []).find(x => String(x?.movie_id || '').trim() === mid);
             // Not in the My Movies cache (e.g. opened from the Data Dashboard) → fetch
             // the same flattened row directly from the library view.
             if (!it) {

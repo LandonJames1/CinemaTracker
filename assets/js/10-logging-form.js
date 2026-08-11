@@ -914,6 +914,21 @@
             })();
         }
 
+        // After a successful save/update, don't leave the user sitting on the (now
+        // stale) log form — take them to My Movies and pop that movie's diary entry
+        // straight open, so the thing they just wrote is what they land on.
+        // A toast carries the confirmation instead of the old success modal, which
+        // would otherwise sit on top of the diary entry we just opened.
+        async function goToDiaryEntryAfterSave(movieId, kind) {
+            const mid = String(movieId || '').trim();
+            showToast(String(kind || '').toLowerCase() === 'updated' ? 'Ratings updated!' : 'Ratings saved!');
+            try { router.navigate('library'); } catch (_) {}
+            if (!mid) return;
+            // `fresh: true` — the My Movies cache may still hold the pre-save row while
+            // this page's own reload is in flight.
+            try { await openLibraryMovieModal(mid, { fresh: true }); } catch (_) {}
+        }
+
         async function handleFormSubmit(e) {
             e.preventDefault();
             if (guardGuestWrite()) return;
@@ -1322,7 +1337,7 @@
                     // library/feed/account without the rating just made.
                     try { invalidatePageSnapshots(['library', 'feed', 'home', 'lists', 'account', 'leaderboard']); } catch (_) {}
 
-                    openRatingsSuccessModal('updated');
+                    await goToDiaryEntryAfterSave(movie_id, 'updated');
                     return;
                 }
 
@@ -1404,7 +1419,7 @@
                 // Saved successfully → drop the autosaved draft for this movie.
                 try { clearDiaryDraftForCurrentForm(); } catch (_) {}
 
-                openRatingsSuccessModal('saved');
+                await goToDiaryEntryAfterSave(movie_id, 'saved');
                 return;
             } catch (err) {
                 const msg = String(err?.message || err || 'Unknown error');

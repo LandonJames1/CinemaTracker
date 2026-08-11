@@ -3319,14 +3319,6 @@
             object-fit: cover;
             display: block;
         }
-        /* Hover-flip the Lists posters to show details, mirroring My Movies.
-           Only on devices that actually hover (desktop) — on touch, a tap would
-           leave the card stuck flipped, so we disable it there. */
-        @media (hover: hover) {
-            .lists-poster:hover .library-poster-flip-inner {
-                transform: rotateY(180deg);
-            }
-        }
         .lists-title {
             color: #fff;
             font-weight: 700;

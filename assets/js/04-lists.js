@@ -4201,50 +4201,14 @@
                             detailsReadonly: false,
                         });
 
-                        // Hover-flip back face (mirrors My Movies): Director / Runtime / MPA / Genre / IMDb.
-                        const posterBackDetailsHtml = (() => {
-                            const lines = [];
-                            const runtimeBackVal = (() => {
-                                const n = Number(movie?.runtime_minutes ?? movie?.runtime);
-                                if (!Number.isFinite(n) || n <= 0) return '';
-                                const h = Math.floor(n / 60), m = n % 60;
-                                let out = '';
-                                if (h > 0) out += `${h}h`;
-                                if (m > 0 || h === 0) out += `${h > 0 ? ' ' : ''}${m}m`;
-                                return out.trim();
-                            })();
-                            const mpaBackVal = String(movie?.mpa_rating ?? movie?.mpa ?? '').trim();
-                            const genreBackHtml = (() => {
-                                const raw = String(genreVal || '').trim();
-                                if (!raw) return '';
-                                const parts = raw.split(/[,|;]/g).map(s => String(s).trim()).filter(Boolean);
-                                return parts.length ? parts.map(p => escapeHtml(p)).join('<br>') : '';
-                            })();
-                            if (directorVal) lines.push(`<div class="library-poster-back-line"><span class="library-poster-back-key">Director</span><span class="library-poster-back-val">${escapeHtml(directorVal)}</span></div>`);
-                            if (runtimeBackVal) lines.push(`<div class="library-poster-back-line"><span class="library-poster-back-key">Runtime</span><span class="library-poster-back-val">${escapeHtml(runtimeBackVal)}</span></div>`);
-                            if (mpaBackVal) lines.push(`<div class="library-poster-back-line"><span class="library-poster-back-key">MPA</span><span class="library-poster-back-val">${escapeHtml(mpaBackVal)}</span></div>`);
-                            if (genreBackHtml) lines.push(`<div class="library-poster-back-line"><span class="library-poster-back-key">Genre</span><span class="library-poster-back-val">${genreBackHtml}</span></div>`);
-                            if (imdbVal) lines.push(`<div class="library-poster-back-line"><span class="library-poster-back-key">IMDb</span><span class="library-poster-back-val">${escapeHtml(imdbVal)}</span></div>`);
-                            return lines.join('');
-                        })();
-
                         return `
                             <div class="lists-movie-card${recsNewByMovieId.has(String(id)) ? ' is-new' : ''}">
                                 <div class="lists-poster-wrap">
                                     <button type="button" class="lists-poster-btn" data-lists-action="open_movie" data-movie-id="${escapeHtml(String(id))}" title="Open entry"${(Number.isFinite(tmdb_id) && tmdb_id > 0) ? ` onpointerdown="if(typeof prefetchMovieDetails==='function')prefetchMovieDetails(${tmdb_id})"` : ''}>
                                         <div class="lists-poster" style="width:100%; aspect-ratio:2/3;">
-                                            <div class="library-poster-flip">
-                                                <div class="library-poster-flip-inner">
-                                                    <div class="library-poster-face library-poster-front">
-                                                        ${posterUrl
-                                                            ? `<img src="${posterUrl}" loading="lazy" decoding="async" alt="${escapeHtml(title)}" style="display:block; width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none';">`
-                                                            : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size: 12px;">No poster</div>`}
-                                                    </div>
-                                                    <div class="library-poster-face library-poster-back">
-                                                        ${posterBackDetailsHtml || `<div class="text-xs text-gray" style="text-align:center;">No details</div>`}
-                                                    </div>
-                                                </div>
-                                            </div>
+                                            ${posterUrl
+                                                ? `<img src="${posterUrl}" loading="lazy" decoding="async" alt="${escapeHtml(title)}" style="display:block; width:100%; height:100%; object-fit:cover;" onerror="this.style.display='none';">`
+                                                : `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color: var(--text-muted); font-size: 12px;">No poster</div>`}
                                         </div>
                                     </button>
                                     <button type="button" class="lists-remove-x" title="Remove from list" data-lists-action="remove_movie" data-list-id="${escapeHtml(String(listsActiveListId))}" data-movie-id="${escapeHtml(String(id))}">&times;</button>
