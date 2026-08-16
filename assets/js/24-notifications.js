@@ -261,6 +261,10 @@
                     .is('read_at', null);
             } catch (_) {}
             refreshNotifBadge();
+            // Acknowledging everything in the inbox also acknowledges the in-page
+            // counters those events feed — the Feed / Lists nav + tab-bar badges,
+            // the burger dot and the PWA app-icon badge (05-feed-library.js).
+            try { if (typeof markAllNavBadgesSeen === 'function') markAllNavBadgesSeen(); } catch (_) {}
         }
 
         // Mark every unread Notifications row of the given type(s) read — the

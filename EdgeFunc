@@ -3716,6 +3716,31 @@ Deno.serve(async (req) => {
         ));
       } catch (_) {}
 
+      // De-dupe against `notify_rec_reviewed`, which the diary form fires for the
+      // SAME save. Anyone who recommended THIS movie to the author gets the more
+      // specific "Your rec got watched" push/inbox row from that action, so if they
+      // also follow the author they'd otherwise receive two near-identical
+      // notifications for one review. Drop them here — the rec one wins.
+      // (Order-independent: both actions read the same Recommendations rows, so it
+      // doesn't matter which of the two fire-and-forget calls lands first.)
+      if (followerIds.length) {
+        try {
+          const { data: recRows } = await supabaseAdmin
+            .from("Recommendations")
+            .select("from_user_id")
+            .eq("to_user_id", author.id)
+            .eq("movie_id", movieId);
+          const recommenderIds = new Set(
+            (Array.isArray(recRows) ? recRows : [])
+              .map((x) => String(x.from_user_id || "").trim())
+              .filter(Boolean),
+          );
+          if (recommenderIds.size) {
+            followerIds = followerIds.filter((fid) => !recommenderIds.has(fid));
+          }
+        } catch (_) {}
+      }
+
       const titlePart = `"${movieTitle || "a movie"}${movieYear ? ` (${movieYear})` : ""}"`;
       let notified = 0;
       const reviewNotifRows = [];

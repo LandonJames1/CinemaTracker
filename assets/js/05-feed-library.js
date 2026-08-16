@@ -2955,6 +2955,28 @@
             try { if (typeof markNotificationsReadByType === 'function') markNotificationsReadByType(['recommendation']); } catch (_) {}
         }
 
+        // "Mark all read" in the Activity inbox (24-notifications.js) must clear
+        // EVERY red badge, not just the bell — the user has explicitly acknowledged
+        // all activity, so leaving the Feed / Lists nav counts lit reads as a bug.
+        // Does both seen-times in ONE pass rather than calling markFeedSeen +
+        // markRecsSeen, which would each re-run refreshNavBadges and re-mark
+        // notification rows the caller has already marked read.
+        function markAllNavBadgesSeen() {
+            const nowIso = new Date().toISOString();
+            try { localStorage.setItem(FEED_LAST_SEEN_KEY, nowIso); } catch (_) {}
+            try { localStorage.setItem(RECS_LAST_SEEN_KEY, nowIso); } catch (_) {}
+            setNavBadge('nav-badge-feed', 0);
+            setNavBadge('nav-badge-lists', 0);
+            persistSeen('feed_seen_at');
+            persistSeen('recs_seen_at');
+            lastFeedUnseen = 0;
+            lastRecsUnseen = 0;
+            setPwaAppBadge(0);
+            setNavBadge('nav-badge-burger', 0);
+            try { document.getElementById('menu-icon-btn')?.classList.remove('has-unseen'); } catch (_) {}
+            try { refreshNavBadges(); } catch (_) {}
+        }
+
         // ===== Public profile overview (opened by clicking a user in the Feed) =====
         // Computes the user's KPIs client-side and reuses the Data Dash card markup +
         // helpers so the posters/ratings/tiers look IDENTICAL to the dashboard.
