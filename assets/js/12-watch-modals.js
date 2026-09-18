@@ -402,12 +402,74 @@
             });
         }
 
+        // ---- Watch-date bounds --------------------------------------------------
+        // A movie can't have been watched before it came out, so EVERY watch-date
+        // picker in the app is floored at the movie's release date and capped at
+        // today. The floor is the exact TMDb `release_date` when we have it, else
+        // Jan 1 of the release year, else nothing (some catalog rows carry neither,
+        // and a wrong floor is worse than no floor).
+        function movieReleaseFloorDate(movie) {
+            const m = movie || router?.selectedMovie || null;
+            if (!m) return '';
+
+            let rd = String(m.release_date || '').trim();
+
+            // The Update Ratings path builds from the `Movies` row, which stores only
+            // `release_year` — but the spotlight may already have cached the full date
+            // for this movie, so take it for free rather than firing a fetch.
+            if (!rd) {
+                try {
+                    const id = Number(m.tmdb_id ?? getTmdbIdFromSelectedMovie(m) ?? 0);
+                    if (Number.isFinite(id) && id > 0 && typeof movieSpotlightDetailsCache !== 'undefined') {
+                        rd = String(movieSpotlightDetailsCache.get(id)?.release_date || '').trim();
+                    }
+                } catch (_) {}
+            }
+
+            if (/^\d{4}-\d{2}-\d{2}$/.test(rd)) return rd;
+
+            const y = Number(m.release_year ?? m.year ?? 0);
+            if (Number.isFinite(y) && y > 1870) return `${y}-01-01`;
+            return '';
+        }
+
+        // Points a date input at [release date, today]. The native picker greys out
+        // everything outside that range on desktop AND iOS, which is the whole point
+        // — but a typed/pasted value can still land out of range, so every submit
+        // handler pairs this with watchDateRangeError().
+        function applyWatchDateBounds(el, movie) {
+            if (!el) return '';
+            const min = movieReleaseFloorDate(movie);
+            if (min) el.setAttribute('min', min);
+            else el.removeAttribute('min');
+            el.setAttribute('max', getLocalISODate());
+            return min;
+        }
+
+        // '' when the date is acceptable, else the toast text explaining why not.
+        function watchDateRangeError(watch_date, movie) {
+            const d = String(watch_date || '').trim();
+            if (!d) return '';
+
+            const min = movieReleaseFloorDate(movie);
+            if (min && d < min) {
+                const m = movie || router?.selectedMovie || null;
+                const title = String(m?.title || '').trim();
+                const shown = (typeof spotlightFormatDate === 'function' ? spotlightFormatDate(min) : '') || min;
+                return `${title || 'That movie'} wasn’t released until ${shown} — pick a later date.`;
+            }
+
+            if (d > getLocalISODate()) return 'You can’t log a watch in the future.';
+            return '';
+        }
+
         function openWatchMethodModal() {
             const overlay = document.getElementById('watch-method-overlay');
             if (!overlay) return;
             const dateEl = document.getElementById('watch-method-date');
             if (dateEl) {
                 dateEl.value = getLocalISODate();
+                applyWatchDateBounds(dateEl);
             }
 
             // Reset selection every time to prevent accidental saves.
@@ -462,6 +524,12 @@
                 try { dateEl?.focus?.(); } catch (_) {}
                 return;
             }
+            const rangeErr = watchDateRangeError(watch_date);
+            if (rangeErr) {
+                showToast(rangeErr, { level: 'warn' });
+                try { dateEl?.focus?.(); } catch (_) {}
+                return;
+            }
 
             closeWatchMethodModal({
                 watch_method: watchMethodPendingSelection,
@@ -508,7 +576,10 @@
             watchDetailsPendingBefore = null;
 
             const dateEl = document.getElementById('watch-details-date');
-            if (dateEl) dateEl.value = String(opts.prefillDate || '').trim() || getLocalISODate();
+            if (dateEl) {
+                dateEl.value = String(opts.prefillDate || '').trim() || getLocalISODate();
+                applyWatchDateBounds(dateEl, opts.movie);
+            }
 
             overlay.querySelectorAll('[data-wd-method-option]').forEach((b) => setModalOptionSelected(b, false));
             overlay.querySelectorAll('[data-wd-before]').forEach((b) => setModalOptionSelected(b, false));
@@ -572,6 +643,12 @@
                     try { dateEl?.focus?.(); } catch (_) {}
                     return;
                 }
+                const rangeErr = watchDateRangeError(watch_date, opts.movie);
+                if (rangeErr) {
+                    showToast(rangeErr, { level: 'warn' });
+                    try { dateEl?.focus?.(); } catch (_) {}
+                    return;
+                }
                 if (!watchDetailsPendingMethod) {
                     showToast('Please choose where you watched it.', { level: 'warn' });
                     return;
@@ -626,7 +703,7 @@
             }
             if (!tmdb) { showToast('Can’t save this one for later.', { level: 'warn' }); return; }
 
-            const details = await promptWatchDetails({ askBefore: false });
+            const details = await promptWatchDetails({ askBefore: false, movie });
             if (!details) return; // canceled
 
             const movie_id = isUuidLike(movie?.id) ? movie.id
@@ -661,11 +738,15 @@
             //   askDateMethod (default true) — ask when/where
             //   askBefore     (default true) — ask "was this your first time?"
             //   prefillDate / prefillMethod  — seed values (used when they're pre-known)
+            //   movie         — the movie being logged, so the date picker can be
+            //                   floored at its release date; defaults to
+            //                   router.selectedMovie (the diary-form flow).
             watchDetailsOpts = {
                 askDateMethod: true,
                 askBefore: true,
                 prefillDate: '',
                 prefillMethod: '',
+                movie: null,
                 ...(opts || {}),
             };
             return new Promise((resolve) => {
@@ -706,6 +787,7 @@
             }
 
             const today = getLocalISODate();
+            const minDate = movieReleaseFloorDate();
             fields.innerHTML = Array.from({ length: n }).map((_, i) => {
                 const num = i + 1;
                 const pd = prev[num]?.date || '';
@@ -716,7 +798,7 @@
                         <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
                             <div>
                                 <label class="text-xs text-gray" style="display:block; margin-bottom: 0.35rem;">Date</label>
-                                <input id="prior-watch-date-${num}" type="date" class="input-field" max="${today}" value="${pd}" onclick="openDatePickerFromInput(this)" onfocus="openDatePickerFromInput(this)" required>
+                                <input id="prior-watch-date-${num}" type="date" class="input-field"${minDate ? ` min="${minDate}"` : ''} max="${today}" value="${pd}" onclick="openDatePickerFromInput(this)" onfocus="openDatePickerFromInput(this)" required>
                             </div>
                             <div>
                                 <label class="text-xs text-gray" style="display:block; margin-bottom: 0.35rem;">Watch Method</label>
@@ -764,6 +846,12 @@
                 const watch_method = String(methodEl?.value || '').trim() || null;
                 if (!watch_date) {
                     showToast(`Please select a date for previous viewing #${i}.`, { level: 'warn' });
+                    try { dateEl?.focus?.(); } catch (_) {}
+                    return;
+                }
+                const rangeErr = watchDateRangeError(watch_date);
+                if (rangeErr) {
+                    showToast(`Previous viewing #${i}: ${rangeErr}`, { level: 'warn' });
                     try { dateEl?.focus?.(); } catch (_) {}
                     return;
                 }

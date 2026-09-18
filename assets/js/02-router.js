@@ -860,6 +860,8 @@
                         tmdb_id: Number(details?.tmdb_id ?? tmdb_id),
                         title: String(details?.title || this.selectedMovie?.title || '').trim(),
                         year: details?.year ?? this.selectedMovie?.year ?? null,
+                        // Floors every watch-date picker in the save flow (12-watch-modals.js).
+                        release_date: String(details?.release_date || this.selectedMovie?.release_date || '').trim() || null,
                         mpa: String(details?.mpa || '').trim(),
                         runtime: details?.runtime ?? null,
                         isSeries: Boolean(details?.isSeries),
@@ -1047,6 +1049,10 @@
 
                     let resolvedGenre = String(coalesceGenre(movieRow) ?? '').trim();
 
+                    // `Movies` stores only release_year; the full date (which floors the
+                    // watch-date pickers) rides along only if details get fetched below.
+                    let resolvedReleaseDate = String(m?.release_date ?? '').trim();
+
                     let resolvedPosterPath = String(
                         movieRow?.poster_path ??
                         m?.poster_path ??
@@ -1087,6 +1093,10 @@
                                 if (p) resolvedPosterPath = p;
                             }
 
+                            if (!resolvedReleaseDate) {
+                                resolvedReleaseDate = String(details?.release_date ?? '').trim();
+                            }
+
                             const imdbPct = details?.imdb_rating_pct;
                             if (imdbPct !== null && imdbPct !== undefined) {
                                 m.imdb = String(imdbPct);
@@ -1100,6 +1110,7 @@
                         tmdb_id: Number(movieRow?.tmdb_id ?? m?.tmdb_id ?? getTmdbIdFromSelectedMovie(m) ?? null) || undefined,
                         title: String(movieRow?.title ?? m?.title ?? '').trim(),
                         year: coalesceYear(movieRow),
+                        release_date: resolvedReleaseDate || null,
                         director: resolvedDirector,
                         mpa: String(movieRow?.mpa_rating ?? movieRow?.mpa ?? m?.mpa ?? '').trim(),
                         runtime: coalesceRuntime(movieRow),
