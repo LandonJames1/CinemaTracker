@@ -1,4 +1,4 @@
--- User tiers: seed data, Users columns, triggers, and backfill.
+-- User tiers: seed data, Users columns, triggers, and backfill
 
 -- 0) Ensure name is unique so ON CONFLICT works
 do $$
