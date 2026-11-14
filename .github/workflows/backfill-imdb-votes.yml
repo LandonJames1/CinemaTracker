@@ -1,0 +1,93 @@
+name: Backfill IMDb vote counts (one-time)
+
+# One-time catch-up for the Lists "Popularity" sort: fetches the IMDb vote COUNT for
+# every movie whose stored IMDb rating row has no count yet, via the swift-api
+# `backfill_imdb_votes` Edge action. Each movie costs ONE OMDb call, and OMDb allows
+# ~1000/day (shared with the daily refresh-imdb job, which uses 100) — so each run is
+# capped at 750 calls and the work is spread over three days:
+#   - Nov 13 2026: run it by hand (Actions tab → this workflow → "Run workflow")
+#   - Nov 14 + 15 2026: runs automatically (18:00 UTC = 10 AM Pacific)
+# It stops early as soon as nothing is left, and the scheduled runs refuse to do
+# anything after Nov 15 2026 (GitHub cron has no year field, so without that guard it
+# would fire again next November). Safe to delete this file once it's done.
+#
+# Don't run build-game-pool.yml on these days — it spends the same OMDb allowance.
+#
+# Required repo secrets (same ones the other jobs use):
+#   SUPABASE_FUNCTION_URL    -> the .../functions/v1/swift-api URL
+#   SUPABASE_PUBLISHABLE_KEY -> the sb_publishable_... key
+#   CRON_SECRET              -> matches the swift-api CRON_SECRET edge secret
+on:
+  schedule:
+    - cron: '0 18 14,15 11 *'   # Nov 14 + 15, 18:00 UTC
+  workflow_dispatch:
+    inputs:
+      max_calls:
+        description: 'Max OMDb calls this run (750 max)'
+        required: false
+        default: '750'
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Backfill missing IMDb vote counts
+        env:
+          URL: ${{ secrets.SUPABASE_FUNCTION_URL }}
+          APIKEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EVENT: ${{ github.event_name }}
+          MAX_CALLS: ${{ github.event.inputs.max_calls || '750' }}
+        run: |
+          set -euo pipefail
+
+          today=$(date -u +%Y-%m-%d)
+          if [ "$EVENT" = "schedule" ] && [[ "$today" > "2026-11-15" ]]; then
+            echo "Backfill window (Nov 13-15 2026) is over — nothing to do. Safe to delete this workflow."
+            exit 0
+          fi
+
+          budget=$MAX_CALLS
+          if ! [[ "$budget" =~ ^[0-9]+$ ]] || [ "$budget" -gt 750 ]; then budget=750; fi
+          used=0
+
+          while [ "$used" -lt "$budget" ]; do
+            batch=$(( budget - used ))
+            if [ "$batch" -gt 150 ]; then batch=150; fi
+
+            resp=$(curl -sS -X POST "$URL" \
+              -H "Content-Type: application/json" \
+              -H "apikey: $APIKEY" \
+              -H "x-cron-secret: $CRON_SECRET" \
+              -d "{\"action\":\"backfill_imdb_votes\",\"limit\": $batch}" \
+              --fail-with-body)
+            echo "$resp"
+
+            ok=$(echo "$resp" | jq -r '.ok // false')
+            if [ "$ok" != "true" ]; then
+              echo "::error::Backfill call did not return ok:true"
+              exit 1
+            fi
+
+            checked=$(echo "$resp" | jq -r '.checked // 0')
+            remaining=$(echo "$resp" | jq -r '.remaining // 0')
+            quota=$(echo "$resp" | jq -r '.quota_hit // false')
+            used=$(( used + checked ))
+            echo "OMDb calls used this run: $used / $budget — still missing: $remaining"
+
+            if [ "$quota" = "true" ]; then
+              echo "::warning::OMDb daily limit reached — stopping. The next scheduled run picks up the rest."
+              exit 0
+            fi
+            if [ "$remaining" = "0" ]; then
+              echo "Every movie now has a vote count. Done — you can delete this workflow."
+              exit 0
+            fi
+            if [ "$checked" = "0" ]; then
+              echo "::warning::A batch made no OMDb calls — stopping to avoid looping."
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Hit this run's cap of $budget OMDb calls. The next run continues where this left off."

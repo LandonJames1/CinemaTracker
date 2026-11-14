@@ -2099,7 +2099,21 @@ Deno.serve(async (req) => {
       // Per-run cap — stay well under OMDb's ~1000/day free-tier limit.
       const limit = Math.max(1, Math.min(900, Number(body?.limit) || 300));
 
-      // Oldest-fetched IMDb ratings first.
+      // Same OMDb budget, smarter order: rows still MISSING a vote count go first (up
+      // to half the batch — capped so movies OMDb simply has no votes for can't starve
+      // the normal rotation), then the oldest-fetched ratings fill the rest. Votes ride
+      // on the same OMDb call as the rating, so this costs nothing extra; it just fills
+      // the Lists "Popularity" sort faster.
+      const missingCap = Math.floor(limit / 2);
+      const { data: missing } = missingCap > 0
+        ? await supabaseAdmin
+          .from("Movie External Ratings")
+          .select("movie_id, fetched_at")
+          .eq("source", "imdb")
+          .is("votes", null)
+          .order("fetched_at", { ascending: true, nullsFirst: true })
+          .limit(missingCap)
+        : { data: [] };
       const { data: stale, error: staleErr } = await supabaseAdmin
         .from("Movie External Ratings")
         .select("movie_id, fetched_at")
@@ -2109,7 +2123,13 @@ Deno.serve(async (req) => {
       if (staleErr) {
         return jsonResponse({ ok: false, message: `Select failed: ${staleErr.message}` }, 200);
       }
-      const rows = Array.isArray(stale) ? stale : [];
+      const rows = [];
+      const seenIds = new Set();
+      for (const r of [...(Array.isArray(missing) ? missing : []), ...(Array.isArray(stale) ? stale : [])]) {
+        if (!r?.movie_id || seenIds.has(r.movie_id) || rows.length >= limit) continue;
+        seenIds.add(r.movie_id);
+        rows.push(r);
+      }
       if (rows.length === 0) {
         return jsonResponse({ ok: true, checked: 0, updated: 0, failed: 0 }, 200);
       }
@@ -2162,6 +2182,115 @@ Deno.serve(async (req) => {
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, rows.length) }, worker));
 
       return jsonResponse({ ok: true, checked, updated, failed }, 200);
+    }
+
+    // ---- One-time backfill: IMDb vote COUNTS for rows missing one (cron) ---------
+    // Fills Movie External Ratings.votes (drives the Lists "Popularity" sort) for imdb
+    // rows where it's still null. Run in batches by backfill-imdb-votes.yml, which caps
+    // the total OMDb calls per day. Each row gets ONE OMDb call:
+    //   - OMDb returns a real count      → store it (and refresh the rating like the cron)
+    //   - OMDb answers but has no count, or doesn't know the movie
+    //                                    → stamp votes = 0 so it's never retried (0 sorts
+    //                                      as "unknown" on the client; the daily refresh
+    //                                      still replaces it if a real count appears)
+    //   - network/HTTP error             → leave null, try again next run
+    //   - quota hit / bad key            → stop immediately, report quota_hit
+    // Returns { checked (= OMDb calls made), filled, no_data, failed, remaining, quota_hit }.
+    if (action === "backfill_imdb_votes") {
+      const provided = String(req.headers.get("x-cron-secret") ?? "").trim();
+      const expected = String(Deno.env.get("CRON_SECRET") ?? "").trim();
+      if (!expected || provided !== expected) {
+        return jsonResponse({ code: 401, message: "Invalid or missing cron secret." }, 401);
+      }
+      const OMDB_API_KEY = Deno.env.get("OMDB_API_KEY");
+      if (!OMDB_API_KEY) {
+        return jsonResponse({ ok: false, message: "Missing OMDB_API_KEY." }, 200);
+      }
+
+      const limit = Math.max(1, Math.min(200, Number(body?.limit) || 150));
+      const { data: missing, error: missErr } = await supabaseAdmin
+        .from("Movie External Ratings")
+        .select("movie_id")
+        .eq("source", "imdb")
+        .is("votes", null)
+        .order("fetched_at", { ascending: true, nullsFirst: true })
+        .limit(limit);
+      if (missErr) {
+        return jsonResponse({ ok: false, message: `Select failed: ${missErr.message}` }, 200);
+      }
+      const rows = Array.isArray(missing) ? missing : [];
+
+      const movieIds = rows.map((r) => r.movie_id).filter(Boolean);
+      const { data: movies } = movieIds.length
+        ? await supabaseAdmin.from("Movies").select("id, imdb_id, title, release_year").in("id", movieIds)
+        : { data: [] };
+      const movieById = new Map((Array.isArray(movies) ? movies : []).map((m) => [m.id, m]));
+
+      const stampNoData = async (movieId) => {
+        const { error } = await supabaseAdmin
+          .from("Movie External Ratings")
+          .update({ votes: 0 })
+          .eq("movie_id", movieId)
+          .eq("source", "imdb");
+        return !error;
+      };
+
+      let checked = 0, filled = 0, noData = 0, failed = 0, quotaHit = false;
+      let idx = 0;
+      const worker = async () => {
+        while (idx < rows.length && !quotaHit) {
+          const movieId = rows[idx++]?.movie_id;
+          const m = movieById.get(movieId);
+          if (!m?.id) {
+            // Rating row points at no movie — nothing to look up; don't retry it.
+            if (movieId && await stampNoData(movieId)) noData++; else failed++;
+            continue;
+          }
+          checked++;
+          try {
+            const r = await fetchOmdbImdbRatingPercent({
+              imdb_id: m.imdb_id,
+              title: m.title,
+              year: m.release_year,
+              omdbApiKey: OMDB_API_KEY,
+            });
+            const reason = String(r?.reason || "").toLowerCase();
+            if (reason.includes("limit") || reason.includes("invalid api key")) {
+              quotaHit = true;
+              failed++;
+              break;
+            }
+            if (Number(r?.votes) > 0) {
+              const row = { movie_id: m.id, source: "imdb", votes: Math.round(Number(r.votes)) };
+              // Refresh the rating too when OMDb has a real one (same rule as the cron).
+              if (r?.ok && Number(r.pct) > 0) {
+                row.rating = r.pct;
+                row.fetched_at = new Date().toISOString();
+              }
+              const { error: upErr } = await supabaseAdmin
+                .from("Movie External Ratings")
+                .upsert(row, { onConflict: "movie_id,source" });
+              upErr ? failed++ : filled++;
+            } else if (reason.startsWith("omdb http")) {
+              failed++; // transient — leave null for the next run
+            } else {
+              (await stampNoData(m.id)) ? noData++ : failed++;
+            }
+          } catch (_) { failed++; }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(6, rows.length || 1) }, worker));
+
+      const { count: remaining } = await supabaseAdmin
+        .from("Movie External Ratings")
+        .select("movie_id", { count: "exact", head: true })
+        .eq("source", "imdb")
+        .is("votes", null);
+
+      return jsonResponse({
+        ok: true, checked, filled, no_data: noData, failed,
+        remaining: Number(remaining ?? 0), quota_hit: quotaHit,
+      }, 200);
     }
 
     // ---- Games: build the cached movie pool (cron job, no user session) -------

@@ -108,7 +108,18 @@ select
     from public."Watch Logs" wl
     where wl.user_id = ml.user_id
       and wl.movie_id = m.id
-  ) as latest_watch_date
+  ) as latest_watch_date,
+  -- Number of IMDb ratings (OMDb imdbVotes, stored by discover_review_count.sql and
+  -- refreshed by the daily refresh_imdb_ratings cron). Drives the Lists "Popularity"
+  -- sort. Must stay the LAST column: `create or replace view` can only append.
+  (
+    select mer.votes
+    from public."Movie External Ratings" mer
+    where mer.movie_id = m.id
+      and lower(coalesce(mer.source, '')) = 'imdb'
+    order by mer.fetched_at desc nulls last
+    limit 1
+  ) as imdb_votes
 from public."Movie Lists" ml
 join public."Movies" m on m.id = ml.movie_id
 left join public."Movie Ratings" r

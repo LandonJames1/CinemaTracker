@@ -1309,6 +1309,7 @@
                         plot: 'Plot %',
                         dialogue: 'Dialogue %',
                         imdb: 'IMDb %',
+                        popularity: 'Popularity',
                         release_year: 'Release Year',
                         runtime: 'Run Time',
                     }
@@ -1549,7 +1550,7 @@
             // Unwatched lists have no personal ratings/watch data, so only offer
             // date-added, release year, and IMDb.
             if (isUnwatchedAutoList()) {
-                return ['rec_added', 'release_year', 'imdb', 'runtime'];
+                return ['rec_added', 'release_year', 'imdb', 'popularity', 'runtime'];
             }
             return [
                 'watch_date',
@@ -1562,6 +1563,7 @@
                 'plot',
                 'dialogue',
                 'imdb',
+                'popularity',
                 'release_year',
                 'runtime',
             ];
@@ -1616,6 +1618,8 @@
                 { value: 'plot', label: 'Plot %' },
                 { value: 'dialogue', label: 'Dialogue %' },
                 { value: 'imdb', label: 'IMDb %' },
+                // Number of IMDb ratings (votes) — how widely seen/known a movie is.
+                { value: 'popularity', label: 'Popularity' },
                 { value: 'release_year', label: 'Release Year' },
                 { value: 'runtime', label: 'Run Time' },
             ].filter(o => allowed.has(o.value));
@@ -2295,6 +2299,11 @@
                 }
                 if (sortKey === 'runtime') {
                     const n = Number(it?.runtime_minutes ?? it?.runtime);
+                    return (Number.isFinite(n) && n > 0) ? n : null;
+                }
+                if (sortKey === 'popularity') {
+                    // IMDb vote count (user_list_items_v1.imdb_votes). Unknown → sorts last.
+                    const n = Number(it?.imdb_votes);
                     return (Number.isFinite(n) && n > 0) ? n : null;
                 }
                 if (sortKey === 'imdb') {
@@ -3862,6 +3871,7 @@
                             plot: 'Plot %',
                             dialogue: 'Dialogue %',
                             imdb: 'IMDb %',
+                        popularity: 'Popularity',
                             release_year: 'Release Year',
                         }
                     };
@@ -4116,6 +4126,7 @@
                             plot: 'Plot %',
                             dialogue: 'Dialogue %',
                             imdb: 'IMDb %',
+                        popularity: 'Popularity',
                             release_year: 'Release Year',
                         }
                     };
@@ -4143,6 +4154,7 @@
                         genre: normalizeMovieFieldValue(movie?.genre),
                         genresArr,
                         imdb_rating_pct: movie?.imdb_rating_pct ?? movie?.imdb_pct ?? movie?.imdb_rating ?? movie?.imdb,
+                        imdb_votes: movie?.imdb_votes ?? null,
                         latest_watch_date: latestWatchByMovieId.get(String(id)) || null,
                         watch_count: Number((libraryByMovieId.get(String(id)) || {})?.watch_count ?? 0) || 0,
                         watch_method: normalizeMovieFieldValue((libraryByMovieId.get(String(id)) || {})?.watch_method),
