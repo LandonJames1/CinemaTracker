@@ -424,6 +424,13 @@
             };
             librarySortFilterDraft = null;
             libraryPendingWatchCountMaxOnly = Boolean(watchCountMaxOnly);
+            // A leftover title search would AND with the drill-down and hide its movies.
+            librarySearchQuery = '';
+            try { syncPageSearchButton('library'); } catch (_) {}
+            // The router's page cache would otherwise put the previously-visited (unfiltered)
+            // My Movies DOM back on screen and skip the loader — the filter set above would
+            // never reach a query. Drop it so navigate() does a fresh render + load.
+            try { invalidatePageSnapshots('library'); } catch (_) {}
             router.navigate('library');
         }
 

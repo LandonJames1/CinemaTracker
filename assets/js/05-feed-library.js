@@ -1142,6 +1142,10 @@
                 watchCountMin: '',
                 watchCountMax: '',
                 timeframe: 'all_time',
+                // Set only by the Data Dash drill-downs (a director/actor tile → "show me
+                // just those movies"). No modal control; surfaced as a removable chip.
+                directorContains: '',
+                actorContains: '',
             };
         }
 
@@ -1282,6 +1286,9 @@
             const next = readLibrarySortFilterModalState();
             next.movieId = String(librarySortFilterState?.movieId || '').trim();
             next.movieTitle = String(librarySortFilterState?.movieTitle || '').trim();
+            // Not in the modal — keep a Data Dash director/actor drill-down across a save.
+            next.directorContains = String(librarySortFilterState?.directorContains || '').trim();
+            next.actorContains = String(librarySortFilterState?.actorContains || '').trim();
             librarySortFilterState = next;
             librarySortFilterDraft = null;
             closeLibrarySortFilterModal({ restoreDraft: false });
@@ -2061,6 +2068,13 @@
                 // stored as raw label (e.g. PG-13)
                 q = q.ilike('mpa_rating', mpaWanted);
             }
+
+            // Data Dash director/actor drill-downs. `director`/`actors` are flattened text
+            // columns on the view; strip chars that are LIKE wildcards.
+            const directorWanted = String(state?.directorContains || '').replace(/[%_\\]/g, '').trim();
+            if (directorWanted) q = q.ilike('director', `%${directorWanted}%`);
+            const actorWanted = String(state?.actorContains || '').replace(/[%_\\]/g, '').trim();
+            if (actorWanted) q = q.ilike('actors', `%${actorWanted}%`);
 
             const genreWanted = String(state?.genre || '').trim();
             if (genreWanted) {

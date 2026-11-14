@@ -1448,6 +1448,12 @@
             const genre = String(st.genre || '').trim();
             if (genre) addFilterChip('genre', `Genre: ${genre}`);
 
+            const director = String(st.directorContains || '').trim();
+            if (director) addFilterChip('directorContains', `Director: ${director}`);
+
+            const actor = String(st.actorContains || '').trim();
+            if (actor) addFilterChip('actorContains', `Actor: ${actor}`);
+
             const watchMethod = String(st.watchMethod || '').trim();
             if (watchMethod) addFilterChip('watchMethod', `Watch Method: ${watchMethod}`);
 
